@@ -4,17 +4,11 @@ import { ACTIVAS } from "@/lib/consultas";
 import { TIPOS_OFICIO, fmtFecha, mxn } from "@/lib/catalogos";
 import { estaVencida, siguientePlazo } from "@/lib/plazos";
 import { Encabezado, PlazoOficio, Vacio } from "@/components/ui";
+import { ControlOficio } from "@/components/control-oficio";
+import { dondeAparece } from "@/lib/estado-oficio";
 
 export const metadata = { title: "Reportes" };
 
-const PASO: Record<string, { txt: string; cls: string }> = {
-  RECIBIDA: { txt: "Falta avisar", cls: "bg-amber-50 text-amber-800" },
-  AVISADO: { txt: "Esperando pago", cls: "bg-sky-50 text-sky-800" },
-  EN_TRABAJO: { txt: "Pagado · por trabajar", cls: "bg-violet-50 text-violet-800" },
-  PAGAR_SISTEMA: { txt: "Pagar en sistema", cls: "bg-yellow-200 text-yellow-900" },
-  CONTESTADA: { txt: "Contestada", cls: "bg-marca-claro text-marca-oscuro" },
-  NO_PAGO: { txt: "No pagó · riesgo de abandono", cls: "bg-red-50 text-red-700" },
-};
 const MODO: Record<string, string> = { BARRIDO: "Búsqueda completa (cada 7 días)", NOCTURNO: "Revisión diaria", MANUAL: "Botón «Actualizar todas»" };
 const COSTO_CONTESTACION = 3200;
 
@@ -94,8 +88,8 @@ async function NuevasPorBusqueda() {
             </div>
             {propias.length > 0 && (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead className="bg-neutral-50 text-left text-xs text-neutral-500"><tr><th className="px-4 py-2">Marca</th><th className="px-4 py-2">Cliente</th><th className="px-4 py-2">Oficio</th><th className="px-4 py-2">Notificado</th><th className="px-4 py-2">Plazo</th><th className="px-4 py-2">Estado</th></tr></thead>
+                <table className="w-full min-w-[980px] text-sm">
+                  <thead className="bg-neutral-50 text-left text-xs text-neutral-500"><tr><th className="px-4 py-2">Marca</th><th className="px-4 py-2">Cliente</th><th className="px-4 py-2">Oficio</th><th className="px-4 py-2">Notificado</th><th className="px-4 py-2">Plazo</th><th className="px-4 py-2">Estado · clic para cambiar</th></tr></thead>
                   <tbody className="divide-y divide-black/5">
                     {propias.map((n) => (
                       <tr key={n.id} className="hover:bg-neutral-50">
@@ -103,8 +97,11 @@ async function NuevasPorBusqueda() {
                         <td className="px-4 py-2 text-neutral-600">{n.expediente.cliente.nombre}</td>
                         <td className="px-4 py-2">{TIPOS_OFICIO[n.tipo]}<span className="block text-[11px] text-neutral-400">oficio {n.numeroOficio}</span></td>
                         <td className="whitespace-nowrap px-4 py-2">{fmtFecha(n.fechaNotificacion)}</td>
-                        <td className="px-4 py-2">{ACTIVAS.includes(n.estado) ? <PlazoOficio n={n} /> : "—"}</td>
-                        <td className="px-4 py-2"><span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${PASO[n.estado]?.cls ?? ""}`}>{PASO[n.estado]?.txt ?? n.estado}</span></td>
+                        <td className="px-4 py-2">{ACTIVAS.includes(n.estado) ? <PlazoOficio n={n} /> : n.estado === "CONTESTADA" ? <span className="text-xs text-marca-oscuro">Contestado {fmtFecha(n.fechaContestacion)}</span> : "—"}</td>
+                        <td className="min-w-[340px] px-4 py-2">
+                          <ControlOficio conPasos o={{ id: n.id, estado: n.estado, tipo: n.tipo, denominacion: n.expediente.denominacion, fechaLimite: n.fechaLimite.toISOString(), fechaLimiteRevision: n.fechaLimiteRevision?.toISOString() ?? null, montoCotizado: n.montoCotizado }} />
+                          <span className="mt-1 block text-[11px] text-neutral-400">{dondeAparece(n)}</span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -155,8 +152,8 @@ async function OficiosAnteriores() {
             <section key={mes} className="card overflow-hidden">
               <h2 className="border-b border-black/5 px-4 py-3 text-sm font-semibold first-letter:uppercase">Notificados en {mes} <span className="font-normal text-neutral-400">· {lista.length}</span></h2>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px] text-sm">
-                  <thead className="bg-neutral-50 text-left text-xs text-neutral-500"><tr><th className="px-4 py-2">Marca</th><th className="px-4 py-2">Cliente</th><th className="px-4 py-2">Oficio</th><th className="px-4 py-2">Notificado</th><th className="px-4 py-2">Tiempo para contestar</th><th className="px-4 py-2">Estado</th><th className="px-4 py-2 text-right">Cotizado</th></tr></thead>
+                <table className="w-full min-w-[1020px] text-sm">
+                  <thead className="bg-neutral-50 text-left text-xs text-neutral-500"><tr><th className="px-4 py-2">Marca</th><th className="px-4 py-2">Cliente</th><th className="px-4 py-2">Oficio</th><th className="px-4 py-2">Notificado</th><th className="px-4 py-2">Tiempo para contestar</th><th className="px-4 py-2">Estado · clic para cambiar</th><th className="px-4 py-2 text-right">Cotizado</th></tr></thead>
                   <tbody className="divide-y divide-black/5">
                     {lista.map((n) => (
                       <tr key={n.id} className="hover:bg-neutral-50">
@@ -165,7 +162,10 @@ async function OficiosAnteriores() {
                         <td className="px-4 py-2">{TIPOS_OFICIO[n.tipo]}</td>
                         <td className="whitespace-nowrap px-4 py-2">{fmtFecha(n.fechaNotificacion)}</td>
                         <td className="px-4 py-2"><PlazoOficio n={n} /></td>
-                        <td className="px-4 py-2"><span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${PASO[n.estado]?.cls ?? ""}`}>{PASO[n.estado]?.txt ?? n.estado}</span></td>
+                        <td className="min-w-[340px] px-4 py-2">
+                          <ControlOficio conPasos o={{ id: n.id, estado: n.estado, tipo: n.tipo, denominacion: n.expediente.denominacion, fechaLimite: n.fechaLimite.toISOString(), fechaLimiteRevision: n.fechaLimiteRevision?.toISOString() ?? null, montoCotizado: n.montoCotizado }} />
+                          <span className="mt-1 block text-[11px] text-neutral-400">{dondeAparece(n)}</span>
+                        </td>
                         <td className="px-4 py-2 text-right">{n.montoCotizado ? mxn.format(n.montoCotizado) : "—"}</td>
                       </tr>
                     ))}

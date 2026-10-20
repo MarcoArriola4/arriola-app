@@ -6,6 +6,7 @@ import { cambiarEstadoTrabajo, cambiarNotaEstado, cambiarVendedor, marcarPagadoC
 import { ESTADOS_TRABAJO, nombrePropio, personasVenta } from "@/lib/catalogos";
 
 export type FilaContratacion = {
+  numero: number; // consecutivo: #1 = la primera contratación del mes (o de la historia)
   id: string;
   fecha: string | null;
   clienteId: string;
@@ -205,7 +206,7 @@ export function HojaContrataciones({ filas, esAdmin, historial }: { filas: FilaC
               </tr>
             </thead>
             <tbody>
-              {visibles.slice(0, limite).map((f, i) => <Fila key={f.id} f={f} n={i + 1} esAdmin={esAdmin} conAnio={historial} />)}
+              {visibles.slice(0, limite).map((f) => <Fila key={f.id} f={f} n={f.numero} esAdmin={esAdmin} conAnio={historial} />)}
             </tbody>
             {visibles.length > 0 && (
               <tfoot className="sticky bottom-0 bg-neutral-100 text-xs font-semibold">
@@ -239,10 +240,10 @@ function Fila({ f, n, esAdmin, conAnio }: { f: FilaContratacion; n: number; esAd
   const fondo = n % 2 === 0 ? "bg-neutral-50/70" : "bg-white";
   return (
     <tr className={`${fondo} transition hover:bg-marca-claro/40 ${pendiente ? "opacity-50" : ""}`}>
-      <td className={`${celda} text-xs text-neutral-400`}>{n}</td>
+      <td className={`${celda} whitespace-nowrap text-xs font-semibold text-neutral-500`}>#{n}</td>
       <td className={`${celda} whitespace-nowrap text-neutral-600`}>{fechaCorta(f.fecha, conAnio)}</td>
       <td className={`${celda} sticky left-0 z-[5] max-w-[220px] ${fondo}`}>
-        <Link href={`/clientes/${f.clienteId}`} className="font-medium hover:underline">{f.cliente}</Link>
+        <Link href={`/clientes/${f.clienteId}?marca=${f.expedienteId}`} className="font-medium hover:underline">{f.cliente}</Link>
         {f.telefono && <span className="block text-[11px] text-neutral-400">{f.telefono}</span>}
       </td>
       <td className={`${celda} max-w-[220px]`}>

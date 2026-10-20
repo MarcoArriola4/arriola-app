@@ -43,14 +43,19 @@ export function sumarDiasHabiles(fecha: Date, dias: number, inhabiles: Inhabiles
 /** Fecha límite final para atender un oficio, a partir de su notificación. */
 export function calcularFechaLimite(tipo: string, notificacion: Date, inhabiles: Inhabiles) {
   if (tipo === "REQ_PAGO") return sumarDiasHabiles(notificacion, 5, inhabiles); // requerimiento de pago
-  if (tipo === "NEGATIVA") return sumarDiasHabiles(notificacion, 30, inhabiles); // 15 revisión + 15 nulidad
+  if (tipo === "NEGATIVA") return sumarDiasNaturales(notificacion, 30); // 15 revisión + 15 nulidad, días naturales
   if (tipo === "CONFIRMA_ACTO") return sumarDiasHabiles(notificacion, 15, inhabiles); // revisión perdida → juicio de nulidad
   return siguienteHabil(sumarMeses(notificacion, 4), inhabiles); // anterioridades, impedimentos, requerimientos, alegatos y demás
 }
 
-/** Negativa: los primeros 15 días hábiles son para el recurso de revisión. */
-export function limiteRevision(notificacion: Date, inhabiles: Inhabiles) {
-  return sumarDiasHabiles(notificacion, 15, inhabiles);
+/** Días naturales (corridos): cuentan sábados, domingos e inhábiles. */
+export function sumarDiasNaturales(fecha: Date, dias: number) {
+  return new Date(fecha.getTime() + dias * DIA);
+}
+
+/** Negativa: los primeros 15 días naturales son para el recurso de revisión (los otros 15, para el juicio de nulidad). */
+export function limiteRevision(notificacion: Date, _inhabiles?: Inhabiles) {
+  return sumarDiasNaturales(notificacion, 15);
 }
 
 /** Todos los plazos de un oficio, listos para guardarse. */
@@ -63,7 +68,7 @@ export function plazosDeOficio(tipo: string, notificacion: Date, inhabiles: Inha
 
 /**
  * El plazo que corre hoy para un oficio. En negativas: primero el recurso de revisión
- * (15 días hábiles) y, vencido ese, el juicio de nulidad (hasta los 30 días hábiles).
+ * (15 días naturales) y, vencido ese, el juicio de nulidad (hasta los 30 días naturales).
  */
 export function siguientePlazo(
   n: { tipo: string; fechaLimite: Date | string; fechaLimiteRevision?: Date | string | null },

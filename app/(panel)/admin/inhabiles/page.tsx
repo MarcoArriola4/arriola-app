@@ -25,7 +25,7 @@ export default async function Inhabiles({ searchParams }: { searchParams: Promis
       <Link href="/admin" className="mb-3 inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-black"><ChevronLeft size={15} /> Admin</Link>
       <Encabezado
         titulo="Días inhábiles del IMPI"
-        subtitulo="Se descuentan de los plazos en días hábiles (5, 15 y 30 días) y recorren al siguiente día hábil los plazos en meses. Sábados y domingos ya se descuentan solos."
+        subtitulo="Se descuentan de los plazos en días hábiles (5 y 15 días) y recorren al siguiente día hábil los plazos en meses. Sábados y domingos ya se descuentan solos."
       />
       {ok && <p className="mb-4 rounded-lg bg-marca-claro px-4 py-2.5 text-sm text-marca-oscuro">Calendario actualizado. Se recalcularon {ok} plazos.</p>}
 

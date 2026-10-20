@@ -36,10 +36,12 @@ model Expediente {
   cliente            Cliente        @relation(fields: [clienteId], references: [id])
   tipo               String         @default("MARCA") // MARCA | AVISO | NOMBRE_COMERCIAL | PATENTE | OBRA
   denominacion       String
+  titular            String?   // titular o razón social de esta marca (p. ej. "JUAN PÉREZ LÓPEZ / EMPRESA UNO")
   numeroExpediente   String?        @unique
   numeroRegistro     String?
   etapa              String         @default("EN_TRAMITE")
   etapaManual        Boolean        @default(false) // el admin fijó el estatus a mano: reimportar el Excel no lo cambia
+  desistio           DateTime?      // "Ya no quiere continuar": el cliente dejó la marca (ya no es nuestro cliente)
   fechaPresentacion  DateTime?
   fechaConcesion     DateTime?
   ultimoEstatus      String?
@@ -83,6 +85,8 @@ model Servicio {
   banco            String?
   origenVenta      String?
   vendedor         String?       // quién lo vendió (columnas por persona del Excel: Montse, Zaira, Marco, IMPI otros…)
+  columnasVenta    String?       // columnas O–V marcadas en el Excel ("15,20"): para exportarlo idéntico
+  textoPago        String?       // texto original de la col. J ("si", "Faltan", "x3"…)
   avance           String?
   respuestaImpi    String?
   notas            String?
@@ -228,4 +232,11 @@ model IntentoLogin {
 model AliasVendedor {
   clave  String @id // claveVendedor() del nombre original
   nombre String
+}
+
+// Marcas o cobros que el admin eliminó: al reimportar el Excel no se vuelven a crear
+model Omitido {
+  clave  String   @id // "EXP:3412345" o "CLI:<cliente>|<marca>"
+  motivo String?
+  creado DateTime @default(now())
 }

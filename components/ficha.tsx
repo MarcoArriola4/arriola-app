@@ -1,7 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Copy, Eye, EyeOff, KeyRound, Pencil, RefreshCw, Trash2, X } from "lucide-react";
-import { actualizarCliente, actualizarDesdeMarcanet, actualizarExpediente, cambiarEtapa, unirExpedientes, type ResultadoEdicion, crearServicio, editarServicio, eliminarServicio, guardarCredenciales, registrarAbono, verPasswordImpi } from "@/app/actions";
+import { eliminarExpediente, marcarDesistio, actualizarCliente, actualizarDesdeMarcanet, actualizarExpediente, cambiarEtapa, unirExpedientes, type ResultadoEdicion, crearServicio, editarServicio, eliminarServicio, guardarCredenciales, registrarAbono, verPasswordImpi } from "@/app/actions";
 import { BANCOS, TIPOS_SERVICIO } from "@/lib/catalogos";
 
 export function AccesoImpi({ expedienteId, usuario, tienePassword }: { expedienteId: string; usuario: string | null; tienePassword: boolean }) {
@@ -323,5 +324,55 @@ export function CambiarEtapa({ expedienteId, etapa, etapas }: { expedienteId: st
     >
       {Object.entries(etapas).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
     </select>
+  );
+}
+
+/** Botón rojo "Ya no quiere continuar": la marca queda abandonada (ya no es nuestro cliente). Se puede deshacer. */
+export function YaNoContinua({ expedienteId, denominacion, activo }: { expedienteId: string; denominacion: string; activo: boolean }) {
+  const [pendiente, iniciar] = useTransition();
+  return (
+    <button
+      type="button"
+      disabled={pendiente}
+      onClick={() => {
+        const pregunta = activo
+          ? `¿Reactivar "${denominacion}"? Sus oficios cerrados vuelven al tablero.`
+          : `¿El cliente ya no quiere continuar con "${denominacion}"?\n\nSolo esta marca quedará como "Abandonada (ya no es nuestro cliente)" y sus oficios saldrán del tablero.`;
+        if (confirm(pregunta)) iniciar(() => marcarDesistio(expedienteId, !activo));
+      }}
+      className={
+        activo
+          ? "inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white shadow-[0_0_0_3px_rgba(220,38,38,0.25)] hover:bg-red-700"
+          : "inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+      }
+      title={activo ? "Clic para deshacer" : "Marcar que el cliente ya no quiere continuar con esta marca"}
+    >
+      {pendiente ? "Guardando…" : activo ? "Ya no quiere continuar ✓" : "Ya no quiere continuar"}
+    </button>
+  );
+}
+
+/** Eliminar una marca dada de alta por error (duplicada). No vuelve a aparecer al reimportar el Excel. Solo admin. */
+export function EliminarMarca({ expedienteId, denominacion, cobros }: { expedienteId: string; denominacion: string; cobros: number }) {
+  const [pendiente, iniciar] = useTransition();
+  const router = useRouter();
+  return (
+    <button
+      type="button"
+      disabled={pendiente}
+      onClick={() => {
+        const aviso = `¿Eliminar la marca "${denominacion}"?\n\nSe borran también ${cobros} cobro(s), sus oficios y su historial. No se puede deshacer y no se volverá a crear al importar el Excel.`;
+        if (!confirm(aviso)) return;
+        if (prompt(`Para confirmar escribe ELIMINAR`)?.trim().toUpperCase() !== "ELIMINAR") return;
+        iniciar(async () => {
+          const r = await eliminarExpediente(expedienteId);
+          router.push(`/clientes/${r.clienteId}`);
+        });
+      }}
+      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-neutral-400 hover:bg-red-50 hover:text-red-600"
+      title="Eliminar esta marca (por ejemplo, si está duplicada)"
+    >
+      <Trash2 size={13} /> {pendiente ? "Eliminando…" : "Eliminar marca"}
+    </button>
   );
 }

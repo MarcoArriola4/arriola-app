@@ -4,11 +4,14 @@ import type { Prisma } from "@prisma/client";
 import { CheckCircle2, ChevronLeft, Mail, MessageCircle, Phone, Plus } from "lucide-react";
 import { db } from "@/lib/db";
 import { requerirSesion } from "@/lib/auth";
-import { ESTADOS_TRABAJO, ETAPAS, TIPOS_EXPEDIENTE, TIPOS_OFICIO, TIPOS_SERVICIO, esSigno, fmtFecha, mxn } from "@/lib/catalogos";
+import { ESTADOS_TRABAJO, ETAPAS, TIPOS_EXPEDIENTE, TIPOS_OFICIO, TIPOS_SERVICIO, esSigno, fmtFecha, mxn, normalizarNombre } from "@/lib/catalogos";
 import { fechaLimiteDDU, fechaRenovacion, type Inhabiles } from "@/lib/plazos";
 import { cargarInhabiles } from "@/lib/inhabiles";
 import { EstadoPago, Etapa, Metrica, Origen, Parcialidades, Plazo, PlazoOficio, Vacio } from "@/components/ui";
-import { AccesoImpi, Abono, BotonMarcanet, CambiarEtapa, EditarCliente, EditarExpediente, EditarServicio, NuevoCobro } from "@/components/ficha";
+import { AccesoImpi, Abono, BotonMarcanet, CambiarEtapa, EditarCliente, EditarExpediente, EditarServicio, EliminarMarca, NuevoCobro, YaNoContinua } from "@/components/ficha";
+import { ControlOficio } from "@/components/control-oficio";
+import { dondeAparece, textoPlazo } from "@/lib/estado-oficio";
+import { estaVencida } from "@/lib/plazos";
 import { agregarEvento } from "@/app/actions";
 import { NuevaNotificacion } from "../../notificaciones/nueva";
 
@@ -18,14 +21,6 @@ export const maxDuration = 60;
 const ACTIVAS = ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"];
 // Estado del trabajo: catálogo único (Por trabajar, Presentar, Pagar en sistema, Trabajado…)
 const TRABAJO = ESTADOS_TRABAJO;
-const PASO: Record<string, string> = {
-  RECIBIDA: "Falta avisar al cliente",
-  AVISADO: "Cliente avisado · esperando pago",
-  EN_TRABAJO: "Pagado · preparando contestación",
-  PAGAR_SISTEMA: "Trabajado · falta pagar en sistema",
-  CONTESTADA: "Contestada",
-  NO_PAGO: "No pagó · riesgo de abandono",
-};
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const c = await db.cliente.findUnique({ where: { id: (await params).id }, select: { nombre: true } });
@@ -43,7 +38,7 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
         include: {
           servicios: { orderBy: [{ fechaContratacion: "desc" }, { creado: "desc" }] },
           notificaciones: { orderBy: { fechaNotificacion: "desc" } },
-          eventos: { orderBy: [{ fecha: "desc" }, { creado: "desc" }], take: 30 },
+          eventos: { orderBy: [{ fecha: "desc" }, { creado: "desc" }], take: 150 },
           oficiosImpi: { orderBy: { fechaOficio: "desc" } },
           promocionesImpi: { orderBy: { fechaPresentacion: "desc" } },
           tramitesImpi: { orderBy: { fechaInicio: "desc" } },
@@ -110,14 +105,14 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
       <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         {/* Lista de marcas */}
         <aside>
-          <ListaExpedientes titulo="Marcas" lista={marcas} clienteId={c.id} selId={sel?.id} />
+          <ListaExpedientes titulo="Marcas" lista={marcas} clienteId={c.id} selId={sel?.id} cliente={c.nombre} />
           {esAdmin && (
             <Link href={`/admin/alta?cliente=${c.id}&servicio=MARCA`} className="mt-2 flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-black/15 py-3 text-sm text-neutral-500 hover:border-black/30 hover:text-black">
               <Plus size={14} /> Agregar marca
             </Link>
           )}
           <div className="mt-6">
-            <ListaExpedientes titulo="Patentes, diseños y otros" lista={otros} clienteId={c.id} selId={sel?.id} vacio="Sin patentes ni diseños registrados." />
+            <ListaExpedientes titulo="Patentes, diseños y otros" lista={otros} clienteId={c.id} selId={sel?.id} cliente={c.nombre} vacio="Sin patentes ni diseños registrados." />
             {esAdmin && (
               <Link href={`/admin/alta?cliente=${c.id}&servicio=PATENTE`} className="mt-2 flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-black/15 py-3 text-sm text-neutral-500 hover:border-black/30 hover:text-black">
                 <Plus size={14} /> Agregar patente o diseño industrial
@@ -133,41 +128,60 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
   );
 }
 
-function ListaExpedientes({ titulo, lista, clienteId, selId, vacio }: { titulo: string; lista: Exp[]; clienteId: string; selId?: string; vacio?: string }) {
+function ListaExpedientes({ titulo, lista, clienteId, selId, vacio, cliente }: { titulo: string; lista: Exp[]; clienteId: string; selId?: string; vacio?: string; cliente: string }) {
+  // Agrupadas por titular / razón social ("JUAN PÉREZ LÓPEZ / EMPRESA UNO", "… / EMPRESA DOS")
+  const grupos = new Map<string, Exp[]>();
+  for (const e of lista) {
+    // "EMPRESA UNO S.A. DE C.V." y "EMPRESA UNO, S.A. DE C.V." van juntas
+    const k = normalizarNombre(e.titular ?? cliente).replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+    grupos.set(k, [...(grupos.get(k) ?? []), e]);
+  }
+  const ordenados = [...grupos.entries()].sort((a, b) => a[0].localeCompare(b[0], "es"));
+  const varios = ordenados.length > 1;
   return (
     <>
       <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">{titulo} <span className="text-neutral-400">{lista.length}</span></h2>
       {lista.length === 0 && vacio && <p className="px-1 text-xs text-neutral-400">{vacio}</p>}
-      <ul className="space-y-2">
-        {lista.map((e) => {
-          const activa = e.notificaciones.find((x) => ACTIVAS.includes(x.estado));
-          const elegida = e.id === selId;
-          return (
-            <li key={e.id}>
-              <Link
-                href={`/clientes/${clienteId}?marca=${e.id}`}
-                scroll={false}
-                className={`block rounded-xl border bg-white p-3 transition ${elegida ? "border-marca ring-2 ring-marca/30" : "border-black/[0.07] hover:border-black/20"}`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <p className="min-w-0 text-sm font-semibold leading-snug">{e.denominacion}</p>
-                  <Etapa etapa={e.etapa} />
-                </div>
-                <p className="mt-1 text-xs text-neutral-500">
-                  {TIPOS_EXPEDIENTE[e.tipo]} · Exp. {e.numeroExpediente ?? "s/n"}
-                  {e.numeroRegistro && ` · Reg. ${e.numeroRegistro}`}
-                </p>
-                {activa && (
-                  <p className="mt-1.5 flex items-center gap-2 text-xs">
-                    <span className="text-amber-700">{TIPOS_OFICIO[activa.tipo]}</span>
-                    <PlazoOficio n={activa} />
-                  </p>
-                )}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+      {ordenados.map(([k, items]) => (
+        <div key={k} className={varios ? "mb-4" : ""}>
+          {varios && (
+            <p className="mb-1.5 flex items-baseline justify-between gap-2 border-b border-black/10 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-600">
+              <span className="min-w-0">{(items[0].titular ?? cliente).split("/").slice(1).join("/").trim() || (items[0].titular ?? cliente)}</span>
+              <span className="shrink-0 font-normal text-neutral-400">{items.length}</span>
+            </p>
+          )}
+          <ul className="space-y-2">
+            {[...items].sort((a, b) => a.denominacion.localeCompare(b.denominacion, "es")).map((e) => {
+              const activa = e.notificaciones.find((x) => ACTIVAS.includes(x.estado));
+              const elegida = e.id === selId;
+              return (
+                <li key={e.id}>
+                  <Link
+                    href={`/clientes/${clienteId}?marca=${e.id}`}
+                    scroll={false}
+                    className={`block rounded-xl border p-3 transition ${e.desistio ? "border-red-200 bg-red-50/40" : "bg-white"} ${elegida ? "border-marca ring-2 ring-marca/30" : "border-black/[0.07] hover:border-black/20"}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="min-w-0 text-sm font-semibold leading-snug">{e.denominacion}</p>
+                      <Etapa etapa={e.etapa} desistio={e.desistio} />
+                    </div>
+                    <p className="mt-1 text-xs text-neutral-500">
+                      {TIPOS_EXPEDIENTE[e.tipo]} · Exp. {e.numeroExpediente ?? "s/n"}
+                      {e.numeroRegistro && ` · Reg. ${e.numeroRegistro}`}
+                    </p>
+                    {activa && (
+                      <p className="mt-1.5 flex items-center gap-2 text-xs">
+                        <span className="text-amber-700">{TIPOS_OFICIO[activa.tipo]}</span>
+                        <PlazoOficio n={activa} />
+                      </p>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </>
   );
 }
@@ -184,7 +198,10 @@ function DetalleMarca({ e, esAdmin, inhabiles }: { e: Exp; esAdmin: boolean; inh
     e.servicios.some((s) => s.tipo === "DDU" && s.estadoTrabajo !== "PENDIENTE") ||
     /ddu/i.test(e.ultimoEstatus ?? "") ||
     e.tramitesImpi.some((t) => /DECLARACI[OÓ]N DE USO/i.test(t.descripcion));
-  const activas = e.notificaciones.filter((n) => ACTIVAS.includes(n.estado));
+  // Oficios abiertos primero; luego los contestados o cerrados más recientes
+  const oficios = [...e.notificaciones]
+    .sort((a, b) => Number(ACTIVAS.includes(b.estado) || b.estado === "NO_PAGO") - Number(ACTIVAS.includes(a.estado) || a.estado === "NO_PAGO") || b.fechaNotificacion.getTime() - a.fechaNotificacion.getTime())
+    .slice(0, 8);
 
   return (
     <div className="min-w-0 space-y-4">
@@ -193,8 +210,9 @@ function DetalleMarca({ e, esAdmin, inhabiles }: { e: Exp; esAdmin: boolean; inh
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xl font-semibold tracking-tight">{e.denominacion}</h2>
-              {esAdmin ? <CambiarEtapa expedienteId={e.id} etapa={e.etapa} etapas={ETAPAS} /> : <Etapa etapa={e.etapa} />}
+              {e.desistio ? <Etapa etapa={e.etapa} desistio /> : esAdmin ? <CambiarEtapa expedienteId={e.id} etapa={e.etapa} etapas={ETAPAS} /> : <Etapa etapa={e.etapa} />}
             </div>
+            {e.titular && <p className="mt-0.5 text-xs text-neutral-500">Titular: {e.titular}</p>}
             <p className="mt-1 text-sm text-neutral-500">
               {TIPOS_EXPEDIENTE[e.tipo]} · Expediente <b className="font-medium text-neutral-800">{e.numeroExpediente ?? "sin número"}</b>
               {e.numeroRegistro && <> · Registro <b className="font-medium text-neutral-800">{e.numeroRegistro}</b></>}
@@ -209,25 +227,45 @@ function DetalleMarca({ e, esAdmin, inhabiles }: { e: Exp; esAdmin: boolean; inh
               e.ultimoEstatus && <p className="mt-1 text-xs text-neutral-400">Último estatus: {e.ultimoEstatus}</p>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <YaNoContinua expedienteId={e.id} denominacion={e.denominacion} activo={!!e.desistio} />
             <NuevoCobro expedienteId={e.id} />
             <NuevaNotificacion expediente={{ id: e.id, denominacion: e.denominacion, numeroExpediente: e.numeroExpediente }} />
           </div>
         </div>
 
-        {activas.length > 0 && (
+        {oficios.length > 0 && (
           <div className="mt-4 space-y-2">
-            {activas.map((n) => (
-              <div key={n.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-sm">
-                <span className="font-medium text-amber-800">{TIPOS_OFICIO[n.tipo]}</span>
-                <span className="text-amber-800/80">{PASO[n.estado]}</span>
-                <span className="text-xs text-amber-800/60">
-                  notificado {fmtFecha(n.fechaNotificacion)} ·{" "}
-                  {n.tipo === "NEGATIVA" ? `revisión hasta ${fmtFecha(n.fechaLimiteRevision)} · nulidad hasta ${fmtFecha(n.fechaLimite)}` : `límite ${fmtFecha(n.fechaLimite)}`}
-                </span>
-                <span className="ml-auto flex items-center gap-2"><PlazoOficio n={n} /><Link href="/notificaciones" className="text-xs font-medium text-amber-900 underline-offset-2 hover:underline">Ir al tablero →</Link></span>
-              </div>
-            ))}
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Oficios de esta marca</h3>
+            {oficios.map((n) => {
+              const vencida = ACTIVAS.includes(n.estado) && estaVencida(n);
+              const abierta = ACTIVAS.includes(n.estado) || n.estado === "NO_PAGO";
+              const donde = dondeAparece(n);
+              return (
+                <div key={n.id} className={`rounded-lg border px-3 py-2.5 text-sm ${abierta ? (vencida ? "border-red-200 bg-red-50/50" : "border-amber-200 bg-amber-50/60") : "border-black/[0.07] bg-neutral-50/60"}`}>
+                  <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className={`font-medium ${abierta ? "text-amber-900" : "text-neutral-700"}`}>{TIPOS_OFICIO[n.tipo] ?? n.tipo}</span>
+                    {n.numeroOficio && <span className="text-[11px] text-marca-oscuro">✓ IMPI · oficio {n.numeroOficio}</span>}
+                    <span className="text-xs text-neutral-500">
+                      {n.estado === "CONTESTADA" ? `Notificado el ${fmtFecha(n.fechaNotificacion)} · contestado el ${fmtFecha(n.fechaContestacion)}` : textoPlazo(n)}
+                    </span>
+                    <span className="ml-auto flex items-center gap-2 text-[11px] text-neutral-500">
+                      {abierta && !vencida && <PlazoOficio n={n} />}
+                      {donde}
+                    </span>
+                  </div>
+                  <ControlOficio
+                    conPasos
+                    o={{ id: n.id, estado: n.estado, tipo: n.tipo, denominacion: e.denominacion, fechaLimite: n.fechaLimite.toISOString(), fechaLimiteRevision: n.fechaLimiteRevision?.toISOString() ?? null, montoCotizado: n.montoCotizado }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {esAdmin && (
+          <div className="mt-4 flex justify-end border-t border-black/5 pt-3">
+            <EliminarMarca expedienteId={e.id} denominacion={e.denominacion} cobros={e.servicios.length} />
           </div>
         )}
       </section>

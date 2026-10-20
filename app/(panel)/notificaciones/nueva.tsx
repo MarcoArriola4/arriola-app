@@ -109,7 +109,7 @@ function Modal({ cerrar, expediente }: { cerrar: () => void; expediente?: { id: 
             )}
           </span>
           <input type="date" name="fechaLimite" value={fLimite} onChange={(e) => setFLimite(e.target.value)} className="input" />
-          <span className="mt-1 block text-[11px] text-neutral-400">Déjala vacía para usar la calculada: 4 meses para oficios · 5 días hábiles para requerimiento de pago · negativa: 15 días hábiles para revisión y hasta 30 para nulidad · se confirma el acto: 15 días hábiles para nulidad.</span>
+          <span className="mt-1 block text-[11px] text-neutral-400">Déjala vacía para usar la calculada: 4 meses para oficios · 5 días hábiles para requerimiento de pago · negativa: 15 días naturales para revisión y hasta 30 naturales para nulidad · se confirma el acto: 15 días hábiles para nulidad.</span>
         </label>
 
         <label className="mb-4 block">

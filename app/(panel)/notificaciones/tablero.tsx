@@ -1,9 +1,9 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Check, Mail, MessageCircle, Phone, Search, Undo2 } from "lucide-react";
-import { avisarCliente, marcarContestada, marcarNoPago, marcarPagarSistema, regresarNotificacion, registrarPagoNotificacion } from "@/app/actions";
-import { BANCOS, MEDIOS_DEFENSA, TIPOS_OFICIO, fmtFecha, mxn } from "@/lib/catalogos";
+import { Check, Mail, MessageCircle, Phone, Search } from "lucide-react";
+import { MEDIOS_DEFENSA, TIPOS_OFICIO, fmtFecha, mxn } from "@/lib/catalogos";
+import { ControlOficio } from "@/components/control-oficio";
 import { diasRestantes, siguientePlazo } from "@/lib/plazos";
 import { PlazoOficio } from "@/components/ui";
 
@@ -38,8 +38,6 @@ const COLUMNAS = [
   { id: "PAGAR_SISTEMA", titulo: "4 · Pagar en sistema", ayuda: "Trabajado · falta pagar derechos y presentar" },
   { id: "CONTESTADA", titulo: "5 · Contestada", ayuda: "Últimos 30 días" },
 ];
-
-const hoyISO = () => new Date().toLocaleDateString("en-CA");
 
 function whatsapp(t: Tarjeta) {
   const tel = (t.telefono ?? "").split(/[/,]/)[0].replace(/\D/g, "");
@@ -135,21 +133,9 @@ export function Tablero({ tarjetas, diasSeguimiento, modoLista }: { tarjetas: Ta
 }
 
 function TarjetaOficio({ t, diasSeguimiento }: { t: Tarjeta; diasSeguimiento: number }) {
-  const [abierto, setAbierto] = useState(false);
-  const [enviando, setEnviando] = useState(false);
   const avisadoHace = t.fechaAvisoCliente ? -diasRestantes(new Date(t.fechaAvisoCliente)) : null;
   const wa = whatsapp(t);
   const tel = t.telefono?.split(/[/,]/)[0].replace(/\D/g, "");
-
-  const enviar = (fn: (f: FormData) => Promise<void>) => async (f: FormData) => {
-    setEnviando(true);
-    try {
-      await fn(f);
-      setAbierto(false);
-    } finally {
-      setEnviando(false);
-    }
-  };
 
   return (
     <article
@@ -205,101 +191,9 @@ function TarjetaOficio({ t, diasSeguimiento }: { t: Tarjeta; diasSeguimiento: nu
         </div>
       )}
 
-      {abierto && (
-        <div className="mt-3 rounded-lg bg-neutral-50 p-2.5">
-          {t.estado === "RECIBIDA" && (
-            <form action={enviar(avisarCliente)} className="space-y-2">
-              <input type="hidden" name="id" value={t.id} />
-              <Campo label="Costo de la contestación"><input name="monto" defaultValue={t.tipo === "NEGATIVA" ? "" : "3200"} inputMode="numeric" className="input py-1.5" placeholder="3200" /></Campo>
-              <Campo label="Fecha en que se avisó"><input type="date" name="fecha" defaultValue={hoyISO()} className="input py-1.5" /></Campo>
-              <Botones enviando={enviando} texto="Guardar aviso" cancelar={() => setAbierto(false)} />
-            </form>
-          )}
-          {t.estado === "AVISADO" && (
-            <form action={enviar(registrarPagoNotificacion)} className="space-y-2">
-              <input type="hidden" name="id" value={t.id} />
-              <div className="grid grid-cols-2 gap-2">
-                <Campo label="Monto pagado"><input name="monto" defaultValue={t.montoCotizado ?? ""} inputMode="numeric" className="input py-1.5" required /></Campo>
-                <Campo label="Banco">
-                  <select name="banco" className="input py-1.5" defaultValue="BBVA">{BANCOS.map((b) => <option key={b}>{b}</option>)}</select>
-                </Campo>
-              </div>
-              <Campo label="Fecha de pago"><input type="date" name="fecha" defaultValue={hoyISO()} className="input py-1.5" /></Campo>
-              <Botones enviando={enviando} texto="Registrar pago" cancelar={() => setAbierto(false)} />
-            </form>
-          )}
-          {(t.estado === "EN_TRABAJO" || t.estado === "PAGAR_SISTEMA") && (
-            <form action={enviar(marcarContestada)} className="space-y-2">
-              <input type="hidden" name="id" value={t.id} />
-              {t.tipo === "NEGATIVA" && (
-                <Campo label="¿Qué se presentó?">
-                  <select name="medioDefensa" defaultValue={siguientePlazo(t).etiqueta === "Recurso de revisión" ? "REVISION" : "NULIDAD"} className="input py-1.5">
-                    {Object.entries(MEDIOS_DEFENSA).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
-                </Campo>
-              )}
-              <Campo label="Fecha de presentación"><input type="date" name="fecha" defaultValue={hoyISO()} className="input py-1.5" /></Campo>
-              <Botones enviando={enviando} texto={t.tipo === "NEGATIVA" || t.tipo === "CONFIRMA_ACTO" ? "Marcar presentado" : "Marcar contestada"} cancelar={() => setAbierto(false)} />
-            </form>
-          )}
-        </div>
-      )}
-
-      {!abierto && (
-        <div className="mt-2.5 flex items-center gap-1.5 border-t border-black/5 pt-2.5">
-          {t.estado === "RECIBIDA" && <button onClick={() => setAbierto(true)} className="btn-primario px-2.5 py-1 text-xs">Avisé al cliente</button>}
-          {t.estado === "AVISADO" && (
-            <>
-              <button onClick={() => setAbierto(true)} className="btn-primario px-2.5 py-1 text-xs">Ya pagó</button>
-              <form action={enviar(marcarNoPago)} onSubmit={(e) => { if (!confirm(`¿Marcar que el cliente no pagó "${t.denominacion}"? Se archivará con riesgo de abandono.`)) e.preventDefault(); }}>
-                <input type="hidden" name="id" value={t.id} />
-                <button className="btn px-2.5 py-1 text-xs text-neutral-500">No pagó</button>
-              </form>
-            </>
-          )}
-          {t.estado === "EN_TRABAJO" && (
-            <>
-              <form action={enviar(marcarPagarSistema)}>
-                <input type="hidden" name="id" value={t.id} />
-                <button className="rounded-lg bg-yellow-300 px-2.5 py-1 text-xs font-semibold text-yellow-950 hover:bg-yellow-400">Trabajado · pagar en sistema</button>
-              </form>
-              <button onClick={() => setAbierto(true)} className="btn px-2.5 py-1 text-xs">
-                {t.tipo === "NEGATIVA" || t.tipo === "CONFIRMA_ACTO" ? "Ya presentado" : "Ya presentada"}
-              </button>
-            </>
-          )}
-          {t.estado === "PAGAR_SISTEMA" && (
-            <button onClick={() => setAbierto(true)} className="btn-primario px-2.5 py-1 text-xs">Pagado en sistema y presentado</button>
-          )}
-          {t.estado === "NO_PAGO" && <span className="text-xs font-medium text-red-600">Riesgo de abandono · no pagó</span>}
-          {t.estado !== "RECIBIDA" && (
-            <form action={enviar(regresarNotificacion)} className="ml-auto">
-              <input type="hidden" name="id" value={t.id} />
-              <button title={t.estado === "NO_PAGO" ? "Reactivar" : "Regresar un paso"} className="flex items-center gap-1 rounded p-1 text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700">
-                <Undo2 size={13} /> {t.estado === "NO_PAGO" && "Reactivar"}
-              </button>
-            </form>
-          )}
-        </div>
-      )}
+      <div className="mt-2.5 border-t border-black/5 pt-2.5">
+        <ControlOficio o={t} />
+      </div>
     </article>
-  );
-}
-
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="label">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function Botones({ enviando, texto, cancelar }: { enviando: boolean; texto: string; cancelar: () => void }) {
-  return (
-    <div className="flex gap-2 pt-1">
-      <button disabled={enviando} className="btn-primario px-2.5 py-1 text-xs">{enviando ? "Guardando…" : texto}</button>
-      <button type="button" onClick={cancelar} className="btn px-2.5 py-1 text-xs">Cancelar</button>
-    </div>
   );
 }

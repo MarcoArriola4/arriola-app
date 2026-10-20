@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import type { PrismaClient } from "@prisma/client";
 import { cifrar } from "./crypto";
-import { claveVendedor, normalizarNombre } from "./catalogos";
+import { MONTOS_REGISTRO_NUEVO, claveVendedor, normalizarNombre, personaDeTitular } from "./catalogos";
 import { diasRestantes, plazosDeOficio, sumarMeses } from "./plazos";
 import { cargarInhabiles } from "./inhabiles";
 
@@ -185,6 +185,7 @@ type Fila = {
   verdeCosto: boolean; // col. I en verde = ese pago está hecho
   verdePago: boolean; // col. J en verde = el segundo pago (o el "si") está hecho
   vendedor: string | null;
+  columnasVenta: string | null;
   banco: string | null;
   respuesta: string | null;
   notas: string[];
@@ -200,7 +201,14 @@ export type ResumenImportacion = {
   conCredenciales: number;
 };
 
-export async function importarExcel(db: PrismaClient, archivo: string | Buffer, hoy = new Date()): Promise<ResumenImportacion> {
+export type OpcionesImportacion = {
+  /** Solo las marcas que tienen alguna fila con fecha de pago en estos meses ("2026-10"). Más rápido. */
+  meses?: string[];
+  /** Solo los grupos en estas posiciones [desde, hasta) del Excel (para reparar una importación interrumpida). */
+  rango?: [number, number];
+};
+
+export async function importarExcel(db: PrismaClient, archivo: string | Buffer, hoy = new Date(), opciones: OpcionesImportacion = {}): Promise<ResumenImportacion> {
   const wb = new ExcelJS.Workbook();
   if (typeof archivo === "string") await wb.xlsx.readFile(archivo);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -258,6 +266,10 @@ export async function importarExcel(db: PrismaClient, archivo: string | Buffer, 
         });
         return c ? conAlias(nombreVendedor(c)) : null;
       })(),
+      columnasVenta: COLS_VENDEDOR.filter((col) => {
+        const v = valor(row.getCell(col).value);
+        return v != null && v !== "" && v !== 0;
+      }).join(",") || null,
       verdeCosto: verde(C.costo),
       verdePago: verde(C.pago),
       banco: texto(g(C.banco))?.toUpperCase() ?? null,
@@ -279,8 +291,10 @@ export async function importarExcel(db: PrismaClient, archivo: string | Buffer, 
   // Clientes: se crean todos de una vez (mucho más rápido con la base en internet)
   const nuevosClientes = new Map<string, { nombre: string; nombreNorm: string; telefono: string | null; email: string | null }>();
   for (const grupo of grupos.values()) {
-    const nombre = grupo.find((f) => f.nombre)?.nombre;
-    if (!nombre) continue;
+    const completo = grupo.find((f) => f.nombre)?.nombre;
+    if (!completo) continue;
+    // Un cliente por persona: "JUAN PÉREZ LÓPEZ / EMPRESA UNO" y "… / EMPRESA DOS" son el mismo cliente
+    const nombre = personaDeTitular(completo);
     const nombreNorm = normalizarNombre(nombre);
     if (!nuevosClientes.has(nombreNorm)) {
       const cred = grupo.map((f) => f.cred).filter(Boolean).pop() ?? null;
@@ -291,11 +305,29 @@ export async function importarExcel(db: PrismaClient, archivo: string | Buffer, 
   resumen.clientes = creados.count;
   const clientes = new Map((await db.cliente.findMany({ select: { id: true, nombreNorm: true } })).map((c) => [c.nombreNorm, c.id]));
 
+  const omitidos = new Set((await db.omitido.findMany({ select: { clave: true } })).map((o) => o.clave));
+
+  /**
+   * Cada fila es un proceso distinto (requisitos, anterioridad, concesión…). En una fila posterior de la misma marca,
+   * un cobro de $7,400, $3,700 (50 %), $9,400 o $9,300 es un registro nuevo pagado.
+   */
+  const tipoDeFila = (grupo: Fila[], i: number, costo: number | null) => {
+    const f = grupo[i];
+    const base = i > 0 && f.trabajado instanceof Date && grupo.slice(0, i).some((p) => p.respuesta && tipoOficio(p.respuesta))
+      ? "CONTESTACION"
+      : tipoServicio(`${f.trabajadoTxt ?? ""} ${f.respuesta ?? ""}`, i === 0);
+    if (i > 0 && costo != null && MONTOS_REGISTRO_NUEVO.includes(costo) && base !== "DDU" && base !== "RENOVACION") return "REGISTRO";
+    return base;
+  };
+
   const procesar = async (grupo: Fila[]) => {
     const primera = grupo[0];
-    const nombreCliente = grupo.find((f) => f.nombre)?.nombre;
+    const titular = grupo.find((f) => f.nombre)?.nombre;
     const denominacion = grupo.find((f) => f.marca)?.marca;
-    if (!nombreCliente || !denominacion) return; // expediente sin cliente o sin marca identificable
+    if (!titular || !denominacion) return; // expediente sin cliente o sin marca identificable
+    // Marcas que el admin eliminó en la app: no se vuelven a crear
+    if ((primera.id && omitidos.has(`EXP:${primera.id}`)) || omitidos.has(`CLI:${normalizarNombre(titular)}|${normalizarNombre(denominacion)}`)) return;
+    const nombreCliente = personaDeTitular(titular);
     const nombreNorm = normalizarNombre(nombreCliente);
     const cred = grupo.map((f) => f.cred).filter(Boolean).pop() ?? null;
     const clienteId = clientes.get(nombreNorm)!;
@@ -337,13 +369,15 @@ export async function importarExcel(db: PrismaClient, archivo: string | Buffer, 
     const data = {
       clienteId,
       denominacion,
+      titular,
       numeroRegistro,
       etapa,
       fechaPresentacion,
       fechaConcesion,
       ultimoEstatus: ultimoTexto,
-      impiUsuario: cred?.email ?? null,
-      impiPasswordEnc: cred?.password ? cifrar(cred.password) : null,
+      // El acceso guardado en la app no se borra si el Excel no lo trae (p. ej. uno exportado sin contraseñas)
+      ...(cred?.email && { impiUsuario: cred.email }),
+      ...(cred?.password && { impiPasswordEnc: cifrar(cred.password) }),
       notas: [...new Set(grupo.flatMap((f) => f.notas))].join("\n") || null,
     };
     if (cred) resumen.conCredenciales++;
@@ -351,7 +385,9 @@ export async function importarExcel(db: PrismaClient, archivo: string | Buffer, 
     // Sin número del IMPI: se identifica por cliente + denominación (antes se duplicaba en cada importación)
     const sinNumero = primera.id
       ? null
-      : await db.expediente.findFirst({ where: { clienteId, numeroExpediente: null, denominacion: { equals: denominacion, mode: "insensitive" } }, orderBy: { creado: "asc" } });
+      : // (si en la app ya se le puso número, es la misma marca: no se crea otra)
+        (await db.expediente.findFirst({ where: { clienteId, numeroExpediente: null, denominacion: { equals: denominacion, mode: "insensitive" } }, orderBy: { creado: "asc" } })) ??
+        (await db.expediente.findFirst({ where: { clienteId, denominacion: { equals: denominacion, mode: "insensitive" }, servicios: { some: { filaExcel: { in: grupo.map((f) => f.fila) } } } }, orderBy: { creado: "asc" } }));
     const exp = primera.id
       ? await (async () => {
           // Estatus fijado a mano por el admin: se respeta
@@ -376,20 +412,20 @@ export async function importarExcel(db: PrismaClient, archivo: string | Buffer, 
     for (const [i, f] of grupo.entries()) {
       if (editados.some((s) => s.filaExcel === f.fila || mismaFecha(s.fechaContratacion, f.fechaPago))) continue;
       // (si la fila del Excel no trae fecha, se compara por costo)
+      // (una fila con el número de expediente de otra marca del cliente se respeta tal cual: es un cobro distinto)
       if (deLaApp.some((s) => mismaFecha(s.fechaContratacion, f.fechaPago) || (!f.fechaPago && s.costo != null && s.costo === calcularPagos(f).costo))) continue;
       const pagos = calcularPagos(f);
       await db.servicio.create({
         data: {
           expedienteId: exp.id,
-          tipo:
-            i > 0 && f.trabajado instanceof Date && grupo.slice(0, i).some((p) => p.respuesta && tipoOficio(p.respuesta))
-              ? "CONTESTACION"
-              : tipoServicio(`${f.trabajadoTxt ?? ""} ${f.respuesta ?? ""}`, i === 0),
+          tipo: tipoDeFila(grupo, i, pagos.costo),
           fechaContratacion: f.fechaPago,
           ...pagos,
           banco: f.banco,
           origenVenta: f.origen,
           vendedor: f.vendedor,
+          columnasVenta: f.columnasVenta,
+          textoPago: typeof f.pago === "string" ? f.pago.trim() || null : typeof f.pago === "number" && f.pago < 100 ? String(f.pago) : null,
           avance: f.trabajadoTxt,
           estadoTrabajo: f.estadoTrabajo,
           respuestaImpi: f.respuesta,
@@ -488,7 +524,13 @@ export async function importarExcel(db: PrismaClient, archivo: string | Buffer, 
   };
 
   // Varias marcas a la vez (cada una es independiente)
-  const lista = [...grupos.values()];
+  let lista = [...grupos.values()];
+  if (opciones.rango) lista = lista.slice(...opciones.rango);
+  if (opciones.meses?.length) {
+    const mes = (d: Date | null) => (d ? d.toISOString().slice(0, 7) : "");
+    lista = lista.filter((g) => g.some((f) => opciones.meses!.includes(mes(f.fechaPago))));
+  }
+  console.log(`  ${lista.length} marcas por importar`);
   let siguiente = 0;
   let hechos = 0;
   await Promise.all(

@@ -7,11 +7,12 @@ import { requerirAdmin, requerirSesion } from "@/lib/auth";
 import { cifrar, descifrar } from "@/lib/crypto";
 import { plazosDeOficio } from "@/lib/plazos";
 import { cargarInhabiles, recalcularPlazos } from "@/lib/inhabiles";
-import { ESTADOS_TRABAJO, ETAPAS, MEDIOS_DEFENSA, claveVendedor, normalizarNombre, TIPOS_OFICIO } from "@/lib/catalogos";
+import { ESTADOS_TRABAJO, ETAPAS, claveVendedor, normalizarNombre, TIPOS_OFICIO } from "@/lib/catalogos";
 import { enviarResumen } from "@/lib/alertas";
 import { expedientesParaHoy, sincronizarExpediente, sincronizarMarcanet } from "@/lib/marcanet/sincronizar";
 import { MarcanetCuotaError } from "@/lib/marcanet/consulta";
 import { estadoBarrido } from "@/lib/marcanet/estado";
+import { PASOS_OFICIO, aplicarPasoOficio, sincronizarDesdeCobro, textoPlazo } from "@/lib/estado-oficio";
 
 const str = (f: FormData, k: string) => {
   const v = String(f.get(k) ?? "").trim();
@@ -46,92 +47,56 @@ export async function crearNotificacion(form: FormData) {
   if (!expedienteId || !fNotif) throw new Error("Faltan datos");
   const plazos = plazosDeOficio(tipo, fNotif, await cargarInhabiles());
   const manual = fecha(form, "fechaLimite");
-  await db.notificacion.create({
+  const nueva = await db.notificacion.create({
     data: { editadoEnApp: true, expedienteId, tipo, fechaNotificacion: fNotif, ...plazos, ...(manual && { fechaLimite: manual, limiteManual: true }), notas: str(form, "notas") },
   });
   await db.expediente.update({
     where: { id: expedienteId },
     data: { etapa: tipo === "NEGATIVA" || tipo === "CONFIRMA_ACTO" ? "NEGATIVA" : "CON_OFICIO", ultimoEstatus: `${TIPOS_OFICIO[tipo]} ${fNotif.toISOString().slice(0, 10)}` },
   });
-  await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId, fecha: fNotif, titulo: `Notificación IMPI: ${TIPOS_OFICIO[tipo]}`, detalle: str(form, "notas") } });
+  await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId, fecha: fNotif, titulo: `Notificación IMPI: ${TIPOS_OFICIO[tipo]}`, detalle: [textoPlazo(nueva), str(form, "notas")].filter(Boolean).join(" · ") } });
   refrescar(expedienteId);
 }
 
 export async function avisarCliente(form: FormData) {
-  await requerirSesion();
-  const id = str(form, "id")!;
-  const n = await db.notificacion.update({
-    where: { id },
-    data: { editadoEnApp: true, estado: "AVISADO", fechaAvisoCliente: fecha(form, "fecha") ?? hoyUTC(), montoCotizado: num(form, "monto") },
-  });
-  await db.evento.create({
-    data: {
-      autor: (await requerirSesion()).nombre, expedienteId: n.expedienteId, fecha: n.fechaAvisoCliente!, titulo: "Se avisó al cliente del oficio", detalle: n.montoCotizado ? `Cotización: $${n.montoCotizado}` : null },
-  });
+  const sesion = await requerirSesion();
+  const n = await aplicarPasoOficio(db, str(form, "id")!, "AVISADO", { fecha: fecha(form, "fecha"), monto: num(form, "monto") }, sesion.nombre);
   refrescar(n.expedienteId);
 }
 
 export async function registrarPagoNotificacion(form: FormData) {
-  await requerirSesion();
-  const id = str(form, "id")!;
-  const monto = num(form, "monto") ?? 0;
-  const fPago = fecha(form, "fecha") ?? hoyUTC();
-  const n = await db.notificacion.update({ where: { id }, data: { editadoEnApp: true, estado: "EN_TRABAJO", fechaPago: fPago, montoCotizado: monto || undefined } });
-  await db.servicio.upsert({
-    where: { notificacionId: id },
-    update: { pagado: monto, costo: monto, estadoPago: monto > 0 ? "PAGADO" : "PENDIENTE", banco: str(form, "banco"), fechaContratacion: fPago },
-    create: {
-      expedienteId: n.expedienteId,
-      notificacionId: id,
-      tipo: "CONTESTACION",
-      fechaContratacion: fPago,
-      costo: monto,
-      pagado: monto,
-      estadoPago: monto > 0 ? "PAGADO" : "PENDIENTE",
-      banco: str(form, "banco"),
-      avance: `Contestación de ${TIPOS_OFICIO[n.tipo]?.toLowerCase()}`,
-    },
-  });
-  await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId: n.expedienteId, fecha: fPago, titulo: "Cliente pagó la contestación", detalle: monto ? `$${monto}` : null } });
+  const sesion = await requerirSesion();
+  const n = await aplicarPasoOficio(db, str(form, "id")!, "EN_TRABAJO", { fecha: fecha(form, "fecha"), monto: num(form, "monto"), banco: str(form, "banco") }, sesion.nombre);
   refrescar(n.expedienteId);
 }
 
 export async function marcarContestada(form: FormData) {
-  await requerirSesion();
-  const id = str(form, "id")!;
-  const f = fecha(form, "fecha") ?? hoyUTC();
-  const actual = await db.notificacion.findUniqueOrThrow({ where: { id } });
-  const esNegativa = actual.tipo === "NEGATIVA" || actual.tipo === "CONFIRMA_ACTO";
-  const medio = actual.tipo === "CONFIRMA_ACTO" ? "NULIDAD" : esNegativa ? str(form, "medioDefensa") ?? "REVISION" : null;
-  const n = await db.notificacion.update({ where: { id }, data: { editadoEnApp: true, estado: "CONTESTADA", fechaContestacion: f, medioDefensa: medio } });
-  await db.expediente.update({ where: { id: n.expedienteId }, data: { etapa: esNegativa ? "EN_JUICIO" : "EN_TRAMITE", ultimoEstatus: medio ? `${MEDIOS_DEFENSA[medio]} presentado` : undefined } });
-  await db.evento.create({
-    data: {
-      autor: (await requerirSesion()).nombre,
-      expedienteId: n.expedienteId,
-      fecha: f,
-      titulo: medio ? `Se presentó ${MEDIOS_DEFENSA[medio].toLowerCase()} contra la ${TIPOS_OFICIO[n.tipo].toLowerCase()}` : `Se presentó la contestación (${TIPOS_OFICIO[n.tipo]})`,
-      detalle: medio === "REVISION" ? "Si se confirma el acto, registra la notificación «Se confirma el acto»: hay 15 días hábiles para el juicio de nulidad." : null,
-    },
-  });
+  const sesion = await requerirSesion();
+  const n = await aplicarPasoOficio(db, str(form, "id")!, "CONTESTADA", { fecha: fecha(form, "fecha"), medio: str(form, "medioDefensa") }, sesion.nombre);
   refrescar(n.expedienteId);
 }
 
 export async function marcarNoPago(form: FormData) {
-  await requerirSesion();
-  const id = str(form, "id")!;
-  const n = await db.notificacion.update({ where: { id }, data: { editadoEnApp: true, estado: "NO_PAGO" } });
-  await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId: n.expedienteId, fecha: hoyUTC(), titulo: "El cliente no pagó la contestación", detalle: "Riesgo de abandono" } });
+  const sesion = await requerirSesion();
+  const n = await aplicarPasoOficio(db, str(form, "id")!, "NO_PAGO", {}, sesion.nombre);
   refrescar(n.expedienteId);
 }
 
 export async function regresarNotificacion(form: FormData) {
-  await requerirSesion();
+  const sesion = await requerirSesion();
   const id = str(form, "id")!;
   const orden = ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA", "CONTESTADA"];
-  const n = await db.notificacion.findUniqueOrThrow({ where: { id } });
-  const prev = n.estado === "NO_PAGO" ? "AVISADO" : orden[Math.max(0, orden.indexOf(n.estado) - 1)];
-  await db.notificacion.update({ where: { id }, data: { editadoEnApp: true, estado: prev } });
+  const actual = await db.notificacion.findUniqueOrThrow({ where: { id } });
+  const prev = actual.estado === "NO_PAGO" || actual.estado === "CERRADA" ? "AVISADO" : orden[Math.max(0, orden.indexOf(actual.estado) - 1)];
+  const n = await aplicarPasoOficio(db, id, prev, {}, sesion.nombre);
+  refrescar(n.expedienteId);
+}
+
+/** Pone un oficio directamente en cualquier paso (desde la ficha de la marca o Reportes). */
+export async function fijarPasoOficio(id: string, estado: string, fechaISO?: string | null) {
+  const sesion = await requerirSesion();
+  if (!(estado in PASOS_OFICIO)) throw new Error("Paso inválido");
+  const n = await aplicarPasoOficio(db, id, estado, { fecha: fechaISO ? new Date(`${fechaISO}T00:00:00Z`) : null }, sesion.nombre);
   refrescar(n.expedienteId);
 }
 
@@ -154,6 +119,7 @@ export async function editarNotificacion(form: FormData) {
       notas: str(form, "notas"),
     },
   });
+  await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId: n.expedienteId, fecha: hoyUTC(), titulo: `Se corrigió la notificación (${TIPOS_OFICIO[n.tipo] ?? n.tipo})`, detalle: textoPlazo(n) } });
   refrescar(n.expedienteId);
 }
 
@@ -163,6 +129,7 @@ export async function eliminarNotificacion(form: FormData) {
   const n = await db.notificacion.findUniqueOrThrow({ where: { id }, include: { servicio: true } });
   if (n.servicio) await db.servicio.update({ where: { id: n.servicio.id }, data: { notificacionId: null } });
   await db.notificacion.delete({ where: { id } });
+  await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId: n.expedienteId, fecha: hoyUTC(), titulo: `Se eliminó la notificación (${TIPOS_OFICIO[n.tipo] ?? n.tipo} del ${n.fechaNotificacion.toISOString().slice(0, 10)})` } });
   refrescar(n.expedienteId);
 }
 
@@ -699,7 +666,9 @@ export async function cambiarEtapa(expedienteId: string, etapa: string) {
 export async function cambiarEstadoTrabajo(servicioId: string, estadoTrabajo: string | null) {
   const sesion = await requerirAdmin();
   const s = await db.servicio.update({ where: { id: servicioId }, data: { estadoTrabajo, editadoEnApp: true } });
-  await db.evento.create({ data: { autor: sesion.nombre, expedienteId: s.expedienteId, fecha: hoyUTC(), titulo: `Trabajo marcado como: ${estadoTrabajo ? ESTADOS_TRABAJO[estadoTrabajo]?.txt ?? estadoTrabajo : "sin estado"}` } });
+  await db.evento.create({ data: { autor: sesion.nombre, expedienteId: s.expedienteId, fecha: hoyUTC(), titulo: `Trabajo marcado como: ${estadoTrabajo ? ESTADOS_TRABAJO[estadoTrabajo]?.txt ?? estadoTrabajo : "sin estado"}`, detalle: `${TIPOS_SERVICIO_TXT[s.tipo] ?? s.tipo}${s.avance ? ` · ${s.avance}` : ""}` } });
+  // El oficio de esa contestación se mueve igual en el tablero, la ficha y Reportes
+  await sincronizarDesdeCobro(db, servicioId, sesion.nombre);
   refrescar(s.expedienteId);
 }
 
@@ -776,9 +745,7 @@ export async function registrarCorridaManual(t: { total: number; consultados: nu
 /** Contestación ya trabajada; falta pagar los derechos en el sistema del IMPI para presentarla. */
 export async function marcarPagarSistema(form: FormData) {
   const sesion = await requerirSesion();
-  const id = str(form, "id")!;
-  const n = await db.notificacion.update({ where: { id }, data: { editadoEnApp: true, estado: "PAGAR_SISTEMA" } });
-  await db.evento.create({ data: { autor: sesion.nombre, expedienteId: n.expedienteId, fecha: hoyUTC(), titulo: `Contestación trabajada · falta pagar en sistema (${TIPOS_OFICIO[n.tipo]})` } });
+  const n = await aplicarPasoOficio(db, str(form, "id")!, "PAGAR_SISTEMA", {}, sesion.nombre);
   refrescar(n.expedienteId);
 }
 
@@ -795,8 +762,9 @@ export async function cambiarVendedor(servicioId: string, nombre: string) {
 
 /** Nota libre sobre el estatus del proceso ("Esperando logo", "Presentar el lunes"…). */
 export async function cambiarNotaEstado(servicioId: string, nota: string) {
-  await requerirAdmin();
+  const sesion = await requerirAdmin();
   const s = await db.servicio.update({ where: { id: servicioId }, data: { avance: nota.trim() || null, editadoEnApp: true } });
+  if (nota.trim()) await db.evento.create({ data: { autor: sesion.nombre, expedienteId: s.expedienteId, fecha: hoyUTC(), titulo: `Nota de estatus: ${nota.trim()}`, detalle: TIPOS_SERVICIO_TXT[s.tipo] ?? s.tipo } });
   revalidatePath("/contrataciones");
   refrescar(s.expedienteId);
 }
@@ -819,4 +787,57 @@ export async function renombrarVendedor(clave: string, nuevo: string) {
 export async function consultarEstadoBarrido() {
   await requerirSesion();
   return estadoBarrido();
+}
+
+
+// ───────────── Eliminar marca y "Ya no quiere continuar" ─────────────
+
+/** Elimina una marca registrada por error (p. ej. duplicada). Queda anotada para que el Excel no la vuelva a crear. Solo admin. */
+export async function eliminarExpediente(expedienteId: string) {
+  await requerirAdmin();
+  const e = await db.expediente.findUniqueOrThrow({ where: { id: expedienteId }, include: { cliente: true } });
+  await db.$transaction(async (tx) => {
+    const claves = [`CLI:${e.cliente.nombreNorm}|${normalizarNombre(e.denominacion)}`, ...(e.titular ? [`CLI:${normalizarNombre(e.titular)}|${normalizarNombre(e.denominacion)}`] : [])];
+    if (e.numeroExpediente) claves.push(`EXP:${e.numeroExpediente}`);
+    for (const clave of claves) {
+      await tx.omitido.upsert({ where: { clave }, update: {}, create: { clave, motivo: `Eliminada en la app: ${e.denominacion} (${e.cliente.nombre})` } });
+    }
+    await tx.servicio.updateMany({ where: { expedienteId }, data: { notificacionId: null } });
+    await tx.servicio.deleteMany({ where: { expedienteId } });
+    await tx.notificacion.deleteMany({ where: { expedienteId } });
+    await tx.evento.deleteMany({ where: { expedienteId } });
+    await tx.oficioImpi.deleteMany({ where: { expedienteId } });
+    await tx.promocionImpi.deleteMany({ where: { expedienteId } });
+    await tx.tramiteImpi.deleteMany({ where: { expedienteId } });
+    await tx.expediente.delete({ where: { id: expedienteId } });
+  });
+  revalidatePath("/", "layout");
+  return { clienteId: e.clienteId };
+}
+
+/**
+ * "Ya no quiere continuar": la marca queda como abandonada (ya no es nuestro cliente) y sus oficios salen del tablero.
+ * `activar = false` lo deshace.
+ */
+export async function marcarDesistio(expedienteId: string, activar: boolean) {
+  const sesion = await requerirSesion();
+  const e = await db.expediente.findUniqueOrThrow({ where: { id: expedienteId } });
+  if (activar) {
+    const abiertos = await db.notificacion.findMany({ where: { expedienteId, estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA", "NO_PAGO"] } } });
+    await db.notificacion.updateMany({ where: { id: { in: abiertos.map((n) => n.id) } }, data: { estado: "CERRADA", editadoEnApp: true } });
+    await db.expediente.update({
+      where: { id: expedienteId },
+      data: { desistio: new Date(), etapa: "ABANDONADA", etapaManual: true, notas: [e.notas, `Etapa antes de "ya no quiere continuar": ${e.etapa}`].filter(Boolean).join("\n") },
+    });
+    await db.evento.create({
+      data: { autor: sesion.nombre, expedienteId, fecha: hoyUTC(), titulo: "El cliente ya no quiere continuar · marca abandonada (ya no es nuestro cliente)", detalle: abiertos.length ? `${abiertos.length} oficio(s) cerrado(s)` : null },
+    });
+  } else {
+    const previa = e.notas?.match(/Etapa antes de "ya no quiere continuar": (\w+)/g)?.pop()?.split(": ")[1];
+    const cerradas = await db.notificacion.findMany({ where: { expedienteId, estado: "CERRADA" } });
+    for (const n of cerradas) await db.notificacion.update({ where: { id: n.id }, data: { estado: n.fechaPago ? "EN_TRABAJO" : n.fechaAvisoCliente ? "AVISADO" : "RECIBIDA" } });
+    await db.expediente.update({ where: { id: expedienteId }, data: { desistio: null, etapa: previa && previa !== "ABANDONADA" ? previa : "EN_TRAMITE", etapaManual: false } });
+    await db.evento.create({ data: { autor: sesion.nombre, expedienteId, fecha: hoyUTC(), titulo: "Se reactivó la marca (el cliente sí continúa)" } });
+  }
+  refrescar(expedienteId);
 }

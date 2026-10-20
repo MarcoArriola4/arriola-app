@@ -104,3 +104,20 @@ export function personasVenta(nombre: string) {
 
 /** "TANYA" → "Tanya" */
 export const nombrePropio = (s: string) => s.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
+
+
+/**
+ * Cliente (persona) de un nombre del Excel: "JUAN PÉREZ LÓPEZ / EMPRESA UNO" → "JUAN PÉREZ LÓPEZ".
+ * Solo se separa si la parte antes de "/" parece un nombre completo (2+ palabras y no es algo genérico como "Cliente de G").
+ */
+export function personaDeTitular(nombre: string) {
+  const partes = nombre.split("/").map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean);
+  if (partes.length < 2) return nombre.replace(/\s+/g, " ").trim();
+  const persona = partes[0];
+  const palabras = persona.split(" ").filter((w) => w.length > 1);
+  if (palabras.length < 2 || /cliente de|^sin |^cliente/i.test(persona)) return nombre.replace(/\s+/g, " ").trim();
+  return persona;
+}
+
+/** Montos que, en una fila posterior de la misma marca, indican que se pagó un registro nuevo (o su 50 %). */
+export const MONTOS_REGISTRO_NUEVO = [7400, 3700, 9400, 9300];

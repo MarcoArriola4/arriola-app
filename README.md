@@ -9,17 +9,25 @@ App web para llevar marcas del IMPI, notificaciones (oficios), pagos y vencimien
 | **Buscador (arriba)** | Por cliente, marca, expediente, registro o teléfono. Siempre abre el perfil del cliente |
 | **Inicio** | Notificaciones pendientes por contestar y un resumen de los últimos 7 días |
 | **Notificaciones** | Tablero de oficios en plazo: Recibida → Cliente avisado → Pagado / en trabajo → Contestada (vencidas y "No pagó" en apartados aparte) |
-| **Contrataciones** | Hoja del mes: quién contrató, quién lo vendió, si ya se trabajó, si pagó completo o en parte y qué falta por hacer |
-| **Clientes y marcas** | Perfil del cliente: marcas y, aparte, patentes / modelos / diseños industriales; pagos, historial, acceso IMPI y última actualización de MARCanet. Botón "Actualizar todas desde MARCanet" |
+| **Contrataciones** | Hoja del mes: quién contrató, quién lo vendió, si ya se trabajó, si pagó completo o en parte y qué falta por hacer. Consecutivo fijo: la más reciente lleva el número más alto (arriba) y la #1 es la primera del mes |
+| **Clientes y marcas** | Perfil del cliente (una persona, con sus marcas separadas por titular o razón social): marcas y, aparte, patentes / modelos / diseños industriales; oficios con su paso editable, pagos, historial, acceso IMPI y última actualización de MARCanet. Botones "Ya no quiere continuar" y "Eliminar marca" (admin) |
+| **Reportes** | Notificaciones nuevas de cada búsqueda en MARCanet y oficios de meses anteriores aún en plazo; el paso de cada oficio se cambia ahí mismo |
+| **Exportar Excel** (admin) | Descarga la pestaña "Pagos" con todo lo de la app, en el mismo formato (A–Z, encabezado en la fila 5, mismos colores) |
 | **Pagos** | Cobrado por mes, por banco y pendientes de cobro |
 | **Vencimientos** | Declaraciones de uso y renovaciones (con botón para ofrecer por WhatsApp) |
 | **Admin** (solo administradores) | Alta de clientes y servicios, alertas por correo y usuarios. Además, editar clientes y cobros dentro del perfil |
+
+## Un solo estatus por expediente (`lib/estado-oficio.ts`)
+
+El paso de un oficio (avisé / pagó / trabajado · pagar en sistema / contestada) se cambia desde el tablero, la ficha de la marca o Reportes,
+y se refleja en todos lados: el cobro de la contestación en Contrataciones (por trabajar / pagar en sistema / trabajado), la etapa de la marca
+y el historial ("se notificó el …, quedan N días", "se contestó el …"). Al revés también: marcar "Trabajado" en Contrataciones contesta el oficio.
 
 ## Reglas de plazos (`lib/plazos.ts`)
 
 - Oficios (anterioridad, requerimiento, impedimento, alegatos y demás): **4 meses** desde la notificación.
 - Requerimiento de pago: **5 días hábiles**.
-- Negativa: **15 días hábiles** para recurso de revisión; si no se presenta, hasta **30 días hábiles** para juicio de nulidad (uno u otro).
+- Negativa: **15 días naturales** para recurso de revisión; si no se presenta, hasta **30 días naturales** para juicio de nulidad (uno u otro). No es definitiva: se le ofrece al cliente.
 - Se confirma el acto (revisión perdida): **15 días hábiles** para juicio de nulidad.
 - Declaración de uso: **3 años + 3 meses** desde la concesión.
 - Renovación: **10 años** desde la concesión.

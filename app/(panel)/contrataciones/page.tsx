@@ -43,7 +43,8 @@ export default async function Contrataciones({ searchParams }: { searchParams: P
     orderBy: [{ fechaContratacion: { sort: "desc", nulls: "last" } }, { creado: "desc" }, { filaExcel: "desc" }],
   });
 
-  const filas: FilaContratacion[] = servicios.map((s) => {
+  // Consecutivo fijo: la más reciente lleva el número más alto (arriba) y la primera del mes es la #1 (abajo)
+  const filas: FilaContratacion[] = servicios.map((s, i) => {
     const saldo = Math.max(0, (s.costo ?? 0) - s.pagado);
     const oficio = s.expediente.notificaciones.find((n) => !estaVencida(n));
     const pendientes: { tipo: string; texto: string }[] = [];
@@ -57,6 +58,7 @@ export default async function Contrataciones({ searchParams }: { searchParams: P
       pendientes.push({ tipo: "oficio", texto: `Contestar ${TIPOS_OFICIO[oficio.tipo]?.toLowerCase()}${d != null ? ` (${d} d)` : ""}` });
     }
     return {
+      numero: servicios.length - i,
       id: s.id,
       fecha: s.fechaContratacion?.toISOString() ?? null,
       clienteId: s.expediente.clienteId,

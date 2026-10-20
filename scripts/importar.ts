@@ -6,10 +6,14 @@ import { db } from "../lib/db";
 import { importarExcel } from "../lib/importar";
 
 async function main() {
-  const archivo = process.argv[2] ?? "../Pagos 2026 Actual.xlsx";
-  console.log(`Importando ${archivo}…`);
+  // Uso por mes (recomendado): npm run importar -- "../Pagos 2026 Actual.xlsx" --mes=2026-10 [--mes=2026-09]
+  const args = process.argv.slice(2);
+  const archivo = args.find((a) => !a.startsWith("--")) ?? "../Pagos 2026 Actual.xlsx";
+  const meses = args.filter((a) => a.startsWith("--mes=")).map((a) => a.slice(6));
+  const rangoArg = args.find((a) => a.startsWith("--rango="))?.slice(8).split("-").map(Number) as [number, number] | undefined;
+  console.log(`Importando ${archivo}${meses.length ? ` · meses ${meses.join(", ")}` : ""}${rangoArg ? ` · grupos ${rangoArg.join("-")}` : ""}…`);
   const t = Date.now();
-  const r = await importarExcel(db, archivo);
+  const r = await importarExcel(db, archivo, new Date(), { meses, rango: rangoArg });
   console.log(r, `${((Date.now() - t) / 1000).toFixed(1)} s`);
 
   await db.configuracion.upsert({ where: { id: "main" }, update: {}, create: { id: "main" } });

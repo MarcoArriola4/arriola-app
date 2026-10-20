@@ -90,7 +90,7 @@ export default async function Expedientes({ searchParams }: { searchParams: Prom
                   {e.numeroExpediente ?? <span className="text-neutral-300">s/n</span>}
                   {e.numeroRegistro && <span className="block text-xs text-neutral-400">Reg. {e.numeroRegistro}</span>}
                 </td>
-                <td className="td"><Etapa etapa={e.etapa} /></td>
+                <td className="td"><Etapa etapa={e.etapa} desistio={e.desistio} /></td>
                 <td className="td max-w-[280px] text-xs">
                   {e.ultimaActImpi && e.ultimaActImpiFecha ? (
                     <>

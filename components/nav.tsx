@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, CalendarClock, FileBarChart, Home, Sheet, ShieldCheck, Users, Wallet } from "lucide-react";
+import { Bell, CalendarClock, FileBarChart, FileDown, Home, Sheet, ShieldCheck, Users, Wallet } from "lucide-react";
 
 export function Nav({ urgentes, esAdmin }: { urgentes: number; esAdmin: boolean }) {
   const path = usePathname();
@@ -13,7 +13,7 @@ export function Nav({ urgentes, esAdmin }: { urgentes: number; esAdmin: boolean 
     { href: "/pagos", label: "Pagos", icon: Wallet },
     { href: "/vencimientos", label: "Vencimientos", icon: CalendarClock },
     { href: "/reportes", label: "Reportes", icon: FileBarChart },
-    ...(esAdmin ? [{ href: "/admin", label: "Admin", icon: ShieldCheck }] : []),
+    ...(esAdmin ? [{ href: "/exportar", label: "Exportar Excel", icon: FileDown }, { href: "/admin", label: "Admin", icon: ShieldCheck }] : []),
   ];
   return (
     <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:px-3 md:pb-0">

@@ -24,7 +24,8 @@ const estiloEtapa: Record<string, string> = {
   ABANDONADA: "bg-neutral-100 text-neutral-500",
 };
 
-export function Etapa({ etapa }: { etapa: string }) {
+export function Etapa({ etapa, desistio }: { etapa: string; desistio?: boolean | Date | null }) {
+  if (desistio) return <span className="inline-block whitespace-nowrap rounded-md bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">Abandonada (ya no es nuestro cliente)</span>;
   return <span className={`inline-block whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium ${estiloEtapa[etapa] ?? ""}`}>{ETAPAS[etapa] ?? etapa}</span>;
 }
 
