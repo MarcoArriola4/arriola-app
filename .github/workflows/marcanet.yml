@@ -1,0 +1,30 @@
+# Revisión de expedientes en MARCanet (IMPI).
+# Cada 6 horas: si hay una búsqueda completa en curso, revisa marcas sin parar (~5.5 h por bloque) hasta terminar todas;
+# al terminar espera 15 días (revisando a diario solo los oficios en curso) y vuelve a empezar.
+name: MARCanet
+
+on:
+  schedule:
+    - cron: "0 1,7,13,19 * * *" # cada 6 horas (07:00 UTC = 1:00 a.m. CDMX)
+  workflow_dispatch: {}
+
+concurrency:
+  group: marcanet
+  cancel-in-progress: false
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Consultar MARCanet
+        run: npm run marcanet:ciclo -- --horas=5.5
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL }}

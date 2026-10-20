@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@theme {
+  --color-marca: #91ac45;
+  --color-marca-oscuro: #6f8732;
+  --color-marca-claro: #eef3e0;
+  --color-carbon: #171717;
+  --color-carbon-2: #232323;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: #f6f6f3;
+  color: #1f1f1f;
+}
+
+@layer components {
+.card {
+  @apply rounded-xl border border-black/[0.07] bg-white;
+}
+.btn {
+  @apply inline-flex items-center gap-1.5 rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 active:scale-[0.98] disabled:opacity-50;
+}
+.btn-primario {
+  @apply inline-flex items-center gap-1.5 rounded-lg bg-carbon px-3 py-1.5 text-sm font-medium text-white transition hover:bg-black active:scale-[0.98] disabled:opacity-50;
+}
+.input {
+  @apply w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:border-marca focus:ring-2 focus:ring-marca/25;
+}
+.label {
+  @apply mb-1 block text-xs font-medium text-neutral-500;
+}
+.th {
+  @apply px-3 py-2 text-left text-xs font-medium text-neutral-500;
+}
+.td {
+  @apply px-3 py-2.5 align-top;
+}
+}

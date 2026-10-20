@@ -1,0 +1,230 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// PostgreSQL en Neon (conectado desde Vercel). DATABASE_URL = conexión con pooler; DATABASE_URL_UNPOOLED = directa (para crear tablas).
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+model Usuario {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  nombre       String
+  passwordHash String
+  rol          String   @default("OPERATIVO") // ADMIN | OPERATIVO
+  creado       DateTime @default(now())
+}
+
+model Cliente {
+  id           String       @id @default(cuid())
+  nombre       String
+  nombreNorm   String       @unique
+  telefono     String?
+  email        String?
+  rfc          String?
+  notas        String?
+  expedientes  Expediente[]
+  creado       DateTime     @default(now())
+}
+
+model Expediente {
+  id                 String         @id @default(cuid())
+  clienteId          String
+  cliente            Cliente        @relation(fields: [clienteId], references: [id])
+  tipo               String         @default("MARCA") // MARCA | AVISO | NOMBRE_COMERCIAL | PATENTE | OBRA
+  denominacion       String
+  numeroExpediente   String?        @unique
+  numeroRegistro     String?
+  etapa              String         @default("EN_TRAMITE")
+  etapaManual        Boolean        @default(false) // el admin fijó el estatus a mano: reimportar el Excel no lo cambia
+  fechaPresentacion  DateTime?
+  fechaConcesion     DateTime?
+  ultimoEstatus      String?
+  marcanetSync       DateTime?  // última consulta a MARCanet
+  // Última actualización en MARCanet (lo más reciente de "Solicitud de registro" y "Recurso de revisión")
+  ultimaActImpi      String?
+  ultimaActImpiFecha DateTime?
+  ultimaActImpiDe    String?    // IMPI = oficio que nos notificaron · DESPACHO = escrito/recurso que presentamos
+  marcanetError      String?
+  impiUsuario        String?
+  impiPasswordEnc    String?
+  notas              String?
+  servicios          Servicio[]
+  notificaciones     Notificacion[]
+  eventos            Evento[]
+  oficiosImpi        OficioImpi[]
+  promocionesImpi    PromocionImpi[]
+  tramitesImpi       TramiteImpi[]
+  creado             DateTime       @default(now())
+  actualizado        DateTime       @updatedAt
+
+  @@index([etapa])
+  @@index([clienteId])
+}
+
+// Cada fila de la pestaña "Pagos": un servicio vendido (registro, contestación, DDU, renovación…)
+model Servicio {
+  id               String        @id @default(cuid())
+  expedienteId     String
+  expediente       Expediente    @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  tipo             String        @default("REGISTRO") // REGISTRO | CONTESTACION | DDU | RENOVACION | OTRO
+  fechaContratacion DateTime?
+  costo            Float?
+  pagado           Float         @default(0)
+  estadoPago       String        @default("PENDIENTE") // PAGADO | PARCIAL | PENDIENTE
+  // Pago en dos partes (Excel: col. I y col. J). Verde = pagada; blanco/rojo = pendiente.
+  parcialidad1        Float?
+  parcialidad1Pagada  Boolean?
+  parcialidad2        Float?
+  parcialidad2Pagada  Boolean?
+  banco            String?
+  origenVenta      String?
+  vendedor         String?       // quién lo vendió (columnas por persona del Excel: Montse, Zaira, Marco, IMPI otros…)
+  avance           String?
+  respuestaImpi    String?
+  notas            String?
+  filaExcel        Int?
+  estadoTrabajo    String?       // de la columna H del Excel: HECHO (verde) | PENDIENTE (morado) | CLIENTE (azul: lo sube el cliente) | PROBLEMA (rojo)
+  editadoEnApp     Boolean       @default(false) // true = se corrigió en la app; reimportar el Excel no lo sobrescribe
+  notificacionId   String?       @unique
+  notificacion     Notificacion? @relation(fields: [notificacionId], references: [id])
+  creado           DateTime      @default(now())
+
+  @@index([fechaContratacion])
+}
+
+// Oficios del IMPI que siguen el flujo: Recibida → Cliente avisado → Pagado/en trabajo → Contestada
+model Notificacion {
+  id                 String     @id @default(cuid())
+  expedienteId       String
+  expediente         Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  tipo               String     // ANTERIORIDAD | REQUERIMIENTO | IMPEDIMENTO | ALEGATOS | NEGATIVA | OTRO
+  fechaNotificacion  DateTime
+  fechaLimite        DateTime
+  fechaLimiteRevision DateTime? // negativas: fin de los 15 días hábiles del recurso de revisión
+  limiteManual       Boolean    @default(false) // true = la fecha límite se escribió a mano y no se recalcula
+  editadoEnApp       Boolean    @default(false) // true = se creó o se movió en la app; reimportar el Excel no lo toca
+  numeroOficio       String?    @unique // número del oficio en MARCanet (cuando ya se ligó)
+  pendienteNotificar Boolean    @default(false) // el IMPI ya emitió el oficio pero aún no lo notifica: el plazo no corre
+  fuente             String     @default("EXCEL") // EXCEL | APP | MARCANET
+  estado             String     @default("RECIBIDA") // RECIBIDA | AVISADO | EN_TRABAJO | CONTESTADA | NO_PAGO
+  fechaAvisoCliente  DateTime?
+  montoCotizado      Float?
+  fechaPago          DateTime?
+  fechaContestacion  DateTime?
+  medioDefensa       String?    // negativas: REVISION | NULIDAD
+  notas              String?
+  servicio           Servicio?
+  creado             DateTime   @default(now())
+
+  @@index([estado])
+}
+
+model Evento {
+  id           String     @id @default(cuid())
+  expedienteId String
+  expediente   Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  fecha        DateTime
+  titulo       String
+  detalle      String?
+  importado    Boolean    @default(false) // true = viene del Excel; false = movimiento hecho en la app
+  autor        String?
+  creado       DateTime   @default(now())
+
+  @@index([expedienteId, fecha])
+}
+
+model Configuracion {
+  id        String @id @default("main")
+  emailAlertas String?
+  diasAlerta   String @default("60,30,15,7,1")
+  diasSeguimientoPago Int @default(5)
+  // Búsqueda completa en MARCanet: corre sin parar hasta revisar todas las marcas y luego espera `diasEntreBarridos`
+  barridoInicio      DateTime?
+  barridoTermino     DateTime?
+  diasEntreBarridos  Int       @default(15)
+  ultimaRevisionActivos DateTime?
+}
+
+// Días inhábiles del IMPI (acuerdos publicados en el DOF y suspensiones extraordinarias)
+model DiaInhabil {
+  fecha  DateTime @id
+  motivo String
+  fuente String?
+}
+
+// ── Datos públicos de MARCanet (IMPI), consultados automáticamente ──
+
+model TramiteImpi {
+  id               String     @id @default(cuid())
+  expedienteId     String
+  expediente       Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  folio            String
+  anio             String
+  descripcion      String
+  fechaInicio      DateTime?
+  fechaConclusion  DateTime?
+
+  @@unique([expedienteId, folio, anio])
+}
+
+model OficioImpi {
+  id                 String     @id @default(cuid())
+  expedienteId       String
+  expediente         Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  numero             String     @unique
+  descripcion        String
+  tramite            String?
+  fechaOficio        DateTime?
+  estadoNotificacion String?
+  fechaNotificacion  DateTime?  // null = aún no se notifica
+  detectado          DateTime   @default(now())
+
+  @@index([expedienteId])
+}
+
+model PromocionImpi {
+  id                String     @id @default(cuid())
+  expedienteId      String
+  expediente        Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  folio             String
+  anio              String
+  fechaPresentacion DateTime?
+  oficioRelacionado String?
+  descripcion       String
+  tramite           String?
+  detectado         DateTime   @default(now())
+
+  @@unique([expedienteId, folio, anio])
+}
+
+model SyncMarcanet {
+  id           String    @id @default(cuid())
+  inicio       DateTime  @default(now())
+  fin          DateTime?
+  modo         String    // NOCTURNO | MANUAL | EXPEDIENTE
+  total        Int       @default(0)
+  consultados  Int       @default(0)
+  errores      Int       @default(0)
+  nuevos       Int       @default(0) // oficios notificados que no se conocían
+  contestados  Int       @default(0) // notificaciones que MARCanet marcó como contestadas
+  mensaje      String?
+}
+
+// Intentos fallidos de inicio de sesión (para bloquear ataques de fuerza bruta)
+model IntentoLogin {
+  id     String   @id @default(cuid())
+  email  String
+  fecha  DateTime @default(now())
+
+  @@index([email, fecha])
+}
+
+// Nombre definitivo de un vendedor (p. ej. "COLUMNA S" → "Gabriel"); se aplica también al reimportar el Excel
+model AliasVendedor {
+  clave  String @id // claveVendedor() del nombre original
+  nombre String
+}
