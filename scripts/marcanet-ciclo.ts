@@ -1,6 +1,6 @@
 // Ciclo de revisión con MARCanet (lo ejecuta GitHub Actions cada 6 horas):
 //  1. Búsqueda completa: revisa TODAS las marcas sin parar (en bloques de ~5.5 h) hasta terminar.
-//  2. Al terminar, espera `diasEntreBarridos` (15) días; mientras, revisa una vez al día las marcas con oficios en curso.
+//  2. Al terminar, espera `diasEntreBarridos` (7) días; mientras, revisa una vez al día las marcas con oficios en curso y las nuevas.
 //  3. Pasados los días, empieza otra búsqueda completa.
 // Uso: npm run marcanet:ciclo -- --horas=5.5
 import { db } from "../lib/db";
@@ -30,7 +30,7 @@ async function main() {
     const pendientes = (await expedientesParaHoy(db, 100000)).filter((e) => !e.marcanetSync || e.marcanetSync < inicio);
     log(`Búsqueda completa: faltan ${pendientes.length} marcas`);
     if (pendientes.length) {
-      const r = await sincronizarMarcanet({ modo: "BARRIDO", expedientes: pendientes, horasMax: horas, alAvanzar: (i, t) => { if (i % 50 === 0) log(`  ${i}/${t}`); } });
+      const r = await sincronizarMarcanet({ modo: "BARRIDO", expedientes: pendientes, horasMax: horas, barrido: inicio, alAvanzar: (i, t) => { if (i % 50 === 0) log(`  ${i}/${t}`); } });
       log(`Bloque terminado: ${r.consultados} revisadas, ${r.nuevos} oficios nuevos, ${r.contestados} contestados, ${r.errores} errores.`);
     }
     const quedan = await db.expediente.count({
@@ -51,10 +51,17 @@ async function main() {
     log(`En espera. Próxima búsqueda completa: ${proxima.toLocaleDateString("es-MX")}. Nada que hacer ahora.`);
     return;
   }
-  const activos = await db.expediente.findMany({
-    where: { numeroExpediente: { not: null }, tipo: { in: TIPOS_SIGNO }, notificaciones: { some: { estado: { in: ACTIVAS } } } },
-  });
-  log(`Revisión diaria de oficios en curso: ${activos.length} marcas`);
+  // Oficios en curso + marcas nuevas que nunca se han consultado (las que se dan de alta durante el mes)
+  const activos = (
+    await db.expediente.findMany({
+      where: {
+        numeroExpediente: { not: null },
+        tipo: { in: TIPOS_SIGNO },
+        OR: [{ notificaciones: { some: { estado: { in: ACTIVAS } } } }, { marcanetSync: null }],
+      },
+    })
+  ).filter((e) => /^\d{5,8}$/.test(e.numeroExpediente ?? ""));
+  log(`Revisión diaria: ${activos.length} marcas (oficios en curso y marcas nuevas)`);
   const r = await sincronizarMarcanet({ modo: "NOCTURNO", expedientes: activos, horasMax: Math.min(horas, 2) });
   await db.configuracion.update({ where: { id: "main" }, data: { ultimaRevisionActivos: new Date() } });
   log(`Listo: ${r.consultados} revisadas, ${r.nuevos} oficios nuevos, ${r.contestados} contestados.`);

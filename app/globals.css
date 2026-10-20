@@ -37,3 +37,12 @@ body {
   @apply px-3 py-2.5 align-top;
 }
 }
+
+/* Reloj de arena: gira 180° y se queda quieto un momento, como al voltearlo */
+@keyframes reloj-arena {
+  0%, 40% { transform: rotate(0deg); }
+  60%, 100% { transform: rotate(180deg); }
+}
+.animate-reloj {
+  animation: reloj-arena 1.6s ease-in-out infinite;
+}

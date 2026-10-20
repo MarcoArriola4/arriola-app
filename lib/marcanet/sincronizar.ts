@@ -207,7 +207,7 @@ export async function expedientesParaHoy(db: PrismaClient, rotacion = 150) {
 const ESPERA_CUOTA_MS = 11 * 60 * 1000; // MARCanet pide esperar 10 minutos
 
 /** Corre la sincronización y deja registro en SyncMarcanet. `horasMax` corta la corrida (la nocturna dura de 1 a 6 a.m. aprox.). */
-export async function sincronizarMarcanet(opciones: { modo: string; expedientes?: Expediente[]; db?: PrismaClient; horasMax?: number; alAvanzar?: (i: number, total: number) => void }) {
+export async function sincronizarMarcanet(opciones: { modo: string; expedientes?: Expediente[]; db?: PrismaClient; horasMax?: number; barrido?: Date; alAvanzar?: (i: number, total: number) => void }) {
   const limite = Date.now() + (opciones.horasMax ?? 5) * 3600 * 1000;
   const db = opciones.db ?? dbDefault;
   // Corrida en curso (las de GitHub duran máx. 5.5 h; una que lleva más de 6 h se da por terminada)
@@ -216,7 +216,7 @@ export async function sincronizarMarcanet(opciones: { modo: string; expedientes?
 
   const lista = opciones.expedientes ?? (await expedientesParaHoy(db));
   const inhabiles = await cargarInhabiles(db);
-  const sync = await db.syncMarcanet.create({ data: { modo: opciones.modo, total: lista.length } });
+  const sync = await db.syncMarcanet.create({ data: { modo: opciones.modo, total: lista.length, barrido: opciones.barrido ?? null } });
   const porRevisar = new Set<string>();
   let consecutivos = 0;
   const t = { consultados: 0, errores: 0, nuevos: 0, contestados: 0, total: lista.length };

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { normalizarNombre } from "@/lib/catalogos";
 import { Encabezado, Vacio, VistaClientesMarcas } from "@/components/ui";
 import { ActualizarTodas } from "@/components/actualizar-todas";
+import { estadoBarrido } from "@/lib/marcanet/estado";
 
 export const metadata = { title: "Clientes" };
 export const maxDuration = 60;
@@ -32,7 +33,7 @@ export default async function Clientes({ searchParams }: { searchParams: Promise
     <>
       <Encabezado titulo="Clientes y marcas" subtitulo={`${total.toLocaleString("es-MX")} clientes · también puedes usar el buscador de arriba`}>
         <VistaClientesMarcas activa="clientes" />
-        <ActualizarTodas />
+        <ActualizarTodas barrido={await estadoBarrido()} />
       </Encabezado>
       <form className="mb-4 flex gap-2">
         <input name="q" defaultValue={q} placeholder="Buscar por nombre, teléfono, correo o marca" className="input max-w-md" />

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { ETAPAS, TIPOS_EXPEDIENTE } from "@/lib/catalogos";
 import { Encabezado, Etapa, Vacio, VistaClientesMarcas } from "@/components/ui";
 import { ActualizarTodas } from "@/components/actualizar-todas";
+import { estadoBarrido } from "@/lib/marcanet/estado";
 import { fmtFecha } from "@/lib/catalogos";
 
 export const metadata = { title: "Marcas" };
@@ -50,7 +51,7 @@ export default async function Expedientes({ searchParams }: { searchParams: Prom
     <>
       <Encabezado titulo="Clientes y marcas" subtitulo={`${total.toLocaleString("es-MX")} marcas · da clic en una para abrir el perfil del cliente`}>
         <VistaClientesMarcas activa="marcas" />
-        <ActualizarTodas />
+        <ActualizarTodas barrido={await estadoBarrido()} />
       </Encabezado>
 
       <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">

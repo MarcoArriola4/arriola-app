@@ -8,6 +8,7 @@ import { diasRestantes, estaVencida, siguientePlazo } from "@/lib/plazos";
 import { ACTIVAS } from "@/lib/consultas";
 import { Encabezado } from "@/components/ui";
 import { ActualizarTodas } from "@/components/actualizar-todas";
+import { estadoBarrido } from "@/lib/marcanet/estado";
 import { HojaContrataciones, type FilaContratacion } from "./hoja";
 
 export const metadata = { title: "Contrataciones" };
@@ -110,7 +111,7 @@ export default async function Contrataciones({ searchParams }: { searchParams: P
             <h2 className="text-sm font-semibold">Actualizar las marcas con el IMPI</h2>
             <p className="text-xs text-neutral-500">Consulta MARCanet marca por marca (primero las que tienen oficios en curso) y trae los oficios nuevos y las contestaciones registradas.</p>
           </div>
-          <ActualizarTodas />
+          <ActualizarTodas barrido={await estadoBarrido()} />
         </section>
       )}
     </>

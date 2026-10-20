@@ -11,6 +11,7 @@ import { ESTADOS_TRABAJO, ETAPAS, MEDIOS_DEFENSA, claveVendedor, normalizarNombr
 import { enviarResumen } from "@/lib/alertas";
 import { expedientesParaHoy, sincronizarExpediente, sincronizarMarcanet } from "@/lib/marcanet/sincronizar";
 import { MarcanetCuotaError } from "@/lib/marcanet/consulta";
+import { estadoBarrido } from "@/lib/marcanet/estado";
 
 const str = (f: FormData, k: string) => {
   const v = String(f.get(k) ?? "").trim();
@@ -765,9 +766,10 @@ export async function actualizarUnaMarcanet(expedienteId: string): Promise<Resul
   }
 }
 
-export async function registrarCorridaManual(t: { total: number; consultados: number; errores: number; nuevos: number; contestados: number; mensaje?: string }) {
+export async function registrarCorridaManual(t: { total: number; consultados: number; errores: number; nuevos: number; contestados: number; mensaje?: string; inicio?: string }) {
   await requerirSesion();
-  await db.syncMarcanet.create({ data: { modo: "MANUAL", ...t, fin: new Date(), mensaje: t.mensaje ?? null } });
+  const { inicio, ...datos } = t;
+  await db.syncMarcanet.create({ data: { modo: "MANUAL", ...datos, inicio: inicio ? new Date(inicio) : new Date(), fin: new Date(), mensaje: datos.mensaje ?? null } });
   revalidatePath("/", "layout");
 }
 
@@ -810,4 +812,11 @@ export async function renombrarVendedor(clave: string, nuevo: string) {
   await db.servicio.updateMany({ where: { id: { in: ids } }, data: { vendedor: nombre } });
   revalidatePath("/contrataciones");
   return ids.length;
+}
+
+
+/** Avance de la búsqueda completa automática (para el reloj de arena). */
+export async function consultarEstadoBarrido() {
+  await requerirSesion();
+  return estadoBarrido();
 }

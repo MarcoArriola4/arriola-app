@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, CalendarClock, Home, Sheet, ShieldCheck, Users, Wallet } from "lucide-react";
+import { Bell, CalendarClock, FileBarChart, Home, Sheet, ShieldCheck, Users, Wallet } from "lucide-react";
 
 export function Nav({ urgentes, esAdmin }: { urgentes: number; esAdmin: boolean }) {
   const path = usePathname();
@@ -12,6 +12,7 @@ export function Nav({ urgentes, esAdmin }: { urgentes: number; esAdmin: boolean 
     { href: "/clientes", label: "Clientes y marcas", icon: Users },
     { href: "/pagos", label: "Pagos", icon: Wallet },
     { href: "/vencimientos", label: "Vencimientos", icon: CalendarClock },
+    { href: "/reportes", label: "Reportes", icon: FileBarChart },
     ...(esAdmin ? [{ href: "/admin", label: "Admin", icon: ShieldCheck }] : []),
   ];
   return (

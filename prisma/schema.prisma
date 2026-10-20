@@ -145,7 +145,7 @@ model Configuracion {
   // Búsqueda completa en MARCanet: corre sin parar hasta revisar todas las marcas y luego espera `diasEntreBarridos`
   barridoInicio      DateTime?
   barridoTermino     DateTime?
-  diasEntreBarridos  Int       @default(15)
+  diasEntreBarridos  Int       @default(7)
   ultimaRevisionActivos DateTime?
 }
 
@@ -212,6 +212,7 @@ model SyncMarcanet {
   nuevos       Int       @default(0) // oficios notificados que no se conocían
   contestados  Int       @default(0) // notificaciones que MARCanet marcó como contestadas
   mensaje      String?
+  barrido      DateTime? // a qué búsqueda completa pertenece este bloque (fecha en que empezó)
 }
 
 // Intentos fallidos de inicio de sesión (para bloquear ataques de fuerza bruta)
