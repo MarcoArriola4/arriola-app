@@ -12,6 +12,10 @@ concurrency:
   group: marcanet
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  actions: write # para mantener activa esta tarea (ver último paso)
+
 jobs:
   revisar:
     runs-on: ubuntu-latest
@@ -28,3 +32,10 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL }}
+      # GitHub apaga las tareas programadas de repositorios públicos tras 60 días sin cambios;
+      # volver a habilitarla en cada corrida la mantiene activa sin necesidad de subir código.
+      - name: Mantener activa la revisión automática
+        if: always()
+        run: gh workflow enable marcanet.yml --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
