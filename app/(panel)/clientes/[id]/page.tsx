@@ -10,6 +10,7 @@ import { cargarInhabiles } from "@/lib/inhabiles";
 import { EstadoPago, Etapa, Metrica, Origen, Parcialidades, Plazo, PlazoOficio, Vacio } from "@/components/ui";
 import { AccesoImpi, Abono, BotonMarcanet, CambiarEtapa, EditarCliente, EditarExpediente, EditarServicio, EliminarMarca, NuevoCobro, YaNoContinua } from "@/components/ficha";
 import { ControlOficio } from "@/components/control-oficio";
+import { NotasMarca } from "@/components/notas-marca";
 import { dondeAparece, textoPlazo } from "@/lib/estado-oficio";
 import { estaVencida } from "@/lib/plazos";
 import { agregarEvento } from "@/app/actions";
@@ -29,7 +30,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function PerfilCliente({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ marca?: string; ok?: string }> }) {
   const [{ id }, { marca, ok }, sesion] = await Promise.all([params, searchParams, requerirSesion()]);
-  const esAdmin = sesion.rol === "ADMIN";
+  const puede = (p: string) => sesion.permisos.has(p);
 
   const c = await db.cliente.findUnique({
     where: { id },
@@ -42,6 +43,7 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
           oficiosImpi: { orderBy: { fechaOficio: "desc" } },
           promocionesImpi: { orderBy: { fechaPresentacion: "desc" } },
           tramitesImpi: { orderBy: { fechaInicio: "desc" } },
+          notasMarca: { orderBy: { creado: "desc" } },
         },
         orderBy: [{ actualizado: "desc" }],
       },
@@ -88,8 +90,8 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
             {tel.length >= 10 && <a href={`https://wa.me/${tel.length === 10 ? "52" + tel : tel}`} target="_blank" rel="noreferrer" className="btn text-green-700"><MessageCircle size={14} /> WhatsApp</a>}
             {tel.length >= 10 && <a href={`tel:${tel}`} className="btn"><Phone size={14} /> Llamar</a>}
             {c.email && <a href={`mailto:${c.email}`} className="btn"><Mail size={14} /> Correo</a>}
-            {esAdmin && <EditarCliente c={{ id: c.id, nombre: c.nombre, telefono: c.telefono, email: c.email, rfc: c.rfc, notas: c.notas }} />}
-            {esAdmin && <Link href={`/admin/alta?cliente=${c.id}`} className="btn-primario"><Plus size={14} /> Agregar servicio</Link>}
+            {puede("altas") && <EditarCliente c={{ id: c.id, nombre: c.nombre, telefono: c.telefono, email: c.email, rfc: c.rfc, notas: c.notas }} />}
+            {puede("altas") && <Link href={`/admin/alta?cliente=${c.id}`} className="btn-primario"><Plus size={14} /> Agregar servicio</Link>}
           </div>
         </div>
         {c.notas && <p className="mt-3 whitespace-pre-line rounded-lg bg-neutral-50 px-3 py-2 text-sm text-neutral-600">{c.notas}</p>}
@@ -106,14 +108,14 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
         {/* Lista de marcas */}
         <aside>
           <ListaExpedientes titulo="Marcas" lista={marcas} clienteId={c.id} selId={sel?.id} cliente={c.nombre} />
-          {esAdmin && (
+          {puede("altas") && (
             <Link href={`/admin/alta?cliente=${c.id}&servicio=MARCA`} className="mt-2 flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-black/15 py-3 text-sm text-neutral-500 hover:border-black/30 hover:text-black">
               <Plus size={14} /> Agregar marca
             </Link>
           )}
           <div className="mt-6">
             <ListaExpedientes titulo="Patentes, diseños y otros" lista={otros} clienteId={c.id} selId={sel?.id} cliente={c.nombre} vacio="Sin patentes ni diseños registrados." />
-            {esAdmin && (
+            {puede("altas") && (
               <Link href={`/admin/alta?cliente=${c.id}&servicio=PATENTE`} className="mt-2 flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-black/15 py-3 text-sm text-neutral-500 hover:border-black/30 hover:text-black">
                 <Plus size={14} /> Agregar patente o diseño industrial
               </Link>
@@ -122,7 +124,7 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
         </aside>
 
         {/* Detalle de la marca elegida */}
-        {sel ? <DetalleMarca e={sel} esAdmin={esAdmin} inhabiles={inhabiles} /> : <div className="card"><Vacio>Este cliente aún no tiene marcas.</Vacio></div>}
+        {sel ? <DetalleMarca e={sel} permisos={sesion.permisos} inhabiles={inhabiles} /> : <div className="card"><Vacio>Este cliente aún no tiene marcas.</Vacio></div>}
       </div>
     </>
   );
@@ -186,9 +188,10 @@ function ListaExpedientes({ titulo, lista, clienteId, selId, vacio, cliente }: {
   );
 }
 
-type Exp = Prisma.ExpedienteGetPayload<{ include: { servicios: true; notificaciones: true; eventos: true; oficiosImpi: true; promocionesImpi: true; tramitesImpi: true } }>;
+type Exp = Prisma.ExpedienteGetPayload<{ include: { servicios: true; notificaciones: true; eventos: true; oficiosImpi: true; promocionesImpi: true; tramitesImpi: true; notasMarca: true } }>;
 
-function DetalleMarca({ e, esAdmin, inhabiles }: { e: Exp; esAdmin: boolean; inhabiles: Inhabiles }) {
+function DetalleMarca({ e, permisos, inhabiles }: { e: Exp; permisos: Set<string>; inhabiles: Inhabiles }) {
+  const puede = (p: string) => permisos.has(p);
   const totalCosto = e.servicios.reduce((a, s) => a + (s.costo ?? 0), 0);
   const totalPagado = e.servicios.reduce((a, s) => a + s.pagado, 0);
   const signo = esSigno(e.tipo);
@@ -210,7 +213,7 @@ function DetalleMarca({ e, esAdmin, inhabiles }: { e: Exp; esAdmin: boolean; inh
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xl font-semibold tracking-tight">{e.denominacion}</h2>
-              {e.desistio ? <Etapa etapa={e.etapa} desistio /> : esAdmin ? <CambiarEtapa expedienteId={e.id} etapa={e.etapa} etapas={ETAPAS} /> : <Etapa etapa={e.etapa} />}
+              {e.desistio ? <Etapa etapa={e.etapa} desistio /> : puede("marcas") ? <CambiarEtapa expedienteId={e.id} etapa={e.etapa} etapas={ETAPAS} /> : <Etapa etapa={e.etapa} />}
             </div>
             {e.titular && <p className="mt-0.5 text-xs text-neutral-500">Titular: {e.titular}</p>}
             <p className="mt-1 text-sm text-neutral-500">
@@ -228,9 +231,9 @@ function DetalleMarca({ e, esAdmin, inhabiles }: { e: Exp; esAdmin: boolean; inh
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <YaNoContinua expedienteId={e.id} denominacion={e.denominacion} activo={!!e.desistio} />
-            <NuevoCobro expedienteId={e.id} />
-            <NuevaNotificacion expediente={{ id: e.id, denominacion: e.denominacion, numeroExpediente: e.numeroExpediente }} />
+            {puede("marcas") && <YaNoContinua expedienteId={e.id} denominacion={e.denominacion} activo={!!e.desistio} />}
+            {puede("cobros") && <NuevoCobro expedienteId={e.id} />}
+            {puede("oficios") && <NuevaNotificacion expediente={{ id: e.id, denominacion: e.denominacion, numeroExpediente: e.numeroExpediente }} />}
           </div>
         </div>
 
@@ -256,6 +259,7 @@ function DetalleMarca({ e, esAdmin, inhabiles }: { e: Exp; esAdmin: boolean; inh
                   </div>
                   <ControlOficio
                     conPasos
+                    soloLectura={!puede("oficios")}
                     o={{ id: n.id, estado: n.estado, tipo: n.tipo, denominacion: e.denominacion, fechaLimite: n.fechaLimite.toISOString(), fechaLimiteRevision: n.fechaLimiteRevision?.toISOString() ?? null, montoCotizado: n.montoCotizado }}
                   />
                 </div>
@@ -263,12 +267,18 @@ function DetalleMarca({ e, esAdmin, inhabiles }: { e: Exp; esAdmin: boolean; inh
             })}
           </div>
         )}
-        {esAdmin && (
+        {puede("eliminar") && (
           <div className="mt-4 flex justify-end border-t border-black/5 pt-3">
             <EliminarMarca expedienteId={e.id} denominacion={e.denominacion} cobros={e.servicios.length} />
           </div>
         )}
       </section>
+
+      <NotasMarca
+        expedienteId={e.id}
+        editable={puede("marcas")}
+        notas={e.notasMarca.map((n) => ({ id: n.id, texto: n.texto, autor: n.autor, creado: n.creado.toISOString(), editado: n.editado?.toISOString() ?? null }))}
+      />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <section className="card p-4">
@@ -355,8 +365,8 @@ function DetalleMarca({ e, esAdmin, inhabiles }: { e: Exp; esAdmin: boolean; inh
                     <td className="td"><EstadoPago estado={s.estadoPago} /></td>
                     <td className="td">
                       <div className="flex items-center justify-end gap-1">
-                        {s.estadoPago !== "PAGADO" && <Abono servicioId={s.id} restante={(s.costo ?? 0) - s.pagado} />}
-                        {esAdmin && (
+                        {s.estadoPago !== "PAGADO" && puede("cobros") && <Abono servicioId={s.id} restante={(s.costo ?? 0) - s.pagado} />}
+                        {puede("cobros") && (
                           <EditarServicio s={{ id: s.id, tipo: s.tipo, fechaContratacion: s.fechaContratacion?.toISOString().slice(0, 10) ?? "", costo: s.costo, pagado: s.pagado, banco: s.banco, origenVenta: s.origenVenta, vendedor: s.vendedor, notas: s.notas }} />
                         )}
                       </div>

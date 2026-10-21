@@ -15,7 +15,7 @@ const ENCABEZADO = "FFDEEAF6";
 const MONEDA = '_-"$"* #,##0.00_-;\\-"$"* #,##0.00_-;_-"$"* "-"??_-;_-@';
 
 // Color de la col. H según el estatus del trabajo (lo mismo que lee el importador)
-const COLOR_TRABAJO: Record<string, string> = { HECHO: VERDE, PENDIENTE: MORADO, PRESENTAR: MORADO, PAGAR_SISTEMA: AMARILLO, CLIENTE: AZUL, PROBLEMA: ROJO };
+const COLOR_TRABAJO: Record<string, string> = { HECHO: VERDE, PENDIENTE: MORADO, PRESENTAR: MORADO, VOBO: "FFFFC000", PAGAR_SISTEMA: AMARILLO, CLIENTE: AZUL, PROBLEMA: ROJO };
 
 // Encabezados y anchos de la fila 5 del Excel original (A–Z)
 const COLUMNAS: [string | null, number][] = [

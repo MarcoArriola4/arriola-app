@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
+import { requerirSesion } from "@/lib/auth";
 import { normalizarNombre } from "@/lib/catalogos";
 import { Encabezado, Vacio, VistaClientesMarcas } from "@/components/ui";
 import { ActualizarTodas } from "@/components/actualizar-todas";
@@ -11,6 +12,7 @@ const POR_PAGINA = 50;
 
 export default async function Clientes({ searchParams }: { searchParams: Promise<{ q?: string; p?: string }> }) {
   const { q = "", p = "1" } = await searchParams;
+  const sesion = await requerirSesion();
   const pagina = Math.max(1, Number(p) || 1);
   const t = q.trim();
   const where = t
@@ -33,7 +35,7 @@ export default async function Clientes({ searchParams }: { searchParams: Promise
     <>
       <Encabezado titulo="Clientes y marcas" subtitulo={`${total.toLocaleString("es-MX")} clientes · también puedes usar el buscador de arriba`}>
         <VistaClientesMarcas activa="clientes" />
-        <ActualizarTodas barrido={await estadoBarrido()} />
+        <ActualizarTodas barrido={await estadoBarrido()} esAdmin={sesion.rol === "ADMIN"} />
       </Encabezado>
       <form className="mb-4 flex gap-2">
         <input name="q" defaultValue={q} placeholder="Buscar por nombre, teléfono, correo o marca" className="input max-w-md" />

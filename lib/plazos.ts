@@ -43,6 +43,7 @@ export function sumarDiasHabiles(fecha: Date, dias: number, inhabiles: Inhabiles
 /** Fecha límite final para atender un oficio, a partir de su notificación. */
 export function calcularFechaLimite(tipo: string, notificacion: Date, inhabiles: Inhabiles) {
   if (tipo === "REQ_PAGO") return sumarDiasHabiles(notificacion, 5, inhabiles); // requerimiento de pago
+  if (tipo === "ALEGATOS") return sumarDiasHabiles(notificacion, 5, inhabiles); // alegatos / oposición (plazo opcional)
   if (tipo === "NEGATIVA") return sumarDiasNaturales(notificacion, 30); // 15 revisión + 15 nulidad, días naturales
   if (tipo === "CONFIRMA_ACTO") return sumarDiasHabiles(notificacion, 15, inhabiles); // revisión perdida → juicio de nulidad
   return siguienteHabil(sumarMeses(notificacion, 4), inhabiles); // anterioridades, impedimentos, requerimientos, alegatos y demás
@@ -54,7 +55,8 @@ export function sumarDiasNaturales(fecha: Date, dias: number) {
 }
 
 /** Negativa: los primeros 15 días naturales son para el recurso de revisión (los otros 15, para el juicio de nulidad). */
-export function limiteRevision(notificacion: Date, _inhabiles?: Inhabiles) {
+export function limiteRevision(notificacion: Date, // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _inhabiles?: Inhabiles) {
   return sumarDiasNaturales(notificacion, 15);
 }
 
@@ -109,8 +111,15 @@ export function nivelUrgencia(dias: number): "vencido" | "urgente" | "atencion" 
 }
 
 /** El plazo final ya pasó (y el oficio sí está notificado): ya no se puede contestar. */
-export function estaVencida(n: { fechaLimite: Date | string; pendienteNotificar?: boolean }, hoy = new Date()) {
+export function estaVencida(n: { fechaLimite: Date | string; pendienteNotificar?: boolean; tipo?: string }, hoy = new Date()) {
+  // Alegatos / oposición: si no se contestan en los 5 días no pasa nada; se espera la resolución del IMPI
+  if (n.tipo === "ALEGATOS") return false;
   return !n.pendienteNotificar && diasRestantes(new Date(n.fechaLimite), hoy) < 0;
+}
+
+/** Alegatos cuyo plazo opcional (5 días hábiles) ya pasó: queda en espera de la respuesta del IMPI. */
+export function esperandoImpi(n: { tipo: string; fechaLimite: Date | string; pendienteNotificar?: boolean }, hoy = new Date()) {
+  return n.tipo === "ALEGATOS" && !n.pendienteNotificar && diasRestantes(new Date(n.fechaLimite), hoy) < 0;
 }
 
 /** Oficio que llegó por la revisión automática con MARCanet y aún no se ha atendido en la app (se resalta 3 días). */

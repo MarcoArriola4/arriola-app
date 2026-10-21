@@ -20,6 +20,7 @@ export async function iniciarSesion(form: FormData) {
     await db.intentoLogin.create({ data: { email } });
     redirect("/login?error=1");
   }
+  if (!u.activo) redirect("/login?error=inactivo");
   await db.intentoLogin.deleteMany({ where: { email } });
   await crearSesion({ id: u.id, nombre: u.nombre, email: u.email, rol: u.rol });
   redirect("/");

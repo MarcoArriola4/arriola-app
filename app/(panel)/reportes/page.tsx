@@ -6,10 +6,11 @@ import { estaVencida, siguientePlazo } from "@/lib/plazos";
 import { Encabezado, PlazoOficio, Vacio } from "@/components/ui";
 import { ControlOficio } from "@/components/control-oficio";
 import { dondeAparece } from "@/lib/estado-oficio";
+import { estadoBarrido } from "@/lib/marcanet/estado";
 
 export const metadata = { title: "Reportes" };
 
-const MODO: Record<string, string> = { BARRIDO: "Búsqueda completa (cada 7 días)", NOCTURNO: "Revisión diaria", MANUAL: "Botón «Actualizar todas»" };
+const MODO: Record<string, string> = { BARRIDO: "Búsqueda completa (cada 7 días)", NOCTURNO: "Revisión diaria", MANUAL: "Botón «Actualizar todas»", ACTIVOS: "Revisión manual de oficios en curso" };
 const COSTO_CONTESTACION = 3200;
 
 export default async function Reportes({ searchParams }: { searchParams: Promise<{ vista?: string }> }) {
@@ -33,30 +34,53 @@ export default async function Reportes({ searchParams }: { searchParams: Promise
 }
 
 async function NuevasPorBusqueda() {
-  const corridas = await db.syncMarcanet.findMany({ where: { modo: { in: ["BARRIDO", "NOCTURNO", "MANUAL"] } }, orderBy: { inicio: "desc" }, take: 200 });
+  const corridas = await db.syncMarcanet.findMany({ where: { modo: { in: ["BARRIDO", "NOCTURNO", "MANUAL", "ACTIVOS"] } }, orderBy: { inicio: "desc" }, take: 200 });
 
   // Los bloques de una misma búsqueda completa se agrupan en una sola
-  const grupos: { clave: string; modo: string; inicio: Date; fin: Date | null; revisadas: number; nuevos: number; contestados: number; enCurso: boolean }[] = [];
+  type Grupo = {
+    clave: string; modo: string; inicio: Date; fin: Date | null; revisadas: number; total: number; nuevos: number; contestados: number; errores: number;
+    enCurso: boolean; interrumpidos: number; terminada: string | null; detenida: boolean;
+  };
+  const grupos: Grupo[] = [];
+  const hace6h = Date.now() - 6 * 3600 * 1000;
   for (const c of corridas) {
     const clave = c.modo === "BARRIDO" && c.barrido ? `B${c.barrido.toISOString()}` : c.id;
+    // Sin hora de término: en curso si empezó hace menos de 6 h; si no, GitHub la cortó (interrumpida)
+    const enCurso = !c.fin && c.inicio.getTime() > hace6h;
+    const interrumpida = (!c.fin && !enCurso) || /^Interrumpida/.test(c.mensaje ?? "");
+    // (de un bloque interrumpido no se sabe la hora real en que se cortó: cuenta su inicio)
+    const fin = interrumpida ? c.inicio : c.fin;
+    const terminada = c.mensaje?.match(/TERMINADA · (\d+) sin revisar/)?.[1] ?? null;
     const g = grupos.find((x) => x.clave === clave);
     if (g) {
       g.inicio = c.inicio < g.inicio ? c.inicio : g.inicio;
-      g.fin = !c.fin || !g.fin ? null : c.fin > g.fin ? c.fin : g.fin;
+      g.fin = !fin || !g.fin ? (g.enCurso || enCurso ? null : g.fin ?? fin) : fin > g.fin ? fin : g.fin;
       g.revisadas += c.consultados;
       g.nuevos += c.nuevos;
       g.contestados += c.contestados;
-      g.enCurso ||= !c.fin;
+      g.errores += c.errores;
+      g.enCurso ||= enCurso;
+      g.interrumpidos += Number(interrumpida);
+      g.terminada ??= terminada;
     } else {
-      grupos.push({ clave, modo: c.modo, inicio: c.barrido ?? c.inicio, fin: c.fin, revisadas: c.consultados, nuevos: c.nuevos, contestados: c.contestados, enCurso: !c.fin });
+      grupos.push({
+        clave, modo: c.modo, inicio: c.barrido ?? c.inicio, fin, revisadas: c.consultados, total: c.total, nuevos: c.nuevos, contestados: c.contestados, errores: c.errores,
+        enCurso, interrumpidos: Number(interrumpida), terminada, detenida: /^Detenida/.test(c.mensaje ?? ""),
+      });
     }
   }
+  const barrido = await estadoBarrido();
   const cfg = await db.configuracion.findUnique({ where: { id: "main" } });
   const lista = grupos.slice(0, 25);
   if (lista.length === 0) return <div className="card"><Vacio>Aún no hay búsquedas registradas.</Vacio></div>;
 
   // Notificaciones creadas por MARCanet durante cada búsqueda
   const desde = lista[lista.length - 1].inicio;
+  // Marcas cuya última consulta terminó en error (para decir cuáles fallaron en cada búsqueda)
+  const errores = await db.expediente.findMany({
+    where: { marcanetError: { not: null }, marcanetSync: { gte: desde } },
+    select: { id: true, clienteId: true, denominacion: true, numeroExpediente: true, marcanetError: true, marcanetSync: true },
+  });
   const notifs = await db.notificacion.findMany({
     where: { fuente: "MARCANET", creado: { gte: desde } },
     include: { expediente: { select: { id: true, denominacion: true, numeroExpediente: true, clienteId: true, cliente: { select: { nombre: true } } } } },
@@ -72,11 +96,35 @@ async function NuevasPorBusqueda() {
         const suyas = notifs.filter((n) => n.creado >= g.inicio && (abierta || g.enCurso ? true : n.creado <= new Date(fin.getTime() + 60000)));
         // Solo lo que llegó por atender: se omite lo que MARCanet encontró ya contestado (es historial)
         const propias = suyas.filter((n) => !(n.estado === "CONTESTADA" && n.fechaContestacion && n.fechaContestacion < n.creado));
+        // ¿Terminó completa o faltaron marcas?
+        const esActual = g.modo === "BARRIDO" && barrido.inicio && g.inicio.getTime() === new Date(barrido.inicio).getTime();
+        const resultado =
+          g.modo === "BARRIDO"
+            ? esActual && barrido.termino
+              ? { ok: barrido.faltaron === 0, txt: barrido.faltaron === 0 ? `Completa ✓ · terminó el ${new Date(barrido.termino).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })}` : `Terminó con ${barrido.faltaron} marcas sin revisar` }
+              : esActual && barrido.pausada
+                ? { ok: false, txt: `Detenida · faltan ${(barrido.total - barrido.revisadas).toLocaleString("es-MX")} marcas` }
+                : esActual
+                  ? { ok: null, txt: `En curso · ${barrido.revisadas.toLocaleString("es-MX")} de ${barrido.total.toLocaleString("es-MX")} (faltan ${(barrido.total - barrido.revisadas).toLocaleString("es-MX")})` }
+                  : g.terminada != null
+                    ? { ok: g.terminada === "0", txt: g.terminada === "0" ? "Completa ✓" : `Terminó con ${g.terminada} marcas sin revisar` }
+                    : { ok: false, txt: "Sin cierre registrado" }
+            : g.enCurso
+              ? { ok: null, txt: `En curso · ${g.revisadas} de ${g.total}` }
+              : g.revisadas >= g.total
+                ? { ok: true, txt: `Completa ✓ · ${g.revisadas} de ${g.total}` }
+                : { ok: false, txt: `${g.detenida ? "Detenida" : "Incompleta"} · faltaron ${g.total - g.revisadas} de ${g.total}` };
+        const conError = errores.filter((e) => e.marcanetSync! >= g.inicio && (!g.fin || e.marcanetSync! <= new Date(g.fin.getTime() + 60000)));
         return (
           <section key={g.clave} className="card overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/5 px-4 py-3">
               <div>
-                <p className="text-sm font-semibold">{MODO[g.modo] ?? g.modo}{(g.enCurso || abierta) && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">en curso</span>}</p>
+                <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                  {MODO[g.modo] ?? g.modo}
+                  <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${resultado.ok === true ? "bg-marca-claro text-marca-oscuro" : resultado.ok === false ? "bg-red-50 text-red-700" : "bg-amber-100 text-amber-800"}`}>{resultado.txt}</span>
+                  {g.interrumpidos > 0 && <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[11px] font-medium text-neutral-600" title="GitHub cortó un bloque por tiempo; lo que faltó se revisó en el siguiente">{g.interrumpidos} bloque{g.interrumpidos > 1 ? "s" : ""} interrumpido{g.interrumpidos > 1 ? "s" : ""}</span>}
+                  {g.errores > 0 && <span className="rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-700">{g.errores} con error</span>}
+                </p>
                 <p className="text-xs text-neutral-500">
                   {g.inicio.toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })}
                   {g.fin && !abierta && ` → ${g.fin.toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })}`} · {g.revisadas.toLocaleString("es-MX")} marcas revisadas · {g.contestados} contestaciones registradas
@@ -107,6 +155,16 @@ async function NuevasPorBusqueda() {
                   </tbody>
                 </table>
               </div>
+            )}
+            {conError.length > 0 && (
+              <details className="border-t border-black/5 px-4 py-2 text-xs">
+                <summary className="cursor-pointer text-red-700">Marcas que no se pudieron consultar ({conError.length}) · se reintentan en la siguiente revisión</summary>
+                <ul className="mt-2 space-y-1">
+                  {conError.slice(0, 50).map((e) => (
+                    <li key={e.id}><Link href={`/clientes/${e.clienteId}?marca=${e.id}`} className="font-medium hover:underline">{e.denominacion}</Link> <span className="text-neutral-400">· Exp. {e.numeroExpediente} · {e.marcanetError}</span></li>
+                  ))}
+                </ul>
+              </details>
             )}
           </section>
         );

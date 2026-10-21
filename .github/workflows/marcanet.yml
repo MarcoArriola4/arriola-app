@@ -28,7 +28,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Consultar MARCanet
-        run: npm run marcanet:ciclo -- --horas=5.5
+        run: npm run marcanet:ciclo -- --horas=5
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL }}

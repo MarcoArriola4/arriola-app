@@ -19,6 +19,7 @@ const PASO: Record<string, { txt: string; cls: string }> = {
 export default async function Inicio({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const [sesion, { error }] = await Promise.all([requerirSesion(), searchParams]);
   const activas = await notificacionesActivas();
+  const pendientesNotas = await db.recordatorio.findMany({ where: { usuarioId: sesion.id, hecho: false, recordarEn: { lte: new Date() } }, orderBy: { recordarEn: "asc" }, take: 5 });
   // En Inicio solo lo que aún está en plazo; las vencidas van en su propio apartado
   const notifs = activas.filter((n) => !estaVencida(n));
   const vencidas = activas.length - notifs.length;
@@ -51,6 +52,14 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
   return (
     <>
       {error === "solo-admin" && <p className="mb-4 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700">Esa sección es solo para administradores.</p>}
+      {error === "sin-permiso" && <p className="mb-4 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700">No tienes permiso para esa sección. Pídeselo al administrador.</p>}
+      {pendientesNotas.length > 0 && (
+        <Link href="/notas" className="mb-4 flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100">
+          <span className="rounded-full bg-amber-400 px-2 py-0.5 text-xs font-semibold text-carbon">{pendientesNotas.length}</span>
+          <span className="min-w-0 flex-1 truncate">Recordatorios de tu bloc: {pendientesNotas.map((n) => n.texto).join(" · ")}</span>
+          <ChevronRight size={16} />
+        </Link>
+      )}
       <p className="text-sm text-neutral-500 first-letter:uppercase">{hoy}</p>
       <h1 className="mb-6 text-2xl font-semibold tracking-tight">{saludo}, {sesion.nombre.split(" ")[0]}</h1>
 

@@ -2,7 +2,7 @@
 // Reportes y la tabla de Contrataciones: así el mismo expediente muestra lo mismo en toda la app.
 import type { PrismaClient } from "@prisma/client";
 import { MEDIOS_DEFENSA, TIPOS_OFICIO, fmtFecha } from "./catalogos";
-import { diasRestantes, estaVencida, siguientePlazo } from "./plazos";
+import { diasRestantes, esperandoImpi, estaVencida, siguientePlazo } from "./plazos";
 
 /** Pasos del oficio (orden del tablero) más los estados de archivo. */
 export const PASOS_OFICIO: Record<string, string> = {
@@ -20,6 +20,7 @@ type DatosPlazo = { tipo: string; fechaNotificacion: Date | string; fechaLimite:
 /** "Notificado el 13/10/2026 · quedan 112 días (vence 13/02/2027)" */
 export function textoPlazo(n: DatosPlazo, hoy = new Date()) {
   if (n.pendienteNotificar) return "Emitido por el IMPI, aún sin notificar (el plazo no corre)";
+  if (esperandoImpi(n, hoy)) return `Notificado el ${fmtFecha(n.fechaNotificacion)} · los 5 días para alegatos ya pasaron (opcional) · en espera de la resolución del IMPI`;
   const p = siguientePlazo(n, hoy);
   const d = diasRestantes(p.fecha, hoy);
   const que = p.etiqueta ? ` para ${p.etiqueta.toLowerCase()}` : "";

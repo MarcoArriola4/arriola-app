@@ -57,7 +57,7 @@ const FILTROS_PAGO = [
 const POR_PAGINA = 300;
 const SIN_VENDEDOR = "SIN REGISTRAR";
 
-export function HojaContrataciones({ filas, esAdmin, historial }: { filas: FilaContratacion[]; esAdmin: boolean; historial: boolean }) {
+export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin, admin = esAdmin }: { filas: FilaContratacion[]; esAdmin: boolean; historial: boolean; cobros?: boolean; admin?: boolean }) {
   const [q, setQ] = useState("");
   const [vendedor, setVendedor] = useState<string | null>(null);
   const [trabajo, setTrabajo] = useState<string | null>(null);
@@ -103,7 +103,7 @@ export function HojaContrataciones({ filas, esAdmin, historial }: { filas: FilaC
       cobrado: visibles.reduce((a, f) => a + f.pagado, 0),
       porCobrar: visibles.reduce((a, f) => a + f.saldo, 0),
       deudores: visibles.filter((f) => f.saldo > 0).length,
-      porTrabajar: visibles.filter((f) => ["PENDIENTE", "PRESENTAR", "PAGAR_SISTEMA"].includes(f.estadoTrabajo ?? "")).length,
+      porTrabajar: visibles.filter((f) => ["PENDIENTE", "VOBO", "PRESENTAR", "PAGAR_SISTEMA"].includes(f.estadoTrabajo ?? "")).length,
       pagoCompleto: visibles.filter((f) => f.estadoPago === "PAGADO").length,
     }),
     [visibles]
@@ -152,7 +152,7 @@ export function HojaContrataciones({ filas, esAdmin, historial }: { filas: FilaC
                     <td className="px-4 py-2 text-right">{mxn.format(v.vendido)}</td>
                     <td className="px-4 py-2 text-right text-marca-oscuro">{mxn.format(v.cobrado)}</td>
                     <td className={`px-4 py-2 text-right ${v.debe ? "text-red-600" : "text-neutral-400"}`}>{mxn.format(v.debe)}</td>
-                    <td className="px-4 py-2 text-right">{esAdmin && v.clave !== SIN_VENDEDOR && <Renombrar clave={v.clave} nombre={v.nombre} />}</td>
+                    <td className="px-4 py-2 text-right">{admin && v.clave !== SIN_VENDEDOR && <Renombrar clave={v.clave} nombre={v.nombre} />}</td>
                   </tr>
                 ))}
               </tbody>
@@ -206,7 +206,7 @@ export function HojaContrataciones({ filas, esAdmin, historial }: { filas: FilaC
               </tr>
             </thead>
             <tbody>
-              {visibles.slice(0, limite).map((f) => <Fila key={f.id} f={f} n={f.numero} esAdmin={esAdmin} conAnio={historial} />)}
+              {visibles.slice(0, limite).map((f) => <Fila key={f.id} f={f} n={f.numero} esAdmin={esAdmin} cobros={cobros} conAnio={historial} />)}
             </tbody>
             {visibles.length > 0 && (
               <tfoot className="sticky bottom-0 bg-neutral-100 text-xs font-semibold">
@@ -234,7 +234,7 @@ export function HojaContrataciones({ filas, esAdmin, historial }: { filas: FilaC
   );
 }
 
-function Fila({ f, n, esAdmin, conAnio }: { f: FilaContratacion; n: number; esAdmin: boolean; conAnio: boolean }) {
+function Fila({ f, n, esAdmin, cobros, conAnio }: { f: FilaContratacion; n: number; esAdmin: boolean; cobros: boolean; conAnio: boolean }) {
   const [pendiente, iniciar] = useTransition();
   const celda = "border-b border-black/[0.06] px-3 py-2 align-top";
   const fondo = n % 2 === 0 ? "bg-neutral-50/70" : "bg-white";
@@ -267,13 +267,13 @@ function Fila({ f, n, esAdmin, conAnio }: { f: FilaContratacion; n: number; esAd
       <td className={`${celda} min-w-[190px]`}>
         {f.parcialidad2 != null ? (
           <div className="flex flex-col gap-1">
-            <Parcialidad monto={f.parcialidad1} ok={f.parcialidad1Pagada} n={1} editable={esAdmin} alCambiar={(v) => iniciar(() => marcarParcialidad(f.id, 1, v))} />
-            <Parcialidad monto={f.parcialidad2} ok={f.parcialidad2Pagada} n={2} editable={esAdmin} alCambiar={(v) => iniciar(() => marcarParcialidad(f.id, 2, v))} />
+            <Parcialidad monto={f.parcialidad1} ok={f.parcialidad1Pagada} n={1} editable={cobros} alCambiar={(v) => iniciar(() => marcarParcialidad(f.id, 1, v))} />
+            <Parcialidad monto={f.parcialidad2} ok={f.parcialidad2Pagada} n={2} editable={cobros} alCambiar={(v) => iniciar(() => marcarParcialidad(f.id, 2, v))} />
           </div>
         ) : (
           <div className="flex items-center gap-2">
             <EstadoPagoChip estado={f.estadoPago} />
-            {esAdmin && f.estadoPago !== "PAGADO" && (f.costo ?? 0) > 0 && (
+            {cobros && f.estadoPago !== "PAGADO" && (f.costo ?? 0) > 0 && (
               <button onClick={() => iniciar(() => marcarPagadoCompleto(f.id))} className="rounded border border-black/10 px-1.5 py-0.5 text-[11px] text-neutral-600 hover:bg-white">Ya pagó</button>
             )}
           </div>

@@ -155,6 +155,8 @@ function estadoTrabajoDe(base: string | null, argb: string | null | undefined, t
   const hex = (argb ?? "").slice(-6).toUpperCase();
   if (hex === "FFFF00" || /pagar en sistema/i.test(txt ?? "")) return base === "HECHO" ? "HECHO" : "PAGAR_SISTEMA";
   if (base === "PENDIENTE" && /^\s*presentar/i.test(txt ?? "")) return "PRESENTAR";
+  // Naranja (el que pone la exportación) o "Vo. Bo." en el texto: reporte enviado, esperando el visto bueno del cliente
+  if (hex === "FFC000" || (base !== "HECHO" && /vo\.?\s?bo|visto bueno/i.test(txt ?? ""))) return "VOBO";
   return base;
 }
 

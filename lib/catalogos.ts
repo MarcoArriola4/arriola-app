@@ -85,6 +85,7 @@ export function fmtFecha(d?: Date | string | null) {
 /** Estado del trabajo de cada servicio (columna H del Excel y tabla de contrataciones). */
 export const ESTADOS_TRABAJO: Record<string, { txt: string; cls: string }> = {
   PENDIENTE: { txt: "Por trabajar", cls: "bg-violet-100 text-violet-800" },
+  VOBO: { txt: "En espera de Vo. Bo.", cls: "bg-orange-100 text-orange-800" }, // reporte de antecedentes enviado al cliente
   PRESENTAR: { txt: "Presentar", cls: "bg-fuchsia-200 text-fuchsia-900" },
   PAGAR_SISTEMA: { txt: "Pagar en sistema", cls: "bg-yellow-300 text-yellow-950" },
   HECHO: { txt: "Trabajado", cls: "bg-marca-claro text-marca-oscuro" },

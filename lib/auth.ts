@@ -1,6 +1,9 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
+import { db } from "./db";
+import { listaPermisos, type Permiso } from "./permisos";
 
 const COOKIE = "arriola_sesion";
 const secret = () => new TextEncoder().encode(process.env.AUTH_SECRET);
@@ -30,10 +33,33 @@ export async function obtenerSesion() {
   return leerToken((await cookies()).get(COOKIE)?.value);
 }
 
-/** Para server actions y páginas: exige sesión iniciada. */
-export async function requerirSesion() {
+// Datos actuales del usuario (nombre, rol y permisos se leen de la base: un cambio del admin aplica al momento)
+const usuarioActual = cache(async (id: string) =>
+  db.usuario.findUnique({ where: { id }, select: { id: true, nombre: true, email: true, rol: true, permisos: true, activo: true } })
+);
+
+export type SesionCompleta = Sesion & { permisos: Set<string> };
+
+/** Para server actions y páginas: exige sesión iniciada de un usuario activo. */
+export async function requerirSesion(): Promise<SesionCompleta> {
   const s = await obtenerSesion();
   if (!s) redirect("/login");
+  const u = await usuarioActual(s.id);
+  if (!u || !u.activo) redirect("/login?error=inactivo");
+  return { id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, permisos: listaPermisos(u) };
+}
+
+/** Exige un permiso (el administrador siempre lo tiene). */
+export async function requerirPermiso(p: Permiso) {
+  const s = await requerirSesion();
+  if (!s.permisos.has(p)) throw new Error("No tienes permiso para hacer esto. Pídeselo al administrador.");
+  return s;
+}
+
+/** Para páginas: redirige al inicio si falta el permiso. */
+export async function requerirPermisoPagina(p: Permiso) {
+  const s = await requerirSesion();
+  if (!s.permisos.has(p)) redirect("/?error=sin-permiso");
   return s;
 }
 

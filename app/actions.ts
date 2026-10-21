@@ -3,15 +3,17 @@ import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { requerirAdmin, requerirSesion } from "@/lib/auth";
+import { requerirAdmin, requerirPermiso, requerirSesion } from "@/lib/auth";
 import { cifrar, descifrar } from "@/lib/crypto";
 import { plazosDeOficio } from "@/lib/plazos";
 import { cargarInhabiles, recalcularPlazos } from "@/lib/inhabiles";
-import { ESTADOS_TRABAJO, ETAPAS, claveVendedor, normalizarNombre, TIPOS_OFICIO } from "@/lib/catalogos";
+import { ESTADOS_TRABAJO, ETAPAS, TIPOS_SIGNO, claveVendedor, normalizarNombre, TIPOS_OFICIO } from "@/lib/catalogos";
 import { enviarResumen } from "@/lib/alertas";
-import { expedientesParaHoy, sincronizarExpediente, sincronizarMarcanet } from "@/lib/marcanet/sincronizar";
+import { sincronizarExpediente, sincronizarMarcanet } from "@/lib/marcanet/sincronizar";
+import { expedientesDelBarrido } from "@/lib/marcanet/seleccion";
 import { MarcanetCuotaError } from "@/lib/marcanet/consulta";
 import { estadoBarrido } from "@/lib/marcanet/estado";
+import { PERMISOS } from "@/lib/permisos";
 import { PASOS_OFICIO, aplicarPasoOficio, sincronizarDesdeCobro, textoPlazo } from "@/lib/estado-oficio";
 
 const str = (f: FormData, k: string) => {
@@ -40,7 +42,7 @@ function refrescar(expedienteId?: string) {
 // ───────────── Notificaciones ─────────────
 
 export async function crearNotificacion(form: FormData) {
-  await requerirSesion();
+  await requerirPermiso("oficios");
   const expedienteId = str(form, "expedienteId");
   const tipo = str(form, "tipo") ?? "OTRO";
   const fNotif = fecha(form, "fechaNotificacion");
@@ -59,31 +61,31 @@ export async function crearNotificacion(form: FormData) {
 }
 
 export async function avisarCliente(form: FormData) {
-  const sesion = await requerirSesion();
+  const sesion = await requerirPermiso("oficios");
   const n = await aplicarPasoOficio(db, str(form, "id")!, "AVISADO", { fecha: fecha(form, "fecha"), monto: num(form, "monto") }, sesion.nombre);
   refrescar(n.expedienteId);
 }
 
 export async function registrarPagoNotificacion(form: FormData) {
-  const sesion = await requerirSesion();
+  const sesion = await requerirPermiso("oficios");
   const n = await aplicarPasoOficio(db, str(form, "id")!, "EN_TRABAJO", { fecha: fecha(form, "fecha"), monto: num(form, "monto"), banco: str(form, "banco") }, sesion.nombre);
   refrescar(n.expedienteId);
 }
 
 export async function marcarContestada(form: FormData) {
-  const sesion = await requerirSesion();
+  const sesion = await requerirPermiso("oficios");
   const n = await aplicarPasoOficio(db, str(form, "id")!, "CONTESTADA", { fecha: fecha(form, "fecha"), medio: str(form, "medioDefensa") }, sesion.nombre);
   refrescar(n.expedienteId);
 }
 
 export async function marcarNoPago(form: FormData) {
-  const sesion = await requerirSesion();
+  const sesion = await requerirPermiso("oficios");
   const n = await aplicarPasoOficio(db, str(form, "id")!, "NO_PAGO", {}, sesion.nombre);
   refrescar(n.expedienteId);
 }
 
 export async function regresarNotificacion(form: FormData) {
-  const sesion = await requerirSesion();
+  const sesion = await requerirPermiso("oficios");
   const id = str(form, "id")!;
   const orden = ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA", "CONTESTADA"];
   const actual = await db.notificacion.findUniqueOrThrow({ where: { id } });
@@ -94,14 +96,14 @@ export async function regresarNotificacion(form: FormData) {
 
 /** Pone un oficio directamente en cualquier paso (desde la ficha de la marca o Reportes). */
 export async function fijarPasoOficio(id: string, estado: string, fechaISO?: string | null) {
-  const sesion = await requerirSesion();
+  const sesion = await requerirPermiso("oficios");
   if (!(estado in PASOS_OFICIO)) throw new Error("Paso inválido");
   const n = await aplicarPasoOficio(db, id, estado, { fecha: fechaISO ? new Date(`${fechaISO}T00:00:00Z`) : null }, sesion.nombre);
   refrescar(n.expedienteId);
 }
 
 export async function editarNotificacion(form: FormData) {
-  await requerirSesion();
+  await requerirPermiso("oficios");
   const id = str(form, "id")!;
   const actual = await db.notificacion.findUniqueOrThrow({ where: { id } });
   const tipo = str(form, "tipo") ?? actual.tipo;
@@ -124,7 +126,7 @@ export async function editarNotificacion(form: FormData) {
 }
 
 export async function eliminarNotificacion(form: FormData) {
-  await requerirSesion();
+  await requerirPermiso("eliminar");
   const id = str(form, "id")!;
   const n = await db.notificacion.findUniqueOrThrow({ where: { id }, include: { servicio: true } });
   if (n.servicio) await db.servicio.update({ where: { id: n.servicio.id }, data: { notificacionId: null } });
@@ -136,7 +138,7 @@ export async function eliminarNotificacion(form: FormData) {
 // ───────────── Expedientes ─────────────
 
 export async function crearExpediente(form: FormData) {
-  await requerirSesion();
+  await requerirPermiso("marcas");
   let clienteId = str(form, "clienteId");
   if (!clienteId) {
     const nombre = str(form, "clienteNombre");
@@ -183,7 +185,7 @@ export async function crearExpediente(form: FormData) {
 export type ResultadoEdicion = { ok: boolean; mensaje?: string; conflicto?: { id: string; denominacion: string; cliente: string; numero: string } };
 
 export async function actualizarExpediente(form: FormData): Promise<ResultadoEdicion> {
-  await requerirSesion();
+  await requerirPermiso("marcas");
   const id = str(form, "id")!;
   const antes = await db.expediente.findUniqueOrThrow({ where: { id } });
   const etapa = str(form, "etapa") ?? antes.etapa;
@@ -257,14 +259,14 @@ export async function unirExpedientes(origenId: string, destinoId: string) {
 }
 
 export async function agregarEvento(form: FormData) {
-  await requerirSesion();
+  await requerirPermiso("marcas");
   const expedienteId = str(form, "expedienteId")!;
   await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId, fecha: fecha(form, "fecha") ?? hoyUTC(), titulo: str(form, "titulo")!, detalle: str(form, "detalle") } });
   refrescar(expedienteId);
 }
 
 export async function guardarCredenciales(form: FormData) {
-  await requerirSesion();
+  await requerirPermiso("marcas");
   const id = str(form, "id")!;
   const password = str(form, "password");
   await db.expediente.update({
@@ -283,7 +285,7 @@ export async function verPasswordImpi(expedienteId: string) {
 // ───────────── Pagos ─────────────
 
 export async function crearServicio(form: FormData) {
-  await requerirSesion();
+  await requerirPermiso("cobros");
   const expedienteId = str(form, "expedienteId")!;
   const costo = num(form, "costo") ?? 0;
   const pagado = num(form, "pagado") ?? 0;
@@ -305,7 +307,7 @@ export async function crearServicio(form: FormData) {
 }
 
 export async function registrarAbono(form: FormData) {
-  await requerirSesion();
+  await requerirPermiso("cobros");
   const id = str(form, "id")!;
   const s = await db.servicio.findUniqueOrThrow({ where: { id } });
   const abono = num(form, "monto") ?? (s.costo ?? 0) - s.pagado;
@@ -347,15 +349,56 @@ export async function cambiarPassword(form: FormData) {
   redirect("/cuenta?ok=password");
 }
 
+const permisosDeForm = (form: FormData) => form.getAll("permisos").map(String).filter((p) => p in PERMISOS).join(",");
+
 export async function crearUsuario(form: FormData) {
   await requerirAdmin();
   const password = str(form, "password") ?? "";
-  if (password.length < 8) redirect("/admin?error=corta");
-  if (await db.usuario.findUnique({ where: { email: str(form, "email")!.toLowerCase() } })) redirect("/admin?error=existe");
+  if (password.length < 8) redirect("/admin/usuarios?error=corta");
+  const email = str(form, "email")!.toLowerCase();
+  if (await db.usuario.findUnique({ where: { email } })) redirect("/admin/usuarios?error=existe");
   await db.usuario.create({
-    data: { email: str(form, "email")!.toLowerCase(), nombre: str(form, "nombre")!, rol: str(form, "rol") ?? "OPERATIVO", passwordHash: await bcrypt.hash(password, 10) },
+    data: { email, nombre: str(form, "nombre")!, rol: str(form, "rol") ?? "OPERATIVO", permisos: permisosDeForm(form), passwordHash: await bcrypt.hash(password, 10) },
   });
-  redirect("/admin?ok=usuario");
+  redirect("/admin/usuarios?ok=creado");
+}
+
+/** El admin edita nombre, correo, rol, permisos o estado de un usuario (y, si quiere, le pone contraseña nueva). */
+export async function editarUsuario(form: FormData) {
+  const sesion = await requerirAdmin();
+  const id = str(form, "id")!;
+  const u = await db.usuario.findUniqueOrThrow({ where: { id } });
+  const rol = str(form, "rol") ?? u.rol;
+  const activo = form.get("activo") === "on";
+  // Nunca quedarse sin administrador activo (ni quitarse uno mismo el acceso)
+  if (id === sesion.id && (rol !== "ADMIN" || !activo)) redirect("/admin/usuarios?error=propio");
+  const email = (str(form, "email") ?? u.email).toLowerCase();
+  if (email !== u.email && (await db.usuario.findUnique({ where: { email } }))) redirect("/admin/usuarios?error=existe");
+  const nueva = str(form, "password");
+  if (nueva && nueva.length < 8) redirect("/admin/usuarios?error=corta");
+  await db.usuario.update({
+    where: { id },
+    data: { nombre: str(form, "nombre") ?? u.nombre, email, rol, activo, permisos: permisosDeForm(form), ...(nueva && { passwordHash: await bcrypt.hash(nueva, 10) }) },
+  });
+  redirect("/admin/usuarios?ok=guardado");
+}
+
+export async function eliminarUsuario(form: FormData) {
+  const sesion = await requerirAdmin();
+  const id = str(form, "id")!;
+  if (id === sesion.id) redirect("/admin/usuarios?error=propio");
+  await db.usuario.delete({ where: { id } });
+  redirect("/admin/usuarios?ok=eliminado");
+}
+
+/** Cada usuario puede cambiar su propio nombre. */
+export async function cambiarMiNombre(form: FormData) {
+  const s = await requerirSesion();
+  const nombre = (str(form, "nombre") ?? "").replace(/\s+/g, " ").trim();
+  if (nombre.length < 2) redirect("/cuenta?error=nombre");
+  await db.usuario.update({ where: { id: s.id }, data: { nombre } });
+  revalidatePath("/", "layout");
+  redirect("/cuenta?ok=nombre");
 }
 
 export async function enviarAlertasAhora() {
@@ -460,7 +503,7 @@ export async function buscarGlobal(q: string): Promise<ResultadoBusqueda[]> {
 // ───────────── Administración ─────────────
 
 export async function actualizarCliente(form: FormData) {
-  await requerirAdmin();
+  await requerirPermiso("altas");
   const id = str(form, "id")!;
   const nombre = str(form, "nombre")!;
   await db.cliente.update({
@@ -471,7 +514,7 @@ export async function actualizarCliente(form: FormData) {
 }
 
 export async function editarServicio(form: FormData) {
-  await requerirAdmin();
+  await requerirPermiso("cobros");
   const id = str(form, "id")!;
   const costo = num(form, "costo") ?? 0;
   const pagado = num(form, "pagado") ?? 0;
@@ -497,7 +540,7 @@ export async function editarServicio(form: FormData) {
 }
 
 export async function eliminarServicio(form: FormData) {
-  await requerirAdmin();
+  await requerirPermiso("eliminar");
   const id = str(form, "id")!;
   const s = await db.servicio.delete({ where: { id } });
   await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId: s.expedienteId, fecha: hoyUTC(), titulo: "Se eliminó un cobro", detalle: s.costo ? `$${s.costo}` : null } });
@@ -510,7 +553,7 @@ const TIPO_EXP_POR_SERVICIO: Record<string, string> = {
 
 /** Alta desde el apartado Admin: cliente (nuevo o existente) + servicio de cualquier tipo + cobro. */
 export async function altaServicio(form: FormData) {
-  const sesion = await requerirAdmin();
+  const sesion = await requerirPermiso("altas");
   let clienteId = str(form, "clienteId");
   if (!clienteId) {
     const nombre = str(form, "clienteNombre");
@@ -653,7 +696,7 @@ function parcialidadesSegun(s: { parcialidad1: number | null; parcialidad2: numb
 }
 
 export async function cambiarEtapa(expedienteId: string, etapa: string) {
-  const sesion = await requerirAdmin();
+  const sesion = await requerirPermiso("marcas");
   const antes = await db.expediente.findUniqueOrThrow({ where: { id: expedienteId } });
   if (antes.etapa === etapa) return;
   await db.expediente.update({ where: { id: expedienteId }, data: { etapa, etapaManual: true } });
@@ -664,7 +707,7 @@ export async function cambiarEtapa(expedienteId: string, etapa: string) {
 }
 
 export async function cambiarEstadoTrabajo(servicioId: string, estadoTrabajo: string | null) {
-  const sesion = await requerirAdmin();
+  const sesion = await requerirPermiso("contrataciones");
   const s = await db.servicio.update({ where: { id: servicioId }, data: { estadoTrabajo, editadoEnApp: true } });
   await db.evento.create({ data: { autor: sesion.nombre, expedienteId: s.expedienteId, fecha: hoyUTC(), titulo: `Trabajo marcado como: ${estadoTrabajo ? ESTADOS_TRABAJO[estadoTrabajo]?.txt ?? estadoTrabajo : "sin estado"}`, detalle: `${TIPOS_SERVICIO_TXT[s.tipo] ?? s.tipo}${s.avance ? ` · ${s.avance}` : ""}` } });
   // El oficio de esa contestación se mueve igual en el tablero, la ficha y Reportes
@@ -674,7 +717,7 @@ export async function cambiarEstadoTrabajo(servicioId: string, estadoTrabajo: st
 
 /** Marca como pagada (o no) una de las dos parcialidades y recalcula el total pagado. */
 export async function marcarParcialidad(servicioId: string, cual: 1 | 2, pagada: boolean) {
-  const sesion = await requerirAdmin();
+  const sesion = await requerirPermiso("cobros");
   const s = await db.servicio.findUniqueOrThrow({ where: { id: servicioId } });
   const p1ok = cual === 1 ? pagada : !!s.parcialidad1Pagada;
   const p2ok = cual === 2 ? pagada : !!s.parcialidad2Pagada;
@@ -692,7 +735,7 @@ export async function marcarParcialidad(servicioId: string, cual: 1 | 2, pagada:
 
 /** Marca un cobro como pagado completo (las dos parcialidades, si las hay). */
 export async function marcarPagadoCompleto(servicioId: string) {
-  const sesion = await requerirAdmin();
+  const sesion = await requerirPermiso("cobros");
   const s = await db.servicio.findUniqueOrThrow({ where: { id: servicioId } });
   const costo = s.costo ?? 0;
   await db.servicio.update({
@@ -705,11 +748,51 @@ export async function marcarPagadoCompleto(servicioId: string) {
 
 // ───────────── Actualizar todas las marcas con MARCanet (botón) ─────────────
 
-/** Orden de revisión: oficios en curso, luego activos, luego el resto; siempre los que llevan más tiempo sin revisar primero. */
-export async function listaParaActualizar() {
+const HORAS_CONTINUAR = 30;
+
+/**
+ * Marcas para el botón (orden: oficios en curso, activas, resto).
+ * - "activos": solo las que tienen oficios en curso.
+ * - "todas": las de la búsqueda completa. Si una búsqueda se detuvo hace menos de 30 h, continúa donde se quedó.
+ */
+export async function listaParaActualizar(modo: "todas" | "activos" = "todas") {
   await requerirSesion();
-  const lista = await expedientesParaHoy(db, 100000);
-  return lista.map((e) => e.id);
+  if (modo === "activos") {
+    const lista = await db.expediente.findMany({
+      where: { numeroExpediente: { not: null }, tipo: { in: TIPOS_SIGNO }, notificaciones: { some: { estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"] } } } },
+      orderBy: { marcanetSync: { sort: "asc", nulls: "first" } },
+      select: { id: true, numeroExpediente: true },
+    });
+    return { ids: lista.filter((e) => /^\d{5,8}$/.test(e.numeroExpediente ?? "")).map((e) => e.id), continua: false, yaRevisadas: 0 };
+  }
+  const { lista } = await expedientesDelBarrido(db);
+  const cfg = await db.configuracion.findUnique({ where: { id: "main" } });
+  const limite = Date.now() - HORAS_CONTINUAR * 3600 * 1000;
+  // ¿Desde cuándo cuenta lo ya revisado? La búsqueda automática detenida o una manual detenida, si fue hace < 30 h
+  let desde: Date | null = null;
+  if (cfg?.barridoInicio && !cfg.barridoTermino && cfg.barridoPausa && cfg.barridoPausa.getTime() > limite) desde = cfg.barridoInicio;
+  else {
+    const manual = await db.syncMarcanet.findFirst({ where: { modo: "MANUAL", fin: { gte: new Date(limite) }, mensaje: { startsWith: "Detenida a mano" } }, orderBy: { inicio: "desc" } });
+    if (manual) desde = manual.inicio;
+  }
+  const pendientes = desde ? lista.filter((e) => !e.marcanetSync || e.marcanetSync < desde!) : lista;
+  return { ids: pendientes.map((e) => e.id), continua: !!desde, yaRevisadas: lista.length - pendientes.length };
+}
+
+/** El tache del reloj: detiene la búsqueda completa automática (GitHub la deja en el siguiente bloque de 5 marcas). */
+export async function detenerBusqueda() {
+  await requerirAdmin();
+  await db.configuracion.update({ where: { id: "main" }, data: { barridoPausa: new Date() } });
+  revalidatePath("/", "layout");
+  return estadoBarrido();
+}
+
+/** Vuelve a dejar la búsqueda completa en manos de la revisión automática (sigue donde se quedó). */
+export async function reanudarBusqueda() {
+  await requerirAdmin();
+  await db.configuracion.update({ where: { id: "main" }, data: { barridoPausa: null } });
+  revalidatePath("/", "layout");
+  return estadoBarrido();
 }
 
 export type ResultadoUna = { ok: boolean; cuota?: boolean; nuevos: number; contestados: number; mensaje?: string; nuevasDetalle: { denominacion: string; clienteId: string; expedienteId: string }[] };
@@ -735,16 +818,21 @@ export async function actualizarUnaMarcanet(expedienteId: string): Promise<Resul
   }
 }
 
-export async function registrarCorridaManual(t: { total: number; consultados: number; errores: number; nuevos: number; contestados: number; mensaje?: string; inicio?: string }) {
+export async function registrarCorridaManual(t: { total: number; consultados: number; errores: number; nuevos: number; contestados: number; mensaje?: string; inicio?: string; modo?: "todas" | "activos" }) {
   await requerirSesion();
-  const { inicio, ...datos } = t;
-  await db.syncMarcanet.create({ data: { modo: "MANUAL", ...datos, inicio: inicio ? new Date(inicio) : new Date(), fin: new Date(), mensaje: datos.mensaje ?? null } });
+  const { inicio, modo, ...datos } = t;
+  await db.syncMarcanet.create({ data: { modo: modo === "activos" ? "ACTIVOS" : "MANUAL", ...datos, inicio: inicio ? new Date(inicio) : new Date(), fin: new Date(), mensaje: datos.mensaje ?? null } });
+  // Si se terminó a mano una búsqueda completa detenida, queda como terminada
+  const cfg = await db.configuracion.findUnique({ where: { id: "main" } });
+  if (modo !== "activos" && !datos.mensaje && cfg?.barridoInicio && !cfg.barridoTermino && cfg.barridoPausa) {
+    await db.configuracion.update({ where: { id: "main" }, data: { barridoTermino: new Date(), barridoPausa: null } });
+  }
   revalidatePath("/", "layout");
 }
 
 /** Contestación ya trabajada; falta pagar los derechos en el sistema del IMPI para presentarla. */
 export async function marcarPagarSistema(form: FormData) {
-  const sesion = await requerirSesion();
+  const sesion = await requerirPermiso("oficios");
   const n = await aplicarPasoOficio(db, str(form, "id")!, "PAGAR_SISTEMA", {}, sesion.nombre);
   refrescar(n.expedienteId);
 }
@@ -753,7 +841,7 @@ export async function marcarPagarSistema(form: FormData) {
 // ───────────── Vendedor y nota de estatus (tabla de contrataciones) ─────────────
 
 export async function cambiarVendedor(servicioId: string, nombre: string) {
-  const sesion = await requerirAdmin();
+  const sesion = await requerirPermiso("contrataciones");
   const vendedor = nombre.replace(/\s+/g, " ").trim() || null;
   const s = await db.servicio.update({ where: { id: servicioId }, data: { vendedor, editadoEnApp: true } });
   await db.evento.create({ data: { autor: sesion.nombre, expedienteId: s.expedienteId, fecha: hoyUTC(), titulo: `Vendió: ${vendedor ?? "sin registrar"}` } });
@@ -762,7 +850,7 @@ export async function cambiarVendedor(servicioId: string, nombre: string) {
 
 /** Nota libre sobre el estatus del proceso ("Esperando logo", "Presentar el lunes"…). */
 export async function cambiarNotaEstado(servicioId: string, nota: string) {
-  const sesion = await requerirAdmin();
+  const sesion = await requerirPermiso("contrataciones");
   const s = await db.servicio.update({ where: { id: servicioId }, data: { avance: nota.trim() || null, editadoEnApp: true } });
   if (nota.trim()) await db.evento.create({ data: { autor: sesion.nombre, expedienteId: s.expedienteId, fecha: hoyUTC(), titulo: `Nota de estatus: ${nota.trim()}`, detalle: TIPOS_SERVICIO_TXT[s.tipo] ?? s.tipo } });
   revalidatePath("/contrataciones");
@@ -794,7 +882,7 @@ export async function consultarEstadoBarrido() {
 
 /** Elimina una marca registrada por error (p. ej. duplicada). Queda anotada para que el Excel no la vuelva a crear. Solo admin. */
 export async function eliminarExpediente(expedienteId: string) {
-  await requerirAdmin();
+  await requerirPermiso("eliminar");
   const e = await db.expediente.findUniqueOrThrow({ where: { id: expedienteId }, include: { cliente: true } });
   await db.$transaction(async (tx) => {
     const claves = [`CLI:${e.cliente.nombreNorm}|${normalizarNombre(e.denominacion)}`, ...(e.titular ? [`CLI:${normalizarNombre(e.titular)}|${normalizarNombre(e.denominacion)}`] : [])];
@@ -820,7 +908,7 @@ export async function eliminarExpediente(expedienteId: string) {
  * `activar = false` lo deshace.
  */
 export async function marcarDesistio(expedienteId: string, activar: boolean) {
-  const sesion = await requerirSesion();
+  const sesion = await requerirPermiso("marcas");
   const e = await db.expediente.findUniqueOrThrow({ where: { id: expedienteId } });
   if (activar) {
     const abiertos = await db.notificacion.findMany({ where: { expedienteId, estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA", "NO_PAGO"] } } });
@@ -840,4 +928,79 @@ export async function marcarDesistio(expedienteId: string, activar: boolean) {
     await db.evento.create({ data: { autor: sesion.nombre, expedienteId, fecha: hoyUTC(), titulo: "Se reactivó la marca (el cliente sí continúa)" } });
   }
   refrescar(expedienteId);
+}
+
+// ───────────── Bloc de notas con recordatorio (personal: solo lo ve su usuario) ─────────────
+
+/** "2026-10-22T09:00" capturado en hora de la Ciudad de México → fecha real. */
+const fechaHoraMx = (v: string | null) => (v ? new Date(`${v.length === 10 ? `${v}T09:00` : v}:00-06:00`) : null);
+
+export async function crearRecordatorio(form: FormData) {
+  const s = await requerirSesion();
+  const texto = str(form, "texto");
+  if (!texto) return;
+  await db.recordatorio.create({ data: { usuarioId: s.id, texto, recordarEn: fechaHoraMx(str(form, "recordarEn")) } });
+  revalidatePath("/", "layout");
+}
+
+export async function editarRecordatorio(form: FormData) {
+  const s = await requerirSesion();
+  const id = str(form, "id")!;
+  const texto = str(form, "texto");
+  if (!texto) return;
+  await db.recordatorio.updateMany({ where: { id, usuarioId: s.id }, data: { texto, recordarEn: fechaHoraMx(str(form, "recordarEn")) } });
+  revalidatePath("/", "layout");
+}
+
+export async function marcarRecordatorio(id: string, hecho: boolean) {
+  const s = await requerirSesion();
+  await db.recordatorio.updateMany({ where: { id, usuarioId: s.id }, data: { hecho } });
+  revalidatePath("/", "layout");
+}
+
+/** Pospone un recordatorio (minutos desde ahora). */
+export async function posponerRecordatorio(id: string, minutos: number) {
+  const s = await requerirSesion();
+  await db.recordatorio.updateMany({ where: { id, usuarioId: s.id }, data: { recordarEn: new Date(Date.now() + minutos * 60000) } });
+  revalidatePath("/", "layout");
+}
+
+export async function eliminarRecordatorio(id: string) {
+  const s = await requerirSesion();
+  await db.recordatorio.deleteMany({ where: { id, usuarioId: s.id } });
+  revalidatePath("/", "layout");
+}
+
+/** Recordatorios de este usuario que ya tocan (para el aviso que aparece en cualquier pantalla). */
+export async function recordatoriosQueTocan() {
+  const s = await requerirSesion();
+  const r = await db.recordatorio.findMany({ where: { usuarioId: s.id, hecho: false, recordarEn: { lte: new Date() } }, orderBy: { recordarEn: "asc" }, take: 5 });
+  return r.map((x) => ({ id: x.id, texto: x.texto, recordarEn: x.recordarEn!.toISOString() }));
+}
+
+// ───────────── Notas de cada marca ─────────────
+
+export async function crearNotaMarca(form: FormData) {
+  const s = await requerirPermiso("marcas");
+  const expedienteId = str(form, "expedienteId")!;
+  const texto = str(form, "texto");
+  if (!texto) return;
+  await db.notaMarca.create({ data: { expedienteId, texto, autor: s.nombre } });
+  await db.evento.create({ data: { autor: s.nombre, expedienteId, fecha: hoyUTC(), titulo: "Nota agregada", detalle: texto.length > 140 ? `${texto.slice(0, 140)}…` : texto } });
+  refrescar(expedienteId);
+}
+
+export async function editarNotaMarca(form: FormData) {
+  await requerirPermiso("marcas");
+  const id = str(form, "id")!;
+  const texto = str(form, "texto");
+  if (!texto) return;
+  const n = await db.notaMarca.update({ where: { id }, data: { texto, editado: new Date() } });
+  refrescar(n.expedienteId);
+}
+
+export async function eliminarNotaMarca(id: string) {
+  await requerirPermiso("marcas");
+  const n = await db.notaMarca.delete({ where: { id } });
+  refrescar(n.expedienteId);
 }

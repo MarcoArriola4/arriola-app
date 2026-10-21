@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ETAPAS } from "@/lib/catalogos";
-import { diasRestantes, nivelUrgencia, siguientePlazo } from "@/lib/plazos";
+import { diasRestantes, esperandoImpi, nivelUrgencia, siguientePlazo } from "@/lib/plazos";
 
 export function Encabezado({ titulo, subtitulo, children }: { titulo: string; subtitulo?: string; children?: React.ReactNode }) {
   return (
@@ -47,6 +47,9 @@ export function Plazo({ fecha }: { fecha: Date }) {
 export function PlazoOficio({ n }: { n: { tipo: string; fechaNotificacion: Date | string; fechaLimite: Date | string; fechaLimiteRevision?: Date | string | null; pendienteNotificar?: boolean } }) {
   if (n.pendienteNotificar) {
     return <span title="El IMPI emitió el oficio pero aún no lo notifica; el plazo todavía no corre" className="inline-block whitespace-nowrap rounded-md bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">Aún no notificado</span>;
+  }
+  if (esperandoImpi(n)) {
+    return <span title="Los 5 días para alegatos ya pasaron; no es obligatorio contestar. Se espera la resolución del IMPI." className="inline-block whitespace-nowrap rounded-md bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">En espera del IMPI</span>;
   }
   const p = siguientePlazo(n);
   return (

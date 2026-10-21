@@ -1,12 +1,12 @@
 import { FileDown, KeyRound } from "lucide-react";
 import { db } from "@/lib/db";
-import { requerirAdmin } from "@/lib/auth";
+import { requerirPermisoPagina } from "@/lib/auth";
 import { Encabezado } from "@/components/ui";
 
 export const metadata = { title: "Exportar Excel" };
 
 export default async function Exportar() {
-  await requerirAdmin();
+  const sesion = await requerirPermisoPagina("exportar");
   const [cobros, marcas, sinCobro] = await Promise.all([
     db.servicio.count(),
     db.expediente.count(),
@@ -32,7 +32,7 @@ export default async function Exportar() {
         </p>
         <div className="mt-5 flex flex-wrap gap-3">
           <a href="/api/exportar" className="btn-primario"><FileDown size={16} /> Descargar Excel</a>
-          <a href="/api/exportar?claves=1" className="btn"><KeyRound size={15} /> Descargar con contraseñas del IMPI</a>
+          {sesion.rol === "ADMIN" && <a href="/api/exportar?claves=1" className="btn"><KeyRound size={15} /> Descargar con contraseñas del IMPI</a>}
         </div>
         <p className="mt-3 text-xs text-neutral-400">El archivo con contraseñas guárdalo solo en tu computadora; no lo compartas.</p>
       </section>

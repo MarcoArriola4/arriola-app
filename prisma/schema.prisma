@@ -15,7 +15,23 @@ model Usuario {
   nombre       String
   passwordHash String
   rol          String   @default("OPERATIVO") // ADMIN | OPERATIVO
+  permisos     String   @default("oficios,marcas,cobros,contrataciones") // lo que puede hacer (el admin puede todo)
+  activo       Boolean  @default(true)
   creado       DateTime @default(now())
+  recordatorios Recordatorio[]
+}
+
+// Bloc de notas personal con recordatorio (solo lo ve su usuario)
+model Recordatorio {
+  id         String    @id @default(cuid())
+  usuarioId  String
+  usuario    Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  texto      String
+  recordarEn DateTime?
+  hecho      Boolean   @default(false)
+  creado     DateTime  @default(now())
+
+  @@index([usuarioId, hecho])
 }
 
 model Cliente {
@@ -58,6 +74,7 @@ model Expediente {
   notificaciones     Notificacion[]
   eventos            Evento[]
   oficiosImpi        OficioImpi[]
+  notasMarca         NotaMarca[]
   promocionesImpi    PromocionImpi[]
   tramitesImpi       TramiteImpi[]
   creado             DateTime       @default(now())
@@ -151,6 +168,7 @@ model Configuracion {
   barridoTermino     DateTime?
   diasEntreBarridos  Int       @default(7)
   ultimaRevisionActivos DateTime?
+  barridoPausa       DateTime? // el admin detuvo la búsqueda completa (se reanuda a mano)
 }
 
 // Días inhábiles del IMPI (acuerdos publicados en el DOF y suspensiones extraordinarias)
@@ -239,4 +257,17 @@ model Omitido {
   clave  String   @id // "EXP:3412345" o "CLI:<cliente>|<marca>"
   motivo String?
   creado DateTime @default(now())
+}
+
+// Notas de una marca (independientes del historial)
+model NotaMarca {
+  id           String     @id @default(cuid())
+  expedienteId String
+  expediente   Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  texto        String
+  autor        String?
+  creado       DateTime   @default(now())
+  editado      DateTime?
+
+  @@index([expedienteId])
 }

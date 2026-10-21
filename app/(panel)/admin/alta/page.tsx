@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { db } from "@/lib/db";
-import { requerirAdmin } from "@/lib/auth";
+import { requerirPermisoPagina } from "@/lib/auth";
 import { FormAlta } from "./form";
 import { claveVendedor, nombrePropio } from "@/lib/catalogos";
 
 export const metadata = { title: "Alta de cliente o servicio" };
 
 export default async function Alta({ searchParams }: { searchParams: Promise<{ cliente?: string; servicio?: string }> }) {
-  await requerirAdmin();
+  await requerirPermisoPagina("altas");
   const { cliente, servicio } = await searchParams;
   // Sugerencias para "Vendió": nombres ya usados (sin repetir mayúsculas/minúsculas)
   const usados = await db.servicio.groupBy({ by: ["vendedor"], where: { vendedor: { not: null } }, _count: true, orderBy: { _count: { vendedor: "desc" } } });

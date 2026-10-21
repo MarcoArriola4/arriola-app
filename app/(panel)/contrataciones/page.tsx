@@ -49,6 +49,7 @@ export default async function Contrataciones({ searchParams }: { searchParams: P
     const oficio = s.expediente.notificaciones.find((n) => !estaVencida(n));
     const pendientes: { tipo: string; texto: string }[] = [];
     if (s.estadoTrabajo === "PENDIENTE") pendientes.push({ tipo: "trabajar", texto: "Trabajar" });
+    if (s.estadoTrabajo === "VOBO") pendientes.push({ tipo: "presentar", texto: "Esperar Vo. Bo. del cliente" });
     if (s.estadoTrabajo === "PRESENTAR") pendientes.push({ tipo: "presentar", texto: "Presentar" });
     if (s.estadoTrabajo === "PAGAR_SISTEMA") pendientes.push({ tipo: "sistema", texto: "Pagar en sistema" });
     if (s.estadoTrabajo === "PROBLEMA") pendientes.push({ tipo: "problema", texto: "Revisar problema" });
@@ -106,14 +107,14 @@ export default async function Contrataciones({ searchParams }: { searchParams: P
           </div>
         )}
       </Encabezado>
-      <HojaContrataciones filas={filas} esAdmin={sesion.rol === "ADMIN"} historial={historial} />
+      <HojaContrataciones filas={filas} esAdmin={sesion.permisos.has("contrataciones")} cobros={sesion.permisos.has("cobros")} admin={sesion.rol === "ADMIN"} historial={historial} />
       {historial && (
         <section className="card mt-6 flex flex-wrap items-center justify-between gap-3 p-5">
           <div>
             <h2 className="text-sm font-semibold">Actualizar las marcas con el IMPI</h2>
             <p className="text-xs text-neutral-500">Consulta MARCanet marca por marca (primero las que tienen oficios en curso) y trae los oficios nuevos y las contestaciones registradas.</p>
           </div>
-          <ActualizarTodas barrido={await estadoBarrido()} />
+          <ActualizarTodas barrido={await estadoBarrido()} esAdmin={sesion.rol === "ADMIN"} />
         </section>
       )}
     </>

@@ -18,7 +18,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
           <input id="password" name="password" type="password" required className="input mb-4" autoComplete="current-password" />
           {error && (
             <p className="mb-3 text-sm text-red-600">
-              {error === "bloqueado" ? "Demasiados intentos. Espera 15 minutos e inténtalo de nuevo." : "Correo o contraseña incorrectos."}
+              {error === "bloqueado" ? "Demasiados intentos. Espera 15 minutos e inténtalo de nuevo." : error === "inactivo" ? "Este usuario está desactivado. Habla con el administrador." : "Correo o contraseña incorrectos."}
             </p>
           )}
           <button className="btn-primario w-full justify-center py-2">Entrar</button>

@@ -25,7 +25,7 @@ const CORTO: Record<string, string> = { RECIBIDA: "Recibida", AVISADO: "Avisé",
  * Botones para avanzar un oficio (avisé / pagó / trabajado / presentado). Es el mismo control en el tablero,
  * la ficha de la marca y Reportes: lo que se cambia aquí se ve igual en toda la app.
  */
-export function ControlOficio({ o, conPasos = false }: { o: OficioControl; conPasos?: boolean }) {
+export function ControlOficio({ o, conPasos = false, soloLectura = false }: { o: OficioControl; conPasos?: boolean; soloLectura?: boolean }) {
   const [abierto, setAbierto] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [pendiente, iniciar] = useTransition();
@@ -42,7 +42,7 @@ export function ControlOficio({ o, conPasos = false }: { o: OficioControl; conPa
   };
 
   const irA = (estado: string) => {
-    if (estado === o.estado) return;
+    if (estado === o.estado || soloLectura) return;
     if (!confirm(`¿Mover "${o.denominacion}" a "${PASOS_OFICIO[estado]}"?`)) return;
     iniciar(() => fijarPasoOficio(o.id, estado, hoyISO()));
   };
@@ -118,7 +118,7 @@ export function ControlOficio({ o, conPasos = false }: { o: OficioControl; conPa
         </div>
       )}
 
-      {!abierto && (
+      {!abierto && !soloLectura && (
         <div className="flex flex-wrap items-center gap-1.5">
           {o.estado === "RECIBIDA" && <button onClick={() => setAbierto(true)} className="btn-primario px-2.5 py-1 text-xs">Avisé al cliente</button>}
           {o.estado === "AVISADO" && (

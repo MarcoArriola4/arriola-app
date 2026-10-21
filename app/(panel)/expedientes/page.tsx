@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { requerirSesion } from "@/lib/auth";
 import { ETAPAS, TIPOS_EXPEDIENTE } from "@/lib/catalogos";
 import { Encabezado, Etapa, Vacio, VistaClientesMarcas } from "@/components/ui";
 import { ActualizarTodas } from "@/components/actualizar-todas";
@@ -14,6 +15,7 @@ const POR_PAGINA = 50;
 
 export default async function Expedientes({ searchParams }: { searchParams: Promise<{ q?: string; etapa?: string; tipo?: string; p?: string }> }) {
   const { q = "", etapa = "", tipo = "", p = "1" } = await searchParams;
+  const sesion = await requerirSesion();
   const pagina = Math.max(1, Number(p) || 1);
   const t = q.trim();
   const where: Prisma.ExpedienteWhereInput = {
@@ -51,7 +53,7 @@ export default async function Expedientes({ searchParams }: { searchParams: Prom
     <>
       <Encabezado titulo="Clientes y marcas" subtitulo={`${total.toLocaleString("es-MX")} marcas · da clic en una para abrir el perfil del cliente`}>
         <VistaClientesMarcas activa="marcas" />
-        <ActualizarTodas barrido={await estadoBarrido()} />
+        <ActualizarTodas barrido={await estadoBarrido()} esAdmin={sesion.rol === "ADMIN"} />
       </Encabezado>
 
       <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">

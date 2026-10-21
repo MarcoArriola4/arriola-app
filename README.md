@@ -27,6 +27,7 @@ y el historial ("se notificó el …, quedan N días", "se contestó el …"). A
 
 - Oficios (anterioridad, requerimiento, impedimento, alegatos y demás): **4 meses** desde la notificación.
 - Requerimiento de pago: **5 días hábiles**.
+- Alegatos / oposición: **5 días hábiles**, opcional: si no se contesta no pasa nada; queda "En espera del IMPI" (nunca se marca como vencido).
 - Negativa: **15 días naturales** para recurso de revisión; si no se presenta, hasta **30 días naturales** para juicio de nulidad (uno u otro). No es definitiva: se le ofrece al cliente.
 - Se confirma el acto (revisión perdida): **15 días hábiles** para juicio de nulidad.
 - Declaración de uso: **3 años + 3 meses** desde la concesión.

@@ -7,7 +7,8 @@ import { db } from "../lib/db";
 import { DIA } from "../lib/plazos";
 import { ACTIVAS } from "../lib/consultas";
 import { TIPOS_SIGNO } from "../lib/catalogos";
-import { expedientesParaHoy, sincronizarMarcanet } from "../lib/marcanet/sincronizar";
+import { sincronizarMarcanet } from "../lib/marcanet/sincronizar";
+import { expedientesDelBarrido } from "../lib/marcanet/seleccion";
 
 const horas = Number(process.argv.find((a) => a.startsWith("--horas="))?.split("=")[1] ?? 5.5);
 const log = (m: string) => console.log(`[${new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" })}] ${m}`);
@@ -16,18 +17,29 @@ async function main() {
   let cfg = await db.configuracion.upsert({ where: { id: "main" }, update: {}, create: { id: "main" } });
   const ahora = new Date();
 
+  // Corridas que GitHub cortó (sin hora de término): se cierran para que no se queden "en curso" para siempre
+  await db.syncMarcanet.updateMany({
+    where: { fin: null, inicio: { lt: new Date(ahora.getTime() - 6 * 3600 * 1000) } },
+    data: { fin: ahora, mensaje: "Interrumpida: la corrida se cortó por tiempo (lo que faltó se revisa en el siguiente bloque)" },
+  });
+
   // ¿Toca empezar una búsqueda completa?
   const enBarrido = cfg.barridoInicio && !cfg.barridoTermino;
   const toca = !cfg.barridoTermino || ahora.getTime() - cfg.barridoTermino.getTime() >= cfg.diasEntreBarridos * DIA;
-  if (!enBarrido && toca) {
+  if (!enBarrido && toca && !cfg.barridoPausa) {
     cfg = await db.configuracion.update({ where: { id: "main" }, data: { barridoInicio: ahora, barridoTermino: null } });
     log("Empieza una búsqueda completa de todas las marcas");
   }
 
-  if (cfg.barridoInicio && !cfg.barridoTermino) {
+  if (cfg.barridoInicio && !cfg.barridoTermino && cfg.barridoPausa) {
+    log("Búsqueda completa detenida por el administrador (se continúa desde la app). Solo revisión diaria de oficios en curso.");
+  } else if (cfg.barridoInicio && !cfg.barridoTermino) {
     const inicio = cfg.barridoInicio;
     // Todas las marcas (prioridad: oficios en curso, activas, resto) que aún no se revisan en esta búsqueda
-    const pendientes = (await expedientesParaHoy(db, 100000)).filter((e) => !e.marcanetSync || e.marcanetSync < inicio);
+    // (registradas sin novedades y abandonadas hace más de un mes no entran: ver lib/marcanet/seleccion.ts)
+    const { lista, omitidas } = await expedientesDelBarrido(db);
+    const pendientes = lista.filter((e) => !e.marcanetSync || e.marcanetSync < inicio);
+    log(`Se omiten ${omitidas.registradas} registradas sin novedades y ${omitidas.abandonadas} abandonadas hace más de un mes`);
     log(`Búsqueda completa: faltan ${pendientes.length} marcas`);
     if (pendientes.length) {
       const r = await sincronizarMarcanet({ modo: "BARRIDO", expedientes: pendientes, horasMax: horas, barrido: inicio, alAvanzar: (i, t) => { if (i % 50 === 0) log(`  ${i}/${t}`); } });
@@ -37,9 +49,12 @@ async function main() {
       where: { numeroExpediente: { not: null }, tipo: { in: TIPOS_SIGNO }, OR: [{ marcanetSync: null }, { marcanetSync: { lt: inicio } }] },
     });
     // Los números que no son del IMPI (s/n, MX/…) no cuentan; con menos de 10 pendientes (errores sueltos) se da por terminada
-    const realesQuedan = (await expedientesParaHoy(db, 100000)).filter((e) => !e.marcanetSync || e.marcanetSync < inicio).length;
+    const realesQuedan = (await expedientesDelBarrido(db)).lista.filter((e) => !e.marcanetSync || e.marcanetSync < inicio).length;
     if (realesQuedan < 10) {
       await db.configuracion.update({ where: { id: "main" }, data: { barridoTermino: new Date() } });
+      // Queda escrito en el último bloque para el reporte
+      const ultimo = await db.syncMarcanet.findFirst({ where: { modo: "BARRIDO", barrido: inicio }, orderBy: { inicio: "desc" } });
+      if (ultimo) await db.syncMarcanet.update({ where: { id: ultimo.id }, data: { mensaje: [`Búsqueda completa TERMINADA · ${realesQuedan} sin revisar`, ultimo.mensaje].filter(Boolean).join(" — ") } });
       log(`Búsqueda completa TERMINADA (${quedan} sin revisar por error). La próxima empieza en ${cfg.diasEntreBarridos} días.`);
     }
     return;
@@ -47,8 +62,8 @@ async function main() {
 
   // Entre búsquedas completas: oficios en curso, una vez al día
   if (cfg.ultimaRevisionActivos && ahora.getTime() - cfg.ultimaRevisionActivos.getTime() < 20 * 3600 * 1000) {
-    const proxima = new Date(cfg.barridoTermino!.getTime() + cfg.diasEntreBarridos * DIA);
-    log(`En espera. Próxima búsqueda completa: ${proxima.toLocaleDateString("es-MX")}. Nada que hacer ahora.`);
+    const proxima = cfg.barridoTermino ? new Date(cfg.barridoTermino.getTime() + cfg.diasEntreBarridos * DIA).toLocaleDateString("es-MX") : "al reanudarla";
+    log(`En espera. Próxima búsqueda completa: ${proxima}. Nada que hacer ahora.`);
     return;
   }
   // Oficios en curso + marcas nuevas que nunca se han consultado (las que se dan de alta durante el mes)

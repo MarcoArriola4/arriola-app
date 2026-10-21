@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Hourglass, RefreshCw, Square, X } from "lucide-react";
-import { actualizarUnaMarcanet, consultarEstadoBarrido, listaParaActualizar, registrarCorridaManual, type ResultadoUna } from "@/app/actions";
+import { CheckCircle2, Hourglass, Play, RefreshCw, Square, X } from "lucide-react";
+import { actualizarUnaMarcanet, consultarEstadoBarrido, detenerBusqueda, listaParaActualizar, reanudarBusqueda, registrarCorridaManual, type ResultadoUna } from "@/app/actions";
 import type { EstadoBarrido } from "@/lib/marcanet/estado";
 
 const ESPERA_CUOTA_S = 10 * 60 + 30; // MARCanet pide esperar 10 minutos al llegar a su límite
@@ -28,8 +28,21 @@ export function formatoTiempo(seg: number) {
  * - Si la búsqueda completa de cada 7 días está corriendo, muestra su avance con reloj de arena y tiempo restante.
  * - Si no, revisa todas las marcas una por una mientras la página esté abierta y termina en "Listo".
  */
-export function ActualizarTodas({ barrido: barridoInicial }: { barrido?: EstadoBarrido }) {
+export function ActualizarTodas({
+  barrido: barridoInicial,
+  modo = "todas",
+  esAdmin = false,
+  etiqueta,
+}: {
+  barrido?: EstadoBarrido;
+  /** "activos" = solo las marcas con oficios en curso */
+  modo?: "todas" | "activos";
+  esAdmin?: boolean;
+  etiqueta?: string;
+}) {
   const [barrido, setBarrido] = useState(barridoInicial);
+  const [continua, setContinua] = useState(0);
+  const [cambiando, setCambiando] = useState(false);
   const [abierto, setAbierto] = useState(false);
   const [estado, setEstado] = useState<Estado>("inactivo");
   const [avance, setAvance] = useState({ i: 0, total: 0, nuevos: 0, contestados: 0, errores: 0 });
@@ -61,7 +74,8 @@ export function ActualizarTodas({ barrido: barridoInicial }: { barrido?: EstadoB
     detener.current = false;
     setNuevas([]);
     const inicio = new Date();
-    const ids = await listaParaActualizar();
+    const { ids, continua: sigue, yaRevisadas } = await listaParaActualizar(modo);
+    setContinua(sigue ? yaRevisadas : 0);
     const t = { i: 0, total: ids.length, nuevos: 0, contestados: 0, errores: 0 };
     setAvance({ ...t });
     setRestante(ids.length * SEG_POR_MARCA_INICIAL);
@@ -110,15 +124,50 @@ export function ActualizarTodas({ barrido: barridoInicial }: { barrido?: EstadoB
       contestados: t.contestados,
       inicio: inicio.toISOString(),
       mensaje: detener.current ? `Detenida a mano en ${t.i}/${t.total}` : undefined,
+      modo,
     });
+    if (modo === "todas") setBarrido(await consultarEstadoBarrido());
     setRestante(0);
     setEstado("terminado");
   }
 
   const ocupado = estado === "corriendo" || estado === "esperando";
 
+  const pausar = async () => {
+    if (!confirm("¿Detener la búsqueda completa automática?\n\nSe detiene en unos segundos. Después puedes continuarla aquí desde donde se quedó (si no han pasado más de 30 horas) o reanudarla automática.")) return;
+    setCambiando(true);
+    setBarrido(await detenerBusqueda());
+    setCambiando(false);
+  };
+  const reanudar = async () => {
+    setCambiando(true);
+    setBarrido(await reanudarBusqueda());
+    setCambiando(false);
+  };
+
+  // ── Búsqueda automática detenida por el admin ──
+  if (modo === "todas" && barrido?.pausada && estado === "inactivo") {
+    const pct = barrido.total ? Math.round((barrido.revisadas / barrido.total) * 100) : 0;
+    const horas = barrido.pausadaEn ? (Date.now() - new Date(barrido.pausadaEn).getTime()) / 3600000 : 99;
+    return (
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm">
+        <Square size={18} className="shrink-0 text-neutral-500" />
+        <div className="min-w-[200px]">
+          <p className="font-semibold text-neutral-800">Búsqueda completa detenida · {pct}%</p>
+          <p className="text-xs text-neutral-500">
+            {barrido.revisadas.toLocaleString("es-MX")} de {barrido.total.toLocaleString("es-MX")} marcas revisadas
+            {barrido.errores > 0 && <span className="text-red-600"> · {barrido.errores} con error</span>}
+            {barrido.pausadaEn && ` · detenida ${new Date(barrido.pausadaEn).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}`}
+          </p>
+        </div>
+        <button onClick={iniciar} className="btn-primario"><Play size={14} /> {horas <= 30 ? "Continuar aquí desde donde se quedó" : "Revisar todas aquí"}</button>
+        {esAdmin && <button onClick={reanudar} disabled={cambiando} className="btn">Reanudar automática</button>}
+      </div>
+    );
+  }
+
   // ── Búsqueda automática de cada 7 días en curso ──
-  if (barrido?.activo && estado === "inactivo") {
+  if (modo === "todas" && barrido?.activo && estado === "inactivo") {
     const pct = barrido.total ? Math.round((barrido.revisadas / barrido.total) * 100) : 0;
     return (
       <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
@@ -130,12 +179,18 @@ export function ActualizarTodas({ barrido: barridoInicial }: { barrido?: EstadoB
           </div>
           <p className="text-xs text-amber-800">
             {barrido.revisadas.toLocaleString("es-MX")} de {barrido.total.toLocaleString("es-MX")} marcas · faltan aprox. <b>{formatoTiempo(restante ?? barrido.restanteSeg ?? 0)}</b>
+            {barrido.errores > 0 && <span className="text-red-600"> · {barrido.errores} con error</span>}
           </p>
         </div>
+        {esAdmin && (
+          <button onClick={pausar} disabled={cambiando} title="Detener la búsqueda completa" aria-label="Detener la búsqueda completa" className="ml-1 rounded-full p-1.5 text-amber-700 hover:bg-amber-200 hover:text-black">
+            <X size={18} />
+          </button>
+        )}
       </div>
     );
   }
-  if (barridoInicial?.activo && barrido && !barrido.activo && estado === "inactivo") {
+  if (modo === "todas" && barridoInicial?.activo && barrido && !barrido.activo && !barrido.pausada && estado === "inactivo") {
     return (
       <span className="inline-flex items-center gap-2 rounded-xl bg-marca-claro px-3 py-2 text-sm font-semibold text-marca-oscuro">
         <CheckCircle2 size={18} /> Listo · búsqueda completa terminada
@@ -153,8 +208,18 @@ export function ActualizarTodas({ barrido: barridoInicial }: { barrido?: EstadoB
       ) : (
         <button onClick={iniciar} disabled={ocupado} className="btn-primario">
           {ocupado ? <Hourglass size={15} className="animate-reloj" /> : <RefreshCw size={15} />}
-          {ocupado ? `Actualizando… ${restante != null ? formatoTiempo(restante) : ""}` : "Actualizar todas desde MARCanet"}
+          {ocupado ? `Actualizando… ${restante != null ? formatoTiempo(restante) : ""}` : etiqueta ?? (modo === "activos" ? "Revisar ahora los oficios en curso" : "Actualizar todas desde MARCanet")}
         </button>
+      )}
+      {/* Resultado de la última búsqueda completa: cuándo terminó y si hubo errores o faltaron marcas */}
+      {modo === "todas" && barrido?.termino && !barrido.activo && !barrido.pausada && estado === "inactivo" && (
+        <p className="basis-full text-xs text-neutral-500">
+          Última búsqueda completa: <b className="font-medium text-neutral-700">terminó el {new Date(barrido.termino).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })}</b>
+          {" · "}{barrido.revisadas.toLocaleString("es-MX")} de {barrido.total.toLocaleString("es-MX")} revisadas
+          {barrido.errores > 0 ? <span className="text-red-600"> · {barrido.errores} con error</span> : " · sin errores"}
+          {barrido.faltaron > 0 && <span className="text-amber-700"> · {barrido.faltaron} sin revisar</span>}
+          {barrido.proximo && ` · la próxima empieza el ${new Date(barrido.proximo).toLocaleDateString("es-MX", { day: "numeric", month: "long" })}`}
+        </p>
       )}
 
       {abierto && (
@@ -169,7 +234,7 @@ export function ActualizarTodas({ barrido: barridoInicial }: { barrido?: EstadoB
               <div>
                 <p className="text-base font-semibold">{estado === "terminado" ? (detener.current ? "Detenida" : "¡Listo!") : "Actualizando con MARCanet"}</p>
                 <p className="text-xs text-neutral-500">
-                  {estado === "corriendo" && "Deja esta página abierta."}
+                  {estado === "corriendo" && (continua ? `Continúa donde se quedó (${continua.toLocaleString("es-MX")} ya revisadas). Deja esta página abierta.` : "Deja esta página abierta.")}
                   {estado === "esperando" && `Pausa obligatoria del IMPI · continúa en ${formatoTiempo(espera)}`}
                   {estado === "terminado" && (detener.current ? "La próxima vez continúa con las que falten." : `Se revisaron ${avance.i.toLocaleString("es-MX")} marcas.`)}
                 </p>
@@ -211,7 +276,7 @@ export function ActualizarTodas({ barrido: barridoInicial }: { barrido?: EstadoB
             ) : (
               <Link href="/reportes" className="btn text-xs">Ver reporte →</Link>
             )}
-            <p className="self-center text-[11px] text-neutral-400">Primero las marcas con oficios en curso</p>
+            <p className="self-center text-[11px] text-neutral-400">{modo === "activos" ? "Solo marcas con oficios en curso" : "Primero las marcas con oficios en curso"}</p>
           </div>
         </div>
       )}

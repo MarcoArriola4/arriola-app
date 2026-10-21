@@ -3,7 +3,9 @@ import { Bell, CalendarX, UserPlus } from "lucide-react";
 import { db } from "@/lib/db";
 import { requerirAdmin } from "@/lib/auth";
 import { construirResumen } from "@/lib/alertas";
-import { crearUsuario, enviarAlertasAhora, guardarConfiguracion, revisarActivosEnMarcanet } from "@/app/actions";
+import { enviarAlertasAhora, guardarConfiguracion } from "@/app/actions";
+import { ActualizarTodas } from "@/components/actualizar-todas";
+import { estadoBarrido } from "@/lib/marcanet/estado";
 import { Encabezado } from "@/components/ui";
 
 export const metadata = { title: "Admin" };
@@ -12,12 +14,10 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
   await requerirAdmin();
   const sp = await searchParams;
   // Estado de la búsqueda completa en MARCanet
-  const cfgBarrido = await db.configuracion.findUnique({ where: { id: "main" } });
-  const totalSignos = await db.expediente.count({ where: { numeroExpediente: { not: null }, tipo: { in: ["MARCA", "AVISO", "NOMBRE_COMERCIAL"] } } });
-  const revisadosBarrido = cfgBarrido?.barridoInicio
-    ? await db.expediente.count({ where: { numeroExpediente: { not: null }, tipo: { in: ["MARCA", "AVISO", "NOMBRE_COMERCIAL"] }, marcanetSync: { gte: cfgBarrido.barridoInicio } } })
-    : 0;
-  const proximoBarrido = cfgBarrido?.barridoTermino ? new Date(cfgBarrido.barridoTermino.getTime() + cfgBarrido.diasEntreBarridos * 864e5) : null;
+  const [barrido, activosCount] = await Promise.all([
+    estadoBarrido(),
+    db.expediente.count({ where: { numeroExpediente: { not: null }, tipo: { in: ["MARCA", "AVISO", "NOMBRE_COMERCIAL"] }, notificaciones: { some: { estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"] } } } } }),
+  ]);
   const [syncs, sinConsultar] = await Promise.all([
     db.syncMarcanet.findMany({ orderBy: { inicio: "desc" }, take: 6 }),
     db.expediente.count({ where: { numeroExpediente: { not: null }, marcanetSync: null } }),
@@ -99,25 +99,17 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
                 {sinConsultar > 0 && ` ${sinConsultar.toLocaleString("es-MX")} expedientes aún no se han consultado.`}
               </p>
             </div>
-            <form action={revisarActivosEnMarcanet}><button className="btn">Revisar ahora los oficios en curso</button></form>
+            <div className="flex flex-col items-end gap-1">
+              <ActualizarTodas modo="activos" esAdmin />
+              <span className="text-[11px] text-neutral-400">{activosCount} marcas con oficios en curso · se revisan aquí mismo (deja la página abierta)</span>
+            </div>
           </div>
-          <div className="mb-4 rounded-lg bg-neutral-50 p-3 text-sm">
-            {cfgBarrido?.barridoInicio && !cfgBarrido.barridoTermino ? (
-              <>
-                <p className="font-medium">Búsqueda completa en curso desde el {cfgBarrido.barridoInicio.toLocaleDateString("es-MX", { day: "numeric", month: "long" })}</p>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-neutral-200">
-                  <div className="h-full rounded-full bg-marca" style={{ width: `${Math.min(100, Math.round((revisadosBarrido / Math.max(1, totalSignos)) * 100))}%` }} />
-                </div>
-                <p className="mt-1 text-xs text-neutral-500">{revisadosBarrido.toLocaleString("es-MX")} de {totalSignos.toLocaleString("es-MX")} marcas revisadas · corre sin parar en bloques de 6 h hasta terminar</p>
-              </>
-            ) : cfgBarrido?.barridoTermino ? (
-              <p>
-                <span className="font-medium">Última búsqueda completa terminada el {cfgBarrido.barridoTermino.toLocaleDateString("es-MX", { day: "numeric", month: "long" })}.</span>{" "}
-                <span className="text-neutral-500">La próxima empieza el {proximoBarrido?.toLocaleDateString("es-MX", { day: "numeric", month: "long" })} (cada {cfgBarrido.diasEntreBarridos} días). Mientras, se revisan a diario los oficios en curso.</span>
-              </p>
-            ) : (
-              <p className="text-neutral-500">La primera búsqueda completa empieza en la próxima corrida (cada 6 horas).</p>
-            )}
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-neutral-50 p-3 text-sm">
+            <ActualizarTodas barrido={barrido} esAdmin />
+            <p className="basis-full text-xs text-neutral-500">
+              La búsqueda completa revisa {barrido.total.toLocaleString("es-MX")} marcas: se omiten {barrido.omitidas.registradas.toLocaleString("es-MX")} registradas sin novedades
+              (se revisan si les agregas algo o cerca de los 3 y 10 años) y {barrido.omitidas.abandonadas.toLocaleString("es-MX")} abandonadas hace más de un mes.
+            </p>
           </div>
           {syncs.length === 0 ? <p className="text-sm text-neutral-400">Todavía no hay consultas.</p> : (
             <div className="overflow-x-auto">
@@ -126,8 +118,8 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
                 <tbody className="divide-y divide-black/5">
                   {syncs.map((s) => (
                     <tr key={s.id}>
-                      <td className="td whitespace-nowrap">{s.inicio.toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}{!s.fin && <span className="ml-1 text-xs text-amber-600">en curso…</span>}</td>
-                      <td className="td text-xs">{s.modo === "NOCTURNO" ? "Diaria" : s.modo === "MANUAL" ? "Manual" : "Un expediente"}</td>
+                      <td className="td whitespace-nowrap">{s.inicio.toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}{!s.fin && (Date.now() - s.inicio.getTime() < 6 * 3600 * 1000 ? <span className="ml-1 text-xs text-amber-600">en curso…</span> : <span className="ml-1 text-xs text-red-600">interrumpida</span>)}</td>
+                      <td className="td text-xs">{s.modo === "NOCTURNO" ? "Diaria" : s.modo === "MANUAL" ? "Manual (todas)" : s.modo === "ACTIVOS" ? "Manual (oficios en curso)" : s.modo === "BARRIDO" ? "Búsqueda completa" : "Un expediente"}</td>
                       <td className="td text-right">{s.consultados}/{s.total}</td>
                       <td className="td text-right font-medium">{s.nuevos}</td>
                       <td className="td text-right">{s.contestados}</td>
@@ -142,22 +134,18 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
         </section>
 
         <section className="card p-5 lg:col-span-2">
-          <h2 className="mb-3 text-sm font-semibold">Usuarios</h2>
-          <ul className="mb-4 divide-y divide-black/5 text-sm">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">Usuarios y permisos</h2>
+            <Link href="/admin/usuarios" className="btn-primario">Administrar usuarios</Link>
+          </div>
+          <ul className="divide-y divide-black/5 text-sm">
             {usuarios.map((u) => (
-              <li key={u.id} className="flex justify-between py-2">
+              <li key={u.id} className={`flex justify-between py-2 ${u.activo ? "" : "opacity-50"}`}>
                 <span>{u.nombre} <span className="text-neutral-400">· {u.email}</span></span>
-                <span className="text-xs text-neutral-500">{u.rol === "ADMIN" ? "Administrador" : "Operativo"}</span>
+                <span className="text-xs text-neutral-500">{u.rol === "ADMIN" ? "Administrador" : u.activo ? "Usuario" : "Desactivado"}</span>
               </li>
             ))}
           </ul>
-          <form action={crearUsuario} className="grid gap-2 sm:grid-cols-5">
-            <input name="nombre" required placeholder="Nombre" className="input" />
-            <input name="email" type="email" required placeholder="correo@arriolabogados.com" className="input sm:col-span-2" />
-            <input name="password" type="text" required minLength={8} placeholder="Contraseña inicial" className="input" autoComplete="off" />
-            <select name="rol" className="input"><option value="OPERATIVO">Operativo</option><option value="ADMIN">Administrador</option></select>
-            <button className="btn sm:col-span-5 sm:justify-self-start">+ Agregar usuario</button>
-          </form>
         </section>
       </div>
     </>

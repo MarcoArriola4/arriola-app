@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { requerirPermisoPagina } from "@/lib/auth";
 import { TIPOS_SERVICIO, fmtFecha, mxn } from "@/lib/catalogos";
 import { Encabezado, EstadoPago, Metrica, Origen, Vacio } from "@/components/ui";
 
@@ -8,6 +9,7 @@ export const metadata = { title: "Pagos" };
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
 export default async function Pagos({ searchParams }: { searchParams: Promise<{ mes?: string; estado?: string }> }) {
+  await requerirPermisoPagina("ver_pagos");
   const { mes, estado = "" } = await searchParams;
   const ahora = new Date();
   const [y, m] = (mes ?? `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`).split("-").map(Number);
