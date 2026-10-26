@@ -172,6 +172,9 @@ model Configuracion {
   solicitudBusqueda  DateTime? // se pidió desde la app correr la búsqueda completa (GitHub la toma en ≤15 min)
   solicitudActivos   DateTime? // se pidió revisar ya los oficios en curso
   solicitudMarcas    String?   // ids de marcas a revisar ya (p. ej. desde el reporte de un cliente), separados por coma
+  solicitudMarcasEn  DateTime?
+  trabajadorHasta    DateTime? // la app (Vercel) está procesando en segundo plano hasta esta hora (candado)
+  esperaCuotaHasta   DateTime? // MARCanet pidió esperar: no consultar antes de esta hora
 }
 
 // Días inhábiles del IMPI (acuerdos publicados en el DOF y suspensiones extraordinarias)

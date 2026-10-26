@@ -17,6 +17,7 @@
   "dependencies": {
     "@prisma/client": "^6.16.2",
     "bcryptjs": "^3.0.2",
+    "docx": "9.9.0",
     "exceljs": "^4.4.0",
     "jose": "^6.1.0",
     "lucide-react": "^0.544.0",

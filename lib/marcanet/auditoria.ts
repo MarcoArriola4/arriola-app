@@ -48,63 +48,63 @@ export function estatusDesdeMarcanet(r: ExpedienteMarcanet, hoy = new Date()): {
 
 const TONO_ETAPA: Record<string, MarcaAuditada["tono"]> = { CONCEDIDA: "verde", EN_TRAMITE: "azul", POR_PRESENTAR: "azul", CON_OFICIO: "ambar", EN_JUICIO: "ambar", NEGATIVA: "rojo", CONFIRMA_ACTO: "rojo", ABANDONADA: "gris" };
 
-/** Ejecuta una auditoría pendiente. Respeta la cuota de MARCanet (espera y reintenta). */
-export async function procesarAuditoria(db: PrismaClient, id: string, log: (m: string) => void = () => {}) {
-  const a = await db.auditoria.findUniqueOrThrow({ where: { id } });
-  const nombres = JSON.parse(a.nombres) as string[];
-  const avance = (t: string) => db.auditoria.update({ where: { id }, data: { avance: t } });
-  await db.auditoria.update({ where: { id }, data: { estado: "BUSCANDO", avance: "Empezando…" } });
+type Estado = ResultadoAuditoria & { fase?: "BUSQUEDA" | "DETALLES"; paso?: number };
 
-  const conCuota = async <T>(fn: () => Promise<T>): Promise<T> => {
-    for (let intento = 0; ; intento++) {
-      try {
-        return await fn();
-      } catch (e) {
-        if (e instanceof MarcanetCuotaError && intento < 4) {
-          await avance("Pausa obligatoria de MARCanet (10 min)…");
-          await esperar(ESPERA_CUOTA_MS);
-          continue;
-        }
-        throw e;
-      }
-    }
-  };
+/**
+ * Avanza una auditoría hasta `limite` (ms epoch) y guarda dónde se quedó: se puede continuar en otra corrida.
+ * Devuelve true si ya terminó. Si MARCanet pide esperar, lanza MarcanetCuotaError (lo hecho queda guardado).
+ */
+export async function avanzarAuditoria(db: PrismaClient, id: string, limite: number): Promise<boolean> {
+  const a = await db.auditoria.findUniqueOrThrow({ where: { id } });
+  if (a.estado === "LISTA" || a.estado === "ERROR") return true;
+  const nombres = JSON.parse(a.nombres) as string[];
+  const st: Estado = a.resultado ? JSON.parse(a.resultado) : { busquedas: [], marcas: [] };
+  st.fase ??= "BUSQUEDA";
+  st.paso ??= 0;
+  const guardar = (avance: string | null) => db.auditoria.update({ where: { id }, data: { estado: "BUSCANDO", avance, resultado: JSON.stringify(st) } });
+  const tareas = nombres.flatMap((nombre) => (["TITULAR", "APODERADO"] as Como[]).map((como) => ({ nombre, como })));
 
   // 1) Cada nombre como titular y como apoderado
-  const res: ResultadoAuditoria = { busquedas: [], marcas: [] };
-  const porExpediente = new Map<string, MarcaAuditada>();
-  for (const nombre of nombres) {
-    for (const como of ["TITULAR", "APODERADO"] as Como[]) {
-      await avance(`Buscando «${nombre}» como ${como === "TITULAR" ? "titular" : "apoderado"}…`);
-      log(`Buscando ${como.toLowerCase()}`);
-      try {
-        const r = await conCuota(() => buscarPorNombre(nombre, como));
-        res.busquedas.push({ nombre, como, coincidencias: r.coincidencias, parecidos: r.parecidos, marcas: new Set(r.marcas.map((m) => m.expediente)).size });
-        for (const m of r.marcas) {
-          const previa = porExpediente.get(m.expediente);
-          if (previa) {
-            if (!previa.encontradaComo.some((x) => x.como === como && x.nombre === m.nombreImpi)) previa.encontradaComo.push({ como, nombre: m.nombreImpi });
-            continue;
-          }
-          const { nombreImpi, ...datos } = m;
-          porExpediente.set(m.expediente, { ...datos, encontradaComo: [{ como, nombre: nombreImpi }], estatus: "", tono: "gris", ultimo: null, fechaPresentacion: null, fechaConcesion: null, vigencia: null, enApp: null });
-        }
-      } catch (e) {
-        res.busquedas.push({ nombre, como, coincidencias: [], parecidos: [], marcas: 0, error: e instanceof Error ? e.message : "Error" });
-      }
-      await db.auditoria.update({ where: { id }, data: { resultado: JSON.stringify({ ...res, marcas: [...porExpediente.values()] }) } });
+  while (st.fase === "BUSQUEDA") {
+    if (st.paso >= tareas.length) {
+      st.fase = "DETALLES";
+      st.paso = 0;
+      await guardar("Consultando el estatus de cada marca…");
+      break;
     }
+    if (Date.now() > limite) return false;
+    const { nombre, como } = tareas[st.paso];
+    await db.auditoria.update({ where: { id }, data: { estado: "BUSCANDO", avance: `Buscando «${nombre}» como ${como === "TITULAR" ? "titular" : "apoderado"} (${st.paso + 1} de ${tareas.length})…` } });
+    try {
+      const r = await buscarPorNombre(nombre, como);
+      st.busquedas.push({ nombre, como, coincidencias: r.coincidencias, parecidos: r.parecidos, marcas: new Set(r.marcas.map((m) => m.expediente)).size });
+      for (const m of r.marcas) {
+        const previa = st.marcas.find((x) => x.expediente === m.expediente);
+        if (previa) {
+          if (!previa.encontradaComo.some((x) => x.como === como && x.nombre === m.nombreImpi)) previa.encontradaComo.push({ como, nombre: m.nombreImpi });
+          continue;
+        }
+        const { nombreImpi, ...datos } = m;
+        st.marcas.push({ ...datos, encontradaComo: [{ como, nombre: nombreImpi }], estatus: "", tono: "gris", ultimo: null, fechaPresentacion: null, fechaConcesion: null, vigencia: null, enApp: null });
+      }
+    } catch (e) {
+      if (e instanceof MarcanetCuotaError) throw e;
+      st.busquedas.push({ nombre, como, coincidencias: [], parecidos: [], marcas: 0, error: e instanceof Error ? e.message : "Error" });
+    }
+    st.paso++;
+    await guardar(null);
   }
 
   // 2) Estatus actual de cada marca encontrada (si la app la consultó hace menos de 7 días, se usan sus datos)
-  const lista = [...porExpediente.values()];
   const enApp = new Map(
-    (await db.expediente.findMany({ where: { numeroExpediente: { in: lista.map((m) => m.expediente) } }, select: { id: true, clienteId: true, numeroExpediente: true, etapa: true, desistio: true, marcanetSync: true, ultimaActImpi: true, ultimaActImpiFecha: true, fechaPresentacion: true, fechaConcesion: true } }))
+    (await db.expediente.findMany({ where: { numeroExpediente: { in: st.marcas.map((m) => m.expediente) } }, select: { id: true, clienteId: true, numeroExpediente: true, etapa: true, desistio: true, marcanetSync: true, ultimaActImpi: true, ultimaActImpiFecha: true, fechaPresentacion: true, fechaConcesion: true } }))
       .map((e) => [e.numeroExpediente!, e])
   );
   const reciente = Date.now() - 7 * 864e5;
-  for (const [i, m] of lista.entries()) {
-    await avance(`Consultando el estatus de cada marca: ${i + 1} de ${lista.length}`);
+  while (st.paso! < st.marcas.length) {
+    if (Date.now() > limite) return false;
+    const m = st.marcas[st.paso!];
+    await db.auditoria.update({ where: { id }, data: { avance: `Consultando el estatus de cada marca: ${st.paso! + 1} de ${st.marcas.length}` } });
     const e = enApp.get(m.expediente);
     if (e) m.enApp = { id: e.id, clienteId: e.clienteId };
     if (e && e.marcanetSync && e.marcanetSync.getTime() > reciente) {
@@ -114,24 +114,44 @@ export async function procesarAuditoria(db: PrismaClient, id: string, log: (m: s
       m.ultimo = e.ultimaActImpi && e.ultimaActImpiFecha ? { fecha: e.ultimaActImpiFecha.toISOString(), texto: e.ultimaActImpi } : null;
       m.fechaPresentacion = iso(e.fechaPresentacion);
       m.fechaConcesion = iso(e.fechaConcesion);
-      continue;
+    } else {
+      try {
+        const r = await consultarMarcanet(m.expediente);
+        Object.assign(m, estatusDesdeMarcanet(r));
+        const u = ultimaActualizacion(r);
+        m.ultimo = u ? { fecha: u.fecha.toISOString(), texto: u.texto } : null;
+        m.fechaPresentacion = iso(r.fechaPresentacion);
+        m.fechaConcesion = iso(r.fechaConcesion);
+        m.vigencia = iso(r.fechaVigencia);
+        if (!m.registro && r.numeroRegistro) m.registro = r.numeroRegistro;
+      } catch (err) {
+        if (err instanceof MarcanetCuotaError) throw err;
+        m.estatus = "No se pudo consultar";
+        m.error = err instanceof Error ? err.message : "Error";
+      }
     }
-    try {
-      const r = await conCuota(() => consultarMarcanet(m.expediente));
-      Object.assign(m, estatusDesdeMarcanet(r));
-      const u = ultimaActualizacion(r);
-      m.ultimo = u ? { fecha: u.fecha.toISOString(), texto: u.texto } : null;
-      m.fechaPresentacion = iso(r.fechaPresentacion);
-      m.fechaConcesion = iso(r.fechaConcesion);
-      m.vigencia = iso(r.fechaVigencia);
-      if (!m.registro && r.numeroRegistro) m.registro = r.numeroRegistro;
-    } catch (err) {
-      m.estatus = "No se pudo consultar";
-      m.error = err instanceof Error ? err.message : "Error";
-    }
-    if (i % 5 === 4) await db.auditoria.update({ where: { id }, data: { resultado: JSON.stringify({ ...res, marcas: lista }) } });
+    st.paso!++;
+    if (st.paso! % 3 === 0) await guardar(null);
   }
-  res.marcas = lista;
-  await db.auditoria.update({ where: { id }, data: { estado: "LISTA", avance: null, terminado: new Date(), resultado: JSON.stringify(res) } });
-  log(`Auditoría lista: ${lista.length} marcas`);
+  const { fase: _f, paso: _p, ...final } = st;
+  void _f; void _p;
+  await db.auditoria.update({ where: { id }, data: { estado: "LISTA", avance: null, terminado: new Date(), resultado: JSON.stringify(final) } });
+  return true;
+}
+
+/** Ejecuta una auditoría completa (la usa la revisión automática de GitHub como respaldo). Respeta la cuota de MARCanet. */
+export async function procesarAuditoria(db: PrismaClient, id: string, log: (m: string) => void = () => {}) {
+  for (let esperas = 0; ; ) {
+    try {
+      if (await avanzarAuditoria(db, id, Date.now() + 6 * 3600 * 1000)) break;
+    } catch (e) {
+      if (e instanceof MarcanetCuotaError && esperas++ < 6) {
+        await db.auditoria.update({ where: { id }, data: { avance: "Pausa obligatoria de MARCanet (10 min)…" } });
+        await esperar(ESPERA_CUOTA_MS);
+        continue;
+      }
+      throw e;
+    }
+  }
+  log("Auditoría lista");
 }

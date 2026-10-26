@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CheckCircle2, Hourglass, Play, RefreshCw, Square, X } from "lucide-react";
-import { consultarEstadoBarrido, detenerBusqueda, reanudarBusqueda, solicitarBusqueda, solicitarRevisionActivos } from "@/app/actions";
+import { asegurarTrabajador, consultarEstadoBarrido, detenerBusqueda, reanudarBusqueda, solicitarBusqueda, solicitarRevisionActivos } from "@/app/actions";
 import type { EstadoBarrido } from "@/lib/marcanet/estado";
 
 /** "1 h 23 min", "4 min 05 s", "12 s" */
@@ -46,7 +46,7 @@ export function ActualizarTodas({
   useEffect(() => {
     if (!vivo) return;
     const sondeo = setInterval(async () => {
-      try { setB(await consultarEstadoBarrido()); } catch {}
+      try { setB(await consultarEstadoBarrido()); void asegurarTrabajador(); } catch {}
     }, 30000);
     return () => clearInterval(sondeo);
   }, [vivo]);

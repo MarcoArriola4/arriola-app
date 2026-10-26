@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, Hourglass } from "lucide-react";
+import { ChevronLeft, FileDown, Hourglass } from "lucide-react";
 import { db } from "@/lib/db";
 import { requerirSesion } from "@/lib/auth";
 import { fmtFecha } from "@/lib/catalogos";
@@ -39,7 +39,12 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
         {cliente ? <Link href={`/clientes/${cliente.id}/auditoria`} className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-black"><ChevronLeft size={15} /> {cliente.nombre}</Link> : <span />}
-        {lista && <Imprimir />}
+        {lista && (
+          <div className="flex flex-wrap gap-2">
+            <a href={`/api/auditorias/${a.id}/word`} className="btn"><FileDown size={14} /> Descargar en Word</a>
+            <Imprimir />
+          </div>
+        )}
       </div>
 
       {!lista && (

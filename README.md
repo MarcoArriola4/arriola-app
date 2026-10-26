@@ -11,7 +11,7 @@ App web para llevar marcas del IMPI, notificaciones (oficios), pagos y vencimien
 | **Notificaciones** | Tablero de oficios en plazo: Recibida → Cliente avisado → Pagado / en trabajo → Contestada (vencidas y "No pagó" en apartados aparte) |
 | **Contrataciones** | Hoja del mes: quién contrató, quién lo vendió, si ya se trabajó, si pagó completo o en parte y qué falta por hacer. Consecutivo fijo: la más reciente lleva el número más alto (arriba) y la #1 es la primera del mes |
 | **Clientes y marcas** | Perfil del cliente (una persona, con sus marcas separadas por titular o razón social): marcas y, aparte, patentes / modelos / diseños industriales; oficios con su paso editable, pagos, historial, acceso IMPI y última actualización de MARCanet. Botones "Ya no quiere continuar" y "Eliminar marca" (admin) |
-| **Auditoría + Reporte** | En el perfil del cliente: busca en MARCanet cada titular y apoderado (como titular y como apoderado), junta todas sus marcas y su estatus actual en un reporte para imprimir o guardar en PDF. Solo queda en el reporte; no crea marcas en la app. Corre en la revisión automática |
+| **Auditoría + Reporte** | En el perfil del cliente: busca en MARCanet cada titular y apoderado (como titular y como apoderado), junta todas sus marcas y su estatus actual en un reporte para imprimir o guardar en PDF. Solo queda en el reporte; no crea marcas en la app. Se descarga en Word (para editar) o PDF. Corre en segundo plano dentro de la app |
 | **Reporte rápido** | En el perfil del cliente (o por titular): estatus de todas sus marcas, último movimiento del IMPI y próximos pasos, listo para imprimir o guardar en PDF |
 | **Reportes** | Notificaciones nuevas de cada búsqueda en MARCanet y oficios de meses anteriores aún en plazo; el paso de cada oficio se cambia ahí mismo |
 | **Exportar Excel** (admin) | Descarga la pestaña "Pagos" con todo lo de la app, en el mismo formato (A–Z, encabezado en la fila 5, mismos colores) |
@@ -57,6 +57,13 @@ Cómo se lee el Excel:
 - Lo que se crea o se mueve en la app (notificaciones, cobros, pagos, historial) **no se sobrescribe** al reimportar.
 
 El primer usuario administrador (correo en `ADMIN_EMAIL`) queda en `CREDENCIALES-INICIALES.txt`. Cambia la contraseña en Configuración y luego borra ese archivo.
+
+## Trabajo en segundo plano (`/api/tareas`, `lib/trabajador.ts`)
+
+Las auditorías, "Revisar ahora los oficios en curso", las marcas pedidas desde un reporte y la búsqueda completa las procesa la
+propia app en Vercel, en tramos de ~4 min que se encadenan solos hasta terminar (aunque se cierre la app). El cron diario de Vercel
+programa la búsqueda de cada 7 días y la revisión diaria. GitHub Actions queda como respaldo y comparte el mismo candado para no
+consultar MARCanet al mismo tiempo.
 
 ## Actualización automática con MARCanet (IMPI)
 

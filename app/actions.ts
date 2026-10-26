@@ -13,6 +13,8 @@ import { sincronizarExpediente, sincronizarMarcanet } from "@/lib/marcanet/sincr
 import { expedientesDelBarrido } from "@/lib/marcanet/seleccion";
 import { MarcanetCuotaError } from "@/lib/marcanet/consulta";
 import { estadoBarrido } from "@/lib/marcanet/estado";
+import { despertarTrabajador } from "@/lib/despertar";
+import { hayTrabajo } from "@/lib/trabajador";
 import { PERMISOS } from "@/lib/permisos";
 import { PASOS_OFICIO, aplicarPasoOficio, sincronizarDesdeCobro, textoPlazo } from "@/lib/estado-oficio";
 
@@ -799,6 +801,7 @@ export async function reanudarBusqueda() {
   await requerirAdmin();
   await db.configuracion.update({ where: { id: "main" }, data: { barridoPausa: null } });
   revalidatePath("/", "layout");
+  await despertarTrabajador();
   return estadoBarrido();
 }
 
@@ -1048,6 +1051,7 @@ export async function solicitarBusqueda() {
   await requerirSesion();
   await db.configuracion.update({ where: { id: "main" }, data: { solicitudBusqueda: new Date() } });
   revalidatePath("/", "layout");
+  await despertarTrabajador();
   return estadoBarrido();
 }
 
@@ -1056,6 +1060,7 @@ export async function solicitarRevisionActivos() {
   await requerirSesion();
   await db.configuracion.update({ where: { id: "main" }, data: { solicitudActivos: new Date() } });
   revalidatePath("/", "layout");
+  await despertarTrabajador();
   return estadoBarrido();
 }
 
@@ -1064,8 +1069,9 @@ export async function solicitarRevisionMarcas(ids: string[]) {
   await requerirSesion();
   const cfg = await db.configuracion.findUnique({ where: { id: "main" } });
   const todas = [...new Set([...(cfg?.solicitudMarcas?.split(",").filter(Boolean) ?? []), ...ids])].slice(0, 300);
-  await db.configuracion.update({ where: { id: "main" }, data: { solicitudMarcas: todas.join(",") } });
+  await db.configuracion.update({ where: { id: "main" }, data: { solicitudMarcas: todas.join(","), solicitudMarcasEn: new Date() } });
   revalidatePath("/clientes", "layout");
+  await despertarTrabajador();
 }
 
 // ───────────── Auditoría + Reporte (búsqueda en MARCanet por titular y por apoderado) ─────────────
@@ -1079,6 +1085,7 @@ export async function crearAuditoria(form: FormData) {
   const nombres = [...new Set([...elegidos, ...extra])].slice(0, 15);
   if (!nombres.length) redirect(`/clientes/${clienteId}/auditoria?error=nombres`);
   const a = await db.auditoria.create({ data: { clienteId, nombres: JSON.stringify(nombres), autor: sesion.nombre } });
+  await despertarTrabajador();
   redirect(`/auditorias/${a.id}`);
 }
 
@@ -1087,4 +1094,13 @@ export async function eliminarAuditoria(id: string) {
   const a = await db.auditoria.delete({ where: { id } });
   revalidatePath(`/clientes/${a.clienteId}/auditoria`);
   return a.clienteId;
+}
+
+
+/** Lo llaman las pantallas que muestran avance: si hay trabajo pendiente y nadie lo está haciendo, lo arranca. */
+export async function asegurarTrabajador() {
+  await requerirSesion();
+  const cfg = await db.configuracion.findUnique({ where: { id: "main" }, select: { trabajadorHasta: true } });
+  if (cfg?.trabajadorHasta && cfg.trabajadorHasta > new Date()) return;
+  if (await hayTrabajo(db)) await despertarTrabajador();
 }

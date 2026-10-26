@@ -31,6 +31,26 @@ async function main() {
   let cfg = await db.configuracion.upsert({ where: { id: "main" }, update: {}, create: { id: "main" } });
   const ahora = new Date();
 
+  // La app (Vercel) ya está trabajando en segundo plano: GitHub no se encima (es solo respaldo).
+  // Si no, GitHub toma el candado mientras corre para que la app no consulte MARCanet al mismo tiempo.
+  const candado = await db.configuracion.updateMany({
+    where: { id: "main", OR: [{ trabajadorHasta: null }, { trabajadorHasta: { lt: ahora } }] },
+    data: { trabajadorHasta: new Date(ahora.getTime() + (horas + 0.5) * 3600 * 1000) },
+  });
+  if (!candado.count) {
+    log("La app está trabajando en segundo plano; nada que hacer aquí.");
+    return;
+  }
+  try {
+    await cicloConCandado(cfg, ahora);
+  } finally {
+    await db.configuracion.update({ where: { id: "main" }, data: { trabajadorHasta: null } });
+  }
+}
+
+async function cicloConCandado(cfgInicial: Awaited<ReturnType<typeof db.configuracion.upsert>>, ahora: Date) {
+  let cfg = cfgInicial;
+
   // Corridas que GitHub cortó (sin hora de término): se cierran para que no se queden "en curso" para siempre
   await db.syncMarcanet.updateMany({
     where: { fin: null, inicio: { lt: new Date(ahora.getTime() - 6 * 3600 * 1000) } },

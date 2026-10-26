@@ -13,5 +13,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!login|api/cron|_next|icon.png|logo.png).*)"],
+  matcher: ["/((?!login|api/cron|api/tareas|_next|icon.png|logo.png).*)"],
 };
