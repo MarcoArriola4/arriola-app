@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Prisma } from "@prisma/client";
-import { CheckCircle2, ChevronLeft, Mail, MessageCircle, Phone, Plus } from "lucide-react";
+import { CheckCircle2, ChevronLeft, FileText, Mail, MessageCircle, Phone, Plus } from "lucide-react";
 import { db } from "@/lib/db";
 import { requerirSesion } from "@/lib/auth";
 import { ESTADOS_TRABAJO, ETAPAS, TIPOS_EXPEDIENTE, TIPOS_OFICIO, TIPOS_SERVICIO, esSigno, fmtFecha, mxn, normalizarNombre } from "@/lib/catalogos";
@@ -9,7 +9,8 @@ import { fechaLimiteDDU, fechaRenovacion, type Inhabiles } from "@/lib/plazos";
 import { cargarInhabiles } from "@/lib/inhabiles";
 import { EstadoPago, Etapa, Metrica, Origen, Parcialidades, Plazo, PlazoOficio, Vacio } from "@/components/ui";
 import { AccesoImpi, Abono, BotonMarcanet, CambiarEtapa, EditarCliente, EditarExpediente, EditarServicio, EliminarMarca, NuevoCobro, YaNoContinua } from "@/components/ficha";
-import { ControlOficio } from "@/components/control-oficio";
+import { ControlOficio, SeguimientoNuevo } from "@/components/control-oficio";
+import { tipoDesdeImpi } from "@/lib/marcanet/sincronizar";
 import { NotasMarca } from "@/components/notas-marca";
 import { dondeAparece, textoPlazo } from "@/lib/estado-oficio";
 import { estaVencida } from "@/lib/plazos";
@@ -90,6 +91,7 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
             {tel.length >= 10 && <a href={`https://wa.me/${tel.length === 10 ? "52" + tel : tel}`} target="_blank" rel="noreferrer" className="btn text-green-700"><MessageCircle size={14} /> WhatsApp</a>}
             {tel.length >= 10 && <a href={`tel:${tel}`} className="btn"><Phone size={14} /> Llamar</a>}
             {c.email && <a href={`mailto:${c.email}`} className="btn"><Mail size={14} /> Correo</a>}
+            <Link href={`/clientes/${c.id}/reporte`} className="btn"><FileText size={14} /> Reporte para el cliente</Link>
             {puede("altas") && <EditarCliente c={{ id: c.id, nombre: c.nombre, telefono: c.telefono, email: c.email, rfc: c.rfc, notas: c.notas }} />}
             {puede("altas") && <Link href={`/admin/alta?cliente=${c.id}`} className="btn-primario"><Plus size={14} /> Agregar servicio</Link>}
           </div>
@@ -149,7 +151,10 @@ function ListaExpedientes({ titulo, lista, clienteId, selId, vacio, cliente }: {
           {varios && (
             <p className="mb-1.5 flex items-baseline justify-between gap-2 border-b border-black/10 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-600">
               <span className="min-w-0">{(items[0].titular ?? cliente).split("/").slice(1).join("/").trim() || (items[0].titular ?? cliente)}</span>
-              <span className="shrink-0 font-normal text-neutral-400">{items.length}</span>
+              <span className="flex shrink-0 items-center gap-2 font-normal text-neutral-400">
+                <Link href={`/clientes/${clienteId}/reporte?titular=${encodeURIComponent(k)}`} className="normal-case text-neutral-500 hover:text-black hover:underline">Reporte</Link>
+                {items.length}
+              </span>
             </p>
           )}
           <ul className="space-y-2">
@@ -174,7 +179,11 @@ function ListaExpedientes({ titulo, lista, clienteId, selId, vacio, cliente }: {
                     {activa && (
                       <p className="mt-1.5 flex items-center gap-2 text-xs">
                         <span className="text-amber-700">{TIPOS_OFICIO[activa.tipo]}</span>
-                        <PlazoOficio n={activa} />
+                        {activa.estado === "EN_TRABAJO" || activa.estado === "PAGAR_SISTEMA" ? (
+                          <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700">{activa.estado === "EN_TRABAJO" ? "Pagado · por trabajar" : "Pagar en sistema"}</span>
+                        ) : (
+                          <PlazoOficio n={activa} />
+                        )}
                       </p>
                     )}
                   </Link>
@@ -307,8 +316,8 @@ function DetalleMarca({ e, permisos, inhabiles }: { e: Exp; permisos: Set<string
         </div>
         {e.oficiosImpi.length === 0 ? <Vacio>{e.marcanetSync ? "El IMPI no tiene oficios registrados para este expediente." : "Se llenará con la próxima consulta automática."}</Vacio> : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[620px] text-sm">
-              <thead><tr className="border-b border-black/5"><th className="th">Oficio del IMPI</th><th className="th">Fecha</th><th className="th">Notificación</th><th className="th">Contestación</th></tr></thead>
+            <table className="w-full min-w-[960px] text-sm">
+              <thead><tr className="border-b border-black/5"><th className="th">Oficio del IMPI</th><th className="th">Fecha</th><th className="th">Notificación</th><th className="th">Contestación</th><th className="th">Seguimiento del despacho</th></tr></thead>
               <tbody className="divide-y divide-black/5">
                 {e.oficiosImpi.map((o) => {
                   const promo = e.promocionesImpi.find((p) => p.oficioRelacionado === o.numero);
@@ -321,6 +330,21 @@ function DetalleMarca({ e, permisos, inhabiles }: { e: Exp; permisos: Set<string
                         {o.fechaNotificacion ? <span className="whitespace-nowrap">{fmtFecha(o.fechaNotificacion)}</span> : interno ? "—" : <span className="text-sky-700" title={o.estadoNotificacion ?? ""}>Aún no notificado</span>}
                       </td>
                       <td className="td">{promo ? <span className="text-marca-oscuro">{fmtFecha(promo.fechaPresentacion)}<span className="block text-xs text-neutral-400">{promo.descripcion}</span></span> : interno ? "" : "—"}</td>
+                      <td className="td min-w-[300px]">
+                        {interno ? null : (() => {
+                          // La tarjeta de este oficio en la app (misma marca): su paso se cambia aquí y se refleja en todos lados
+                          const n = e.notificaciones.find((x) => x.numeroOficio === o.numero);
+                          if (n) {
+                            return (
+                              <>
+                                <ControlOficio conPasos soloLectura={!puede("oficios")} o={{ id: n.id, estado: n.estado, tipo: n.tipo, denominacion: e.denominacion, fechaLimite: n.fechaLimite.toISOString(), fechaLimiteRevision: n.fechaLimiteRevision?.toISOString() ?? null, montoCotizado: n.montoCotizado }} />
+                                <span className="mt-1 block text-[11px] text-neutral-400">{TIPOS_OFICIO[n.tipo]} · {dondeAparece(n)}</span>
+                              </>
+                            );
+                          }
+                          return puede("oficios") ? <SeguimientoNuevo oficioImpiId={o.id} tipoSugerido={tipoDesdeImpi(o.descripcion)} /> : <span className="text-xs text-neutral-400">Sin seguimiento</span>;
+                        })()}
+                      </td>
                     </tr>
                   );
                 })}

@@ -1,8 +1,8 @@
 "use client";
 import { useState, useTransition } from "react";
 import { Undo2 } from "lucide-react";
-import { avisarCliente, fijarPasoOficio, marcarContestada, marcarNoPago, marcarPagarSistema, regresarNotificacion, registrarPagoNotificacion } from "@/app/actions";
-import { BANCOS, MEDIOS_DEFENSA } from "@/lib/catalogos";
+import { seguimientoOficioImpi, avisarCliente, fijarPasoOficio, marcarContestada, marcarNoPago, marcarPagarSistema, regresarNotificacion, registrarPagoNotificacion } from "@/app/actions";
+import { BANCOS, MEDIOS_DEFENSA, TIPOS_OFICIO } from "@/lib/catalogos";
 import { PASOS_OFICIO } from "@/lib/estado-oficio";
 import { siguientePlazo } from "@/lib/plazos";
 
@@ -30,6 +30,7 @@ export function ControlOficio({ o, conPasos = false, soloLectura = false }: { o:
   const [enviando, setEnviando] = useState(false);
   const [pendiente, iniciar] = useTransition();
   const negativa = o.tipo === "NEGATIVA" || o.tipo === "CONFIRMA_ACTO";
+  const alegatos = o.tipo === "ALEGATOS";
 
   const enviar = (fn: (f: FormData) => Promise<void>) => async (f: FormData) => {
     setEnviando(true);
@@ -43,7 +44,8 @@ export function ControlOficio({ o, conPasos = false, soloLectura = false }: { o:
 
   const irA = (estado: string) => {
     if (estado === o.estado || soloLectura) return;
-    if (!confirm(`¿Mover "${o.denominacion}" a "${PASOS_OFICIO[estado]}"?`)) return;
+    const nombre = estado === "NO_PAGO" && alegatos ? PASOS_OFICIO.NO_PAGO_ALEGATOS : PASOS_OFICIO[estado];
+    if (!confirm(`¿Mover "${o.denominacion}" a "${nombre}"?`)) return;
     iniciar(() => fijarPasoOficio(o.id, estado, hoyISO()));
   };
 
@@ -71,7 +73,18 @@ export function ControlOficio({ o, conPasos = false, soloLectura = false }: { o:
               </button>
             );
           })}
-          {(o.estado === "NO_PAGO" || o.estado === "CERRADA") && (
+          {o.estado !== "CERRADA" && (
+            <button
+              type="button"
+              disabled={pendiente}
+              onClick={() => irA("NO_PAGO")}
+              title={alegatos ? "El cliente no quiso contestar (el trámite sigue)" : "El cliente no pagó (riesgo de abandono)"}
+              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 transition ${o.estado === "NO_PAGO" ? "bg-red-600 text-white ring-red-600" : "bg-white text-red-600 ring-red-200 hover:bg-red-50"}`}
+            >
+              ✕ {alegatos ? "No quiso contestar" : "No pagó"}
+            </button>
+          )}
+          {o.estado === "CERRADA" && (
             <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700 ring-1 ring-red-200">{PASOS_OFICIO[o.estado]}</span>
           )}
           {pendiente && <span className="text-[11px] text-neutral-400">Guardando…</span>}
@@ -124,9 +137,9 @@ export function ControlOficio({ o, conPasos = false, soloLectura = false }: { o:
           {o.estado === "AVISADO" && (
             <>
               <button onClick={() => setAbierto(true)} className="btn-primario px-2.5 py-1 text-xs">Ya pagó</button>
-              <form action={enviar(marcarNoPago)} onSubmit={(e) => { if (!confirm(`¿Marcar que el cliente no pagó "${o.denominacion}"? Se archivará con riesgo de abandono.`)) e.preventDefault(); }}>
+              <form action={enviar(marcarNoPago)} onSubmit={(e) => { if (!confirm(alegatos ? `¿El cliente no quiso contestar los alegatos de "${o.denominacion}"? El trámite de la marca sigue normal.` : `¿Marcar que el cliente no pagó "${o.denominacion}"? Se archivará con riesgo de abandono.`)) e.preventDefault(); }}>
                 <input type="hidden" name="id" value={o.id} />
-                <button className="btn px-2.5 py-1 text-xs text-neutral-500">No pagó</button>
+                <button className="btn px-2.5 py-1 text-xs text-neutral-500">{alegatos ? "No quiso contestar" : "No pagó"}</button>
               </form>
             </>
           )}
@@ -142,7 +155,7 @@ export function ControlOficio({ o, conPasos = false, soloLectura = false }: { o:
           {o.estado === "PAGAR_SISTEMA" && <button onClick={() => setAbierto(true)} className="btn-primario px-2.5 py-1 text-xs">Pagado en sistema y presentado</button>}
           {o.estado === "NO_PAGO" && (
             <>
-              <span className="text-xs font-medium text-red-600">No pagó</span>
+              <span className="text-xs font-medium text-red-600">{alegatos ? "No quiso contestar · el trámite sigue" : "No pagó"}</span>
               <button onClick={() => setAbierto(true)} className="btn px-2.5 py-1 text-xs">Volví a avisar</button>
             </>
           )}
@@ -174,6 +187,23 @@ function Botones({ enviando, texto, cancelar }: { enviando: boolean; texto: stri
     <div className="flex gap-2 pt-1">
       <button disabled={enviando} className="btn-primario px-2.5 py-1 text-xs">{enviando ? "Guardando…" : texto}</button>
       <button type="button" onClick={cancelar} className="btn px-2.5 py-1 text-xs">Cancelar</button>
+    </div>
+  );
+}
+
+/** Oficio de MARCanet sin tarjeta: elegir qué tipo es y empezar a darle seguimiento (avisé, pagó, trabajado…). */
+export function SeguimientoNuevo({ oficioImpiId, tipoSugerido }: { oficioImpiId: string; tipoSugerido: string | null }) {
+  const [tipo, setTipo] = useState(tipoSugerido ?? "");
+  const [pendiente, iniciar] = useTransition();
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="input w-auto py-1 text-xs">
+        <option value="">¿Qué oficio es?</option>
+        {Object.entries(TIPOS_OFICIO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </select>
+      <button disabled={!tipo || pendiente} onClick={() => iniciar(() => seguimientoOficioImpi(oficioImpiId, tipo))} className="btn-primario px-2.5 py-1 text-xs">
+        {pendiente ? "Guardando…" : "Dar seguimiento"}
+      </button>
     </div>
   );
 }

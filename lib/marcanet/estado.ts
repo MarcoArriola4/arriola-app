@@ -17,6 +17,14 @@ export type EstadoBarrido = {
   /** al terminar: marcas que se quedaron sin revisar */
   faltaron: number;
   omitidas: { registradas: number; abandonadas: number };
+  /** se pidió desde la app; GitHub la toma en ≤15 min */
+  solicitada: boolean;
+  /** revisión de oficios en curso pedida desde la app */
+  activos: {
+    solicitada: boolean;
+    enCurso: { revisadas: number; total: number } | null;
+    ultima: { fin: string; consultados: number; total: number; nuevos: number; contestados: number; errores: number } | null;
+  };
   /** segundos aproximados que faltan (según la velocidad real de esta búsqueda) */
   restanteSeg: number | null;
   calculadoEn: string;
@@ -41,8 +49,20 @@ export async function estadoBarrido(): Promise<EstadoBarrido> {
     const porMarca = revisadas >= 20 ? transcurrido / revisadas : 28;
     restanteSeg = Math.round(faltan * porMarca);
   }
+  const [corriendoActivos, ultimaActivos] = await Promise.all([
+    db.syncMarcanet.findFirst({ where: { modo: "ACTIVOS", fin: null, inicio: { gte: new Date(ahora.getTime() - 3 * 3600 * 1000) } }, orderBy: { inicio: "desc" } }),
+    db.syncMarcanet.findFirst({ where: { modo: "ACTIVOS", fin: { not: null } }, orderBy: { inicio: "desc" } }),
+  ]);
   return {
     activo,
+    solicitada: !!cfg?.solicitudBusqueda,
+    activos: {
+      solicitada: !!cfg?.solicitudActivos,
+      enCurso: corriendoActivos ? { revisadas: corriendoActivos.consultados + corriendoActivos.errores, total: corriendoActivos.total } : null,
+      ultima: ultimaActivos
+        ? { fin: ultimaActivos.fin!.toISOString(), consultados: ultimaActivos.consultados, total: ultimaActivos.total, nuevos: ultimaActivos.nuevos, contestados: ultimaActivos.contestados, errores: ultimaActivos.errores }
+        : null,
+    },
     pausada,
     pausadaEn: cfg?.barridoPausa?.toISOString() ?? null,
     inicio: inicio?.toISOString() ?? null,

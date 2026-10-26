@@ -12,6 +12,7 @@ export const PASOS_OFICIO: Record<string, string> = {
   PAGAR_SISTEMA: "Trabajado · pagar en sistema",
   CONTESTADA: "Contestada / presentada",
   NO_PAGO: "No pagó · riesgo de abandono",
+  NO_PAGO_ALEGATOS: "No quiso contestar · el trámite sigue",
   CERRADA: "Cerrada · ya no es nuestro cliente",
 };
 
@@ -29,9 +30,9 @@ export function textoPlazo(n: DatosPlazo, hoy = new Date()) {
 }
 
 /** En qué parte de la app aparece el oficio (para que nunca "desaparezca"). */
-export function dondeAparece(n: { estado: string; fechaLimite: Date | string; pendienteNotificar?: boolean; fechaContestacion?: Date | string | null }) {
+export function dondeAparece(n: { estado: string; tipo?: string; fechaLimite: Date | string; pendienteNotificar?: boolean; fechaContestacion?: Date | string | null }) {
   if (n.estado === "CERRADA") return "Cerrado · el cliente ya no continúa";
-  if (n.estado === "NO_PAGO") return "Tablero › Riesgo de abandono";
+  if (n.estado === "NO_PAGO") return n.tipo === "ALEGATOS" ? "No quiso contestar alegatos · la marca sigue en trámite" : "Tablero › Riesgo de abandono";
   if (n.estado === "CONTESTADA") {
     const hace = n.fechaContestacion ? -diasRestantes(new Date(n.fechaContestacion)) : 999;
     return hace <= 30 ? "Tablero › Contestada" : "Contestado (historial de la marca)";
@@ -110,7 +111,10 @@ export async function aplicarPasoOficio(db: PrismaClient, id: string, estado: st
   }
 
   // ── Etapa de la marca (si el admin no la fijó a mano) ──
-  if (!n.expediente.etapaManual) {
+  // Alegatos no contestados: no pasa nada, la marca sigue en trámite esperando la resolución del IMPI
+  if (!n.expediente.etapaManual && n.tipo === "ALEGATOS" && estado === "NO_PAGO" && n.expediente.etapa === "CON_OFICIO") {
+    await db.expediente.update({ where: { id: n.expedienteId }, data: { etapa: "EN_TRAMITE" } });
+  } else if (!n.expediente.etapaManual) {
     if (estado === "CONTESTADA") {
       await db.expediente.update({ where: { id: n.expedienteId }, data: { etapa: esNegativa ? "EN_JUICIO" : "EN_TRAMITE", ...(act.medioDefensa && { ultimoEstatus: `${MEDIOS_DEFENSA[act.medioDefensa]} presentado` }) } });
     } else if (n.estado === "CONTESTADA") {
@@ -127,7 +131,7 @@ export async function aplicarPasoOficio(db: PrismaClient, id: string, estado: st
     EN_TRABAJO: n.estado === "AVISADO" || n.estado === "RECIBIDA" || n.estado === "NO_PAGO" ? `El cliente pagó la contestación (${oficio})` : `Contestación por trabajar (${oficio})`,
     PAGAR_SISTEMA: `Contestación trabajada · falta pagar en sistema (${oficio})`,
     CONTESTADA: act.medioDefensa ? `Se presentó ${MEDIOS_DEFENSA[act.medioDefensa].toLowerCase()} contra la ${oficio.toLowerCase()}` : `Se contestó el oficio (${oficio})`,
-    NO_PAGO: `El cliente no pagó la contestación (${oficio}) · riesgo de abandono`,
+    NO_PAGO: n.tipo === "ALEGATOS" ? "El cliente no quiso contestar los alegatos / oposición · el trámite de la marca sigue normal" : `El cliente no pagó la contestación (${oficio}) · riesgo de abandono`,
     CERRADA: `Oficio cerrado (${oficio}) · el cliente ya no quiere continuar`,
   };
   const fechaEvento = estado === "CONTESTADA" ? (act.fechaContestacion ?? f) : estado === "AVISADO" ? (act.fechaAvisoCliente ?? f) : estado === "EN_TRABAJO" ? (act.fechaPago ?? f) : f;
@@ -153,9 +157,11 @@ async function cobroDeOficio(db: PrismaClient, n: { id: string; expedienteId: st
  * El estatus de trabajo de un cobro cambió (p. ej. en Contrataciones): se mueve el oficio que le corresponde.
  * Devuelve el oficio afectado, si hubo.
  */
-export async function sincronizarDesdeCobro(db: PrismaClient, servicioId: string, autor: string) {
+export async function sincronizarDesdeCobro(db: PrismaClient, servicioId: string, autor: string, { soloPago = false } = {}) {
   const s = await db.servicio.findUniqueOrThrow({ where: { id: servicioId } });
-  const paso = s.estadoTrabajo ? PASO_POR_TRABAJO[s.estadoTrabajo] : null;
+  // soloPago: se registró un pago (abono, pagado completo, cobro nuevo): el oficio solo avanza a "pagado", nunca regresa
+  let paso = soloPago ? null : s.estadoTrabajo ? PASO_POR_TRABAJO[s.estadoTrabajo] : null;
+  if (!paso && s.pagado > 0 && (s.tipo === "CONTESTACION" || s.notificacionId)) paso = "EN_TRABAJO";
   if (!paso) return null;
   let n = s.notificacionId ? await db.notificacion.findUnique({ where: { id: s.notificacionId } }) : null;
   if (!n && s.tipo === "CONTESTACION") {
@@ -168,6 +174,9 @@ export async function sincronizarDesdeCobro(db: PrismaClient, servicioId: string
     if (n) await db.servicio.update({ where: { id: s.id }, data: { notificacionId: n.id } });
   }
   if (!n || n.estado === paso || n.estado === "CERRADA") return n;
+  // Por un pago (o un cobro sin estatus de trabajo) el oficio solo avanza si estaba por avisar, avisado o sin pagar
+  const porPago = soloPago || !s.estadoTrabajo;
+  if (porPago && !["RECIBIDA", "AVISADO", "NO_PAGO"].includes(n.estado)) return n;
   const fecha = paso === "CONTESTADA" ? fechaEnNota(s.avance) ?? hoyUTC() : null;
   return aplicarPasoOficio(db, n.id, paso, { fecha }, autor, { desdeCobro: true });
 }

@@ -243,10 +243,17 @@ export async function sincronizarMarcanet(opciones: { modo: string; expedientes?
       mensaje = `Se alcanzó el tiempo máximo; ${lista.length - i} expedientes quedan para la próxima corrida`;
       break;
     }
-    // El administrador detuvo la búsqueda completa con el tache
-    if (opciones.modo === "BARRIDO" && i % 5 === 0 && i > 0 && (await db.configuracion.findUnique({ where: { id: "main" }, select: { barridoPausa: true } }))?.barridoPausa) {
-      mensaje = `Detenida por el administrador; ${lista.length - i} marcas quedan pendientes`;
-      break;
+    // El administrador detuvo la búsqueda completa con el tache, o pidió revisar ya los oficios en curso (se atiende y luego sigue)
+    if (opciones.modo === "BARRIDO" && i % 5 === 0 && i > 0) {
+      const c = await db.configuracion.findUnique({ where: { id: "main" }, select: { barridoPausa: true, solicitudActivos: true, solicitudMarcas: true } });
+      if (c?.barridoPausa) {
+        mensaje = `Detenida por el administrador; ${lista.length - i} marcas quedan pendientes`;
+        break;
+      }
+      if (c?.solicitudActivos || c?.solicitudMarcas) {
+        mensaje = `Pausa para revisar los oficios en curso que se pidieron desde la app; sigue en el siguiente bloque (${lista.length - i} pendientes)`;
+        break;
+      }
     }
     try {
       const r = await sincronizarExpediente(db, exp, inhabiles);

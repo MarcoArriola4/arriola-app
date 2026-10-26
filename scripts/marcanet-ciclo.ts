@@ -10,8 +10,21 @@ import { TIPOS_SIGNO } from "../lib/catalogos";
 import { sincronizarMarcanet } from "../lib/marcanet/sincronizar";
 import { expedientesDelBarrido } from "../lib/marcanet/seleccion";
 
-const horas = Number(process.argv.find((a) => a.startsWith("--horas="))?.split("=")[1] ?? 5.5);
+const horas = Number(process.argv.find((a) => a.startsWith("--horas="))?.split("=")[1] ?? 5);
 const log = (m: string) => console.log(`[${new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" })}] ${m}`);
+
+/** Marcas con oficios en curso (y, si se pide, las que nunca se han consultado). */
+async function marcasConOficiosEnCurso(conNuevas = false) {
+  const lista = await db.expediente.findMany({
+    where: {
+      numeroExpediente: { not: null },
+      tipo: { in: TIPOS_SIGNO },
+      OR: [{ notificaciones: { some: { estado: { in: ACTIVAS } } } }, ...(conNuevas ? [{ marcanetSync: null }] : [])],
+    },
+    orderBy: { marcanetSync: { sort: "asc", nulls: "first" } },
+  });
+  return lista.filter((e) => /^\d{5,8}$/.test(e.numeroExpediente ?? ""));
+}
 
 async function main() {
   let cfg = await db.configuracion.upsert({ where: { id: "main" }, update: {}, create: { id: "main" } });
@@ -22,6 +35,42 @@ async function main() {
     where: { fin: null, inicio: { lt: new Date(ahora.getTime() - 6 * 3600 * 1000) } },
     data: { fin: ahora, mensaje: "Interrumpida: la corrida se cortó por tiempo (lo que faltó se revisa en el siguiente bloque)" },
   });
+
+  // 1) Revisión de oficios en curso pedida desde la app (botón "Revisar ahora los oficios en curso")
+  if (cfg.solicitudActivos) {
+    await db.configuracion.update({ where: { id: "main" }, data: { solicitudActivos: null } });
+    const activos = await marcasConOficiosEnCurso();
+    log(`Revisión de oficios en curso pedida desde la app: ${activos.length} marcas`);
+    const r = await sincronizarMarcanet({ modo: "ACTIVOS", expedientes: activos, horasMax: Math.min(horas, 2) });
+    log(`Listo: ${r.consultados} revisadas, ${r.nuevos} oficios nuevos, ${r.contestados} contestados, ${r.errores} errores.`);
+    cfg = await db.configuracion.findUniqueOrThrow({ where: { id: "main" } });
+  }
+
+  // 1b) Marcas puntuales pedidas desde la app (reporte de un cliente)
+  if (cfg.solicitudMarcas) {
+    const ids = cfg.solicitudMarcas.split(",").filter(Boolean);
+    await db.configuracion.update({ where: { id: "main" }, data: { solicitudMarcas: null } });
+    const marcas = (await db.expediente.findMany({ where: { id: { in: ids }, numeroExpediente: { not: null } } })).filter((e) => /^\d{5,8}$/.test(e.numeroExpediente ?? ""));
+    log(`Marcas pedidas desde la app: ${marcas.length}`);
+    const r = await sincronizarMarcanet({ modo: "ACTIVOS", expedientes: marcas, horasMax: Math.min(horas, 2) });
+    log(`Listo: ${r.consultados} revisadas, ${r.nuevos} oficios nuevos, ${r.errores} errores.`);
+    cfg = await db.configuracion.findUniqueOrThrow({ where: { id: "main" } });
+  }
+
+  // 2) Búsqueda completa pedida desde la app (botón "Actualizar todas")
+  if (cfg.solicitudBusqueda) {
+    const enCurso = cfg.barridoInicio && !cfg.barridoTermino;
+    const data: Record<string, unknown> = { solicitudBusqueda: null };
+    if (enCurso && cfg.barridoPausa) {
+      // Detenida hace menos de 30 h: continúa donde se quedó; si no, empieza de cero
+      if (ahora.getTime() - cfg.barridoPausa.getTime() < 30 * 3600 * 1000) Object.assign(data, { barridoPausa: null });
+      else Object.assign(data, { barridoPausa: null, barridoInicio: ahora });
+    } else if (!enCurso) {
+      Object.assign(data, { barridoInicio: ahora, barridoTermino: null, barridoPausa: null });
+    }
+    cfg = await db.configuracion.update({ where: { id: "main" }, data });
+    log("Búsqueda completa pedida desde la app");
+  }
 
   // ¿Toca empezar una búsqueda completa?
   const enBarrido = cfg.barridoInicio && !cfg.barridoTermino;
@@ -67,18 +116,12 @@ async function main() {
     return;
   }
   // Oficios en curso + marcas nuevas que nunca se han consultado (las que se dan de alta durante el mes)
-  const activos = (
-    await db.expediente.findMany({
-      where: {
-        numeroExpediente: { not: null },
-        tipo: { in: TIPOS_SIGNO },
-        OR: [{ notificaciones: { some: { estado: { in: ACTIVAS } } } }, { marcanetSync: null }],
-      },
-    })
-  ).filter((e) => /^\d{5,8}$/.test(e.numeroExpediente ?? ""));
+  const activos = await marcasConOficiosEnCurso(true);
   log(`Revisión diaria: ${activos.length} marcas (oficios en curso y marcas nuevas)`);
   const r = await sincronizarMarcanet({ modo: "NOCTURNO", expedientes: activos, horasMax: Math.min(horas, 2) });
-  await db.configuracion.update({ where: { id: "main" }, data: { ultimaRevisionActivos: new Date() } });
+  // Si MARCanet no respondió, se reintenta en ~1 hora en lugar de esperar al día siguiente
+  const fallo = r.consultados === 0 && r.errores > 0;
+  await db.configuracion.update({ where: { id: "main" }, data: { ultimaRevisionActivos: fallo ? new Date(Date.now() - 19 * 3600 * 1000) : new Date() } });
   log(`Listo: ${r.consultados} revisadas, ${r.nuevos} oficios nuevos, ${r.contestados} contestados.`);
 }
 

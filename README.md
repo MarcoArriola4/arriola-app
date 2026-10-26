@@ -11,6 +11,7 @@ App web para llevar marcas del IMPI, notificaciones (oficios), pagos y vencimien
 | **Notificaciones** | Tablero de oficios en plazo: Recibida → Cliente avisado → Pagado / en trabajo → Contestada (vencidas y "No pagó" en apartados aparte) |
 | **Contrataciones** | Hoja del mes: quién contrató, quién lo vendió, si ya se trabajó, si pagó completo o en parte y qué falta por hacer. Consecutivo fijo: la más reciente lleva el número más alto (arriba) y la #1 es la primera del mes |
 | **Clientes y marcas** | Perfil del cliente (una persona, con sus marcas separadas por titular o razón social): marcas y, aparte, patentes / modelos / diseños industriales; oficios con su paso editable, pagos, historial, acceso IMPI y última actualización de MARCanet. Botones "Ya no quiere continuar" y "Eliminar marca" (admin) |
+| **Reporte para el cliente** | En el perfil del cliente (o por titular): estatus de todas sus marcas, último movimiento del IMPI y próximos pasos, listo para imprimir o guardar en PDF |
 | **Reportes** | Notificaciones nuevas de cada búsqueda en MARCanet y oficios de meses anteriores aún en plazo; el paso de cada oficio se cambia ahí mismo |
 | **Exportar Excel** (admin) | Descarga la pestaña "Pagos" con todo lo de la app, en el mismo formato (A–Z, encabezado en la fila 5, mismos colores) |
 | **Pagos** | Cobrado por mes, por banco y pendientes de cobro |

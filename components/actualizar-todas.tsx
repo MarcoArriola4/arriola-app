@@ -1,14 +1,9 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, Hourglass, Play, RefreshCw, Square, X } from "lucide-react";
-import { actualizarUnaMarcanet, consultarEstadoBarrido, detenerBusqueda, listaParaActualizar, reanudarBusqueda, registrarCorridaManual, type ResultadoUna } from "@/app/actions";
+import { consultarEstadoBarrido, detenerBusqueda, reanudarBusqueda, solicitarBusqueda, solicitarRevisionActivos } from "@/app/actions";
 import type { EstadoBarrido } from "@/lib/marcanet/estado";
-
-const ESPERA_CUOTA_S = 10 * 60 + 30; // MARCanet pide esperar 10 minutos al llegar a su límite
-const SEG_POR_MARCA_INICIAL = 28; // promedio real medido (incluye las pausas obligatorias de MARCanet)
-
-type Estado = "inactivo" | "corriendo" | "esperando" | "terminado";
 
 /** "1 h 23 min", "4 min 05 s", "12 s" */
 export function formatoTiempo(seg: number) {
@@ -23,272 +18,182 @@ export function formatoTiempo(seg: number) {
   return `${r} s`;
 }
 
+const fecha = (iso: string) => new Date(iso).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" });
+
 /**
- * Botón "Actualizar todas desde MARCanet".
- * - Si la búsqueda completa de cada 7 días está corriendo, muestra su avance con reloj de arena y tiempo restante.
- * - Si no, revisa todas las marcas una por una mientras la página esté abierta y termina en "Listo".
+ * Botón y reloj de la revisión con MARCanet. Todo corre en la revisión automática (GitHub), no en este navegador:
+ * al pedirla sigue sola hasta el final aunque cierres la app o cambies de pestaña, y la app no se traba mientras tanto.
+ * - modo "todas": búsqueda completa (con tache para detenerla y opción de continuar donde se quedó).
+ * - modo "activos": solo las marcas con oficios en curso.
  */
 export function ActualizarTodas({
-  barrido: barridoInicial,
+  barrido: inicial,
   modo = "todas",
   esAdmin = false,
-  etiqueta,
 }: {
   barrido?: EstadoBarrido;
-  /** "activos" = solo las marcas con oficios en curso */
   modo?: "todas" | "activos";
   esAdmin?: boolean;
-  etiqueta?: string;
 }) {
-  const [barrido, setBarrido] = useState(barridoInicial);
-  const [continua, setContinua] = useState(0);
+  const [b, setB] = useState(inicial);
   const [cambiando, setCambiando] = useState(false);
-  const [abierto, setAbierto] = useState(false);
-  const [estado, setEstado] = useState<Estado>("inactivo");
-  const [avance, setAvance] = useState({ i: 0, total: 0, nuevos: 0, contestados: 0, errores: 0 });
   const [restante, setRestante] = useState<number | null>(null);
-  const [espera, setEspera] = useState(0);
-  const [nuevas, setNuevas] = useState<ResultadoUna["nuevasDetalle"]>([]);
-  const detener = useRef(false);
 
-  // Búsqueda automática en curso: cuenta regresiva cada segundo y se actualiza con el servidor cada minuto
+  const ocupadoActivos = !!b && (b.activos.solicitada || !!b.activos.enCurso);
+  const vivo = !!b && (modo === "todas" ? b.activo || b.solicitada : ocupadoActivos);
+
+  // Mientras algo corre: se consulta el avance cada 30 s y el tiempo restante baja cada segundo
   useEffect(() => {
-    if (!barrido?.activo || estado !== "inactivo") return;
-    const base = barrido.restanteSeg ?? 0;
-    const desde = new Date(barrido.calculadoEn).getTime();
+    if (!vivo) return;
+    const sondeo = setInterval(async () => {
+      try { setB(await consultarEstadoBarrido()); } catch {}
+    }, 30000);
+    return () => clearInterval(sondeo);
+  }, [vivo]);
+  useEffect(() => {
+    if (modo !== "todas" || !b?.activo || b.restanteSeg == null) return;
+    const base = b.restanteSeg;
+    const desde = new Date(b.calculadoEn).getTime();
+    setRestante(base);
     const tic = setInterval(() => setRestante(Math.max(0, base - (Date.now() - desde) / 1000)), 1000);
-    const sondeo = setInterval(async () => setBarrido(await consultarEstadoBarrido()), 60000);
-    return () => { clearInterval(tic); clearInterval(sondeo); };
-  }, [barrido, estado]);
-
-  // Cuenta regresiva de la búsqueda manual
-  useEffect(() => {
-    if (estado !== "corriendo" && estado !== "esperando") return;
-    const tic = setInterval(() => setRestante((r) => (r == null ? r : Math.max(0, r - 1))), 1000);
     return () => clearInterval(tic);
-  }, [estado]);
+  }, [b, modo]);
 
-  async function iniciar() {
-    setAbierto(true);
-    setEstado("corriendo");
-    detener.current = false;
-    setNuevas([]);
-    const inicio = new Date();
-    const { ids, continua: sigue, yaRevisadas } = await listaParaActualizar(modo);
-    setContinua(sigue ? yaRevisadas : 0);
-    const t = { i: 0, total: ids.length, nuevos: 0, contestados: 0, errores: 0 };
-    setAvance({ ...t });
-    setRestante(ids.length * SEG_POR_MARCA_INICIAL);
+  const ejecutar = async (fn: () => Promise<EstadoBarrido>) => {
+    setCambiando(true);
+    try { setB(await fn()); } finally { setCambiando(false); }
+  };
 
-    let fallasSeguidas = 0;
-    while (t.i < ids.length && !detener.current) {
-      let r: ResultadoUna;
-      try {
-        r = await actualizarUnaMarcanet(ids[t.i]);
-        fallasSeguidas = 0;
-      } catch {
-        // Falla de conexión o tiempo agotado: se espera un poco y se reintenta la misma marca (máx. 3 veces)
-        fallasSeguidas++;
-        if (fallasSeguidas <= 3) {
-          await new Promise((ok) => setTimeout(ok, 5000 * fallasSeguidas));
-          continue;
-        }
-        fallasSeguidas = 0;
-        r = { ok: false, nuevos: 0, contestados: 0, nuevasDetalle: [], mensaje: "Sin conexión" };
-      }
-      if (r.cuota) {
-        // Se respeta la pausa que pide el IMPI y se reintenta la misma marca
-        setEstado("esperando");
-        for (let s = ESPERA_CUOTA_S; s > 0 && !detener.current; s--) {
-          setEspera(s);
-          await new Promise((ok) => setTimeout(ok, 1000));
-        }
-        setEstado("corriendo");
-        continue;
-      }
-      t.i++;
-      t.nuevos += r.nuevos;
-      t.contestados += r.contestados;
-      if (!r.ok) t.errores++;
-      if (r.nuevasDetalle.length) setNuevas((n) => [...n, ...r.nuevasDetalle]);
-      setAvance({ ...t });
-      // Tiempo restante según la velocidad real de esta búsqueda
-      const porMarca = t.i >= 5 ? (Date.now() - inicio.getTime()) / 1000 / t.i : SEG_POR_MARCA_INICIAL;
-      setRestante((ids.length - t.i) * porMarca);
+  if (!b) return null;
+
+  // ── Solo oficios en curso ──
+  if (modo === "activos") {
+    if (b.activos.enCurso) {
+      const { revisadas, total } = b.activos.enCurso;
+      const pct = total ? Math.round((revisadas / total) * 100) : 0;
+      return (
+        <Caja tono="ambar" icono={<Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />} titulo={`Revisando oficios en curso · ${pct}%`} pct={pct}>
+          {revisadas} de {total} marcas · sigue aunque cierres la app
+        </Caja>
+      );
     }
-    await registrarCorridaManual({
-      total: t.total,
-      consultados: t.i - t.errores,
-      errores: t.errores,
-      nuevos: t.nuevos,
-      contestados: t.contestados,
-      inicio: inicio.toISOString(),
-      mensaje: detener.current ? `Detenida a mano en ${t.i}/${t.total}` : undefined,
-      modo,
-    });
-    if (modo === "todas") setBarrido(await consultarEstadoBarrido());
-    setRestante(0);
-    setEstado("terminado");
-  }
-
-  const ocupado = estado === "corriendo" || estado === "esperando";
-
-  const pausar = async () => {
-    if (!confirm("¿Detener la búsqueda completa automática?\n\nSe detiene en unos segundos. Después puedes continuarla aquí desde donde se quedó (si no han pasado más de 30 horas) o reanudarla automática.")) return;
-    setCambiando(true);
-    setBarrido(await detenerBusqueda());
-    setCambiando(false);
-  };
-  const reanudar = async () => {
-    setCambiando(true);
-    setBarrido(await reanudarBusqueda());
-    setCambiando(false);
-  };
-
-  // ── Búsqueda automática detenida por el admin ──
-  if (modo === "todas" && barrido?.pausada && estado === "inactivo") {
-    const pct = barrido.total ? Math.round((barrido.revisadas / barrido.total) * 100) : 0;
-    const horas = barrido.pausadaEn ? (Date.now() - new Date(barrido.pausadaEn).getTime()) / 3600000 : 99;
+    if (b.activos.solicitada) {
+      return (
+        <Caja tono="ambar" icono={<Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />} titulo="Revisión de oficios en curso solicitada">
+          Empieza en unos minutos (máx. ~15) y corre sola hasta el final.
+        </Caja>
+      );
+    }
     return (
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm">
-        <Square size={18} className="shrink-0 text-neutral-500" />
-        <div className="min-w-[200px]">
-          <p className="font-semibold text-neutral-800">Búsqueda completa detenida · {pct}%</p>
-          <p className="text-xs text-neutral-500">
-            {barrido.revisadas.toLocaleString("es-MX")} de {barrido.total.toLocaleString("es-MX")} marcas revisadas
-            {barrido.errores > 0 && <span className="text-red-600"> · {barrido.errores} con error</span>}
-            {barrido.pausadaEn && ` · detenida ${new Date(barrido.pausadaEn).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}`}
-          </p>
-        </div>
-        <button onClick={iniciar} className="btn-primario"><Play size={14} /> {horas <= 30 ? "Continuar aquí desde donde se quedó" : "Revisar todas aquí"}</button>
-        {esAdmin && <button onClick={reanudar} disabled={cambiando} className="btn">Reanudar automática</button>}
-      </div>
-    );
-  }
-
-  // ── Búsqueda automática de cada 7 días en curso ──
-  if (modo === "todas" && barrido?.activo && estado === "inactivo") {
-    const pct = barrido.total ? Math.round((barrido.revisadas / barrido.total) * 100) : 0;
-    return (
-      <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
-        <Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />
-        <div className="min-w-[200px]">
-          <p className="font-semibold text-amber-900">Búsqueda completa en curso · {pct}%</p>
-          <div className="my-1 h-1.5 overflow-hidden rounded-full bg-amber-200">
-            <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${pct}%` }} />
-          </div>
-          <p className="text-xs text-amber-800">
-            {barrido.revisadas.toLocaleString("es-MX")} de {barrido.total.toLocaleString("es-MX")} marcas · faltan aprox. <b>{formatoTiempo(restante ?? barrido.restanteSeg ?? 0)}</b>
-            {barrido.errores > 0 && <span className="text-red-600"> · {barrido.errores} con error</span>}
-          </p>
-        </div>
-        {esAdmin && (
-          <button onClick={pausar} disabled={cambiando} title="Detener la búsqueda completa" aria-label="Detener la búsqueda completa" className="ml-1 rounded-full p-1.5 text-amber-700 hover:bg-amber-200 hover:text-black">
-            <X size={18} />
-          </button>
+      <div className="flex flex-col items-end gap-1">
+        <button onClick={() => ejecutar(solicitarRevisionActivos)} disabled={cambiando} className="btn">
+          <RefreshCw size={15} /> Revisar ahora los oficios en curso
+        </button>
+        {b.activos.ultima && (
+          <span className="text-[11px] text-neutral-500">
+            Última: {fecha(b.activos.ultima.fin)} · {b.activos.ultima.consultados} de {b.activos.ultima.total} revisadas · {b.activos.ultima.nuevos} oficios nuevos · {b.activos.ultima.contestados} contestados
+            {b.activos.ultima.errores > 0 && <span className="text-red-600"> · {b.activos.ultima.errores} con error</span>} · <Link href="/reportes" className="underline">ver reporte</Link>
+          </span>
         )}
       </div>
     );
   }
-  if (modo === "todas" && barridoInicial?.activo && barrido && !barrido.activo && !barrido.pausada && estado === "inactivo") {
+
+  // ── Búsqueda completa ──
+  const pct = b.total ? Math.round((b.revisadas / b.total) * 100) : 0;
+
+  if (b.activo) {
     return (
-      <span className="inline-flex items-center gap-2 rounded-xl bg-marca-claro px-3 py-2 text-sm font-semibold text-marca-oscuro">
-        <CheckCircle2 size={18} /> Listo · búsqueda completa terminada
-      </span>
+      <Caja
+        tono="ambar"
+        icono={<Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />}
+        titulo={`Búsqueda completa en curso · ${pct}%`}
+        pct={pct}
+        accion={
+          esAdmin && (
+            <button
+              onClick={() => { if (confirm("¿Detener la búsqueda completa?\n\nSe detiene en unos segundos. Después puedes continuarla desde donde se quedó (si no pasan más de 30 horas).")) ejecutar(detenerBusqueda); }}
+              disabled={cambiando}
+              title="Detener la búsqueda completa"
+              aria-label="Detener la búsqueda completa"
+              className="ml-1 rounded-full p-1.5 text-amber-700 hover:bg-amber-200 hover:text-black"
+            >
+              <X size={18} />
+            </button>
+          )
+        }
+      >
+        {b.revisadas.toLocaleString("es-MX")} de {b.total.toLocaleString("es-MX")} marcas · faltan aprox. <b>{formatoTiempo(restante ?? b.restanteSeg ?? 0)}</b>
+        {b.errores > 0 && <span className="text-red-600"> · {b.errores} con error</span>} · sigue aunque cierres la app
+      </Caja>
     );
   }
 
-  const pct = avance.total ? Math.round((avance.i / avance.total) * 100) : 0;
+  if (b.solicitada) {
+    return (
+      <Caja tono="ambar" icono={<Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />} titulo="Búsqueda completa solicitada">
+        {b.pausada ? "Continúa desde donde se quedó" : "Empieza"} en unos minutos (máx. ~15) y corre sola hasta el final, aunque cierres la app.
+      </Caja>
+    );
+  }
+
+  if (b.pausada) {
+    const horas = b.pausadaEn ? (Date.now() - new Date(b.pausadaEn).getTime()) / 3600000 : 99;
+    return (
+      <Caja tono="gris" icono={<Square size={18} className="shrink-0 text-neutral-500" />} titulo={`Búsqueda completa detenida · ${pct}%`} pct={pct}
+        accion={
+          <button onClick={() => ejecutar(solicitarBusqueda)} disabled={cambiando} className="btn-primario ml-2">
+            <Play size={14} /> {horas <= 30 ? "Continuar desde donde se quedó" : "Empezar de nuevo"}
+          </button>
+        }
+      >
+        {b.revisadas.toLocaleString("es-MX")} de {b.total.toLocaleString("es-MX")} marcas revisadas
+        {b.errores > 0 && <span className="text-red-600"> · {b.errores} con error</span>}
+        {b.pausadaEn && ` · detenida el ${fecha(b.pausadaEn)}`}
+        {esAdmin && <button onClick={() => ejecutar(reanudarBusqueda)} disabled={cambiando} className="ml-2 underline">o dejar que siga sola</button>}
+      </Caja>
+    );
+  }
+
   return (
-    <>
-      {estado === "terminado" ? (
-        <button onClick={iniciar} className="inline-flex items-center gap-2 rounded-lg bg-marca px-3 py-1.5 text-sm font-semibold text-carbon">
-          <CheckCircle2 size={16} /> Listo · actualizar de nuevo
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2">
+        {inicial?.activo || inicial?.solicitada ? (
+          <span className="inline-flex items-center gap-2 rounded-lg bg-marca-claro px-3 py-1.5 text-sm font-semibold text-marca-oscuro"><CheckCircle2 size={16} /> Listo · búsqueda completa terminada</span>
+        ) : null}
+        <button onClick={() => { if (confirm("¿Empezar una búsqueda completa con MARCanet?\n\nCorre sola en segundo plano hasta el final (varias horas), aunque cierres la app.")) ejecutar(solicitarBusqueda); }} disabled={cambiando} className="btn-primario">
+          <RefreshCw size={15} /> Actualizar todas desde MARCanet
         </button>
-      ) : (
-        <button onClick={iniciar} disabled={ocupado} className="btn-primario">
-          {ocupado ? <Hourglass size={15} className="animate-reloj" /> : <RefreshCw size={15} />}
-          {ocupado ? `Actualizando… ${restante != null ? formatoTiempo(restante) : ""}` : etiqueta ?? (modo === "activos" ? "Revisar ahora los oficios en curso" : "Actualizar todas desde MARCanet")}
-        </button>
-      )}
-      {/* Resultado de la última búsqueda completa: cuándo terminó y si hubo errores o faltaron marcas */}
-      {modo === "todas" && barrido?.termino && !barrido.activo && !barrido.pausada && estado === "inactivo" && (
-        <p className="basis-full text-xs text-neutral-500">
-          Última búsqueda completa: <b className="font-medium text-neutral-700">terminó el {new Date(barrido.termino).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })}</b>
-          {" · "}{barrido.revisadas.toLocaleString("es-MX")} de {barrido.total.toLocaleString("es-MX")} revisadas
-          {barrido.errores > 0 ? <span className="text-red-600"> · {barrido.errores} con error</span> : " · sin errores"}
-          {barrido.faltaron > 0 && <span className="text-amber-700"> · {barrido.faltaron} sin revisar</span>}
-          {barrido.proximo && ` · la próxima empieza el ${new Date(barrido.proximo).toLocaleDateString("es-MX", { day: "numeric", month: "long" })}`}
+      </div>
+      {b.termino && (
+        <p className="text-xs text-neutral-500">
+          Última búsqueda completa: <b className="font-medium text-neutral-700">terminó el {fecha(b.termino)}</b>
+          {" · "}{b.revisadas.toLocaleString("es-MX")} de {b.total.toLocaleString("es-MX")} revisadas
+          {b.errores > 0 ? <span className="text-red-600"> · {b.errores} con error</span> : " · sin errores"}
+          {b.faltaron > 0 && <span className="text-amber-700"> · {b.faltaron} sin revisar</span>}
+          {b.proximo && ` · la próxima empieza sola el ${new Date(b.proximo).toLocaleDateString("es-MX", { day: "numeric", month: "long" })}`}
+          {" · "}<Link href="/reportes" className="underline">ver reporte</Link>
         </p>
       )}
-
-      {abierto && (
-        <div className="fixed bottom-4 right-4 z-50 w-[min(420px,calc(100vw-2rem))] rounded-2xl border border-black/10 bg-white p-4 shadow-2xl">
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              {estado === "terminado" ? (
-                <CheckCircle2 size={34} className="shrink-0 text-marca-oscuro" />
-              ) : (
-                <Hourglass size={34} className={`shrink-0 animate-reloj ${estado === "esperando" ? "text-amber-500" : "text-carbon"}`} />
-              )}
-              <div>
-                <p className="text-base font-semibold">{estado === "terminado" ? (detener.current ? "Detenida" : "¡Listo!") : "Actualizando con MARCanet"}</p>
-                <p className="text-xs text-neutral-500">
-                  {estado === "corriendo" && (continua ? `Continúa donde se quedó (${continua.toLocaleString("es-MX")} ya revisadas). Deja esta página abierta.` : "Deja esta página abierta.")}
-                  {estado === "esperando" && `Pausa obligatoria del IMPI · continúa en ${formatoTiempo(espera)}`}
-                  {estado === "terminado" && (detener.current ? "La próxima vez continúa con las que falten." : `Se revisaron ${avance.i.toLocaleString("es-MX")} marcas.`)}
-                </p>
-              </div>
-            </div>
-            {!ocupado && <button onClick={() => setAbierto(false)} className="text-neutral-400 hover:text-black" aria-label="Cerrar"><X size={16} /></button>}
-          </div>
-
-          {ocupado && (
-            <div className="mb-3 rounded-xl bg-carbon px-4 py-3 text-center text-white">
-              <p className="text-[11px] uppercase tracking-wide text-white/60">Tiempo aproximado restante</p>
-              <p className="text-3xl font-semibold tabular-nums text-marca">{formatoTiempo(restante ?? 0)}</p>
-            </div>
-          )}
-
-          <div className="mb-1 h-2 overflow-hidden rounded-full bg-neutral-100">
-            <div className={`h-full rounded-full transition-all ${estado === "esperando" ? "bg-amber-400" : "bg-marca"}`} style={{ width: `${estado === "terminado" ? 100 : pct}%` }} />
-          </div>
-          <p className="mb-3 text-xs text-neutral-500">{avance.i.toLocaleString("es-MX")} de {avance.total.toLocaleString("es-MX")} marcas · {estado === "terminado" ? 100 : pct}%</p>
-
-          <div className="mb-3 grid grid-cols-3 gap-2 text-center">
-            <Dato n={avance.nuevos} t="oficios nuevos" cls="text-violet-700" />
-            <Dato n={avance.contestados} t="contestados" cls="text-marca-oscuro" />
-            <Dato n={avance.errores} t="con error" cls={avance.errores ? "text-red-600" : ""} />
-          </div>
-
-          {nuevas.length > 0 && (
-            <div className="mb-3 max-h-36 overflow-y-auto rounded-lg bg-violet-50 p-2">
-              <p className="mb-1 text-[11px] font-semibold uppercase text-violet-700">Notificaciones nuevas</p>
-              {nuevas.map((n) => (
-                <Link key={n.expedienteId} href={`/clientes/${n.clienteId}?marca=${n.expedienteId}`} className="block truncate text-xs text-violet-900 hover:underline">• {n.denominacion}</Link>
-              ))}
-            </div>
-          )}
-
-          <div className="flex justify-between gap-2">
-            {ocupado ? (
-              <button onClick={() => { detener.current = true; }} className="btn text-xs"><Square size={12} /> Detener</button>
-            ) : (
-              <Link href="/reportes" className="btn text-xs">Ver reporte →</Link>
-            )}
-            <p className="self-center text-[11px] text-neutral-400">{modo === "activos" ? "Solo marcas con oficios en curso" : "Primero las marcas con oficios en curso"}</p>
-          </div>
-        </div>
-      )}
-    </>
+    </div>
   );
 }
 
-function Dato({ n, t, cls = "" }: { n: number; t: string; cls?: string }) {
+function Caja({ tono, icono, titulo, pct, accion, children }: { tono: "ambar" | "gris"; icono: React.ReactNode; titulo: string; pct?: number; accion?: React.ReactNode; children: React.ReactNode }) {
+  const c = tono === "ambar" ? { caja: "border-amber-200 bg-amber-50", t: "text-amber-900", s: "text-amber-800", barra: "bg-amber-200", lleno: "bg-amber-500" } : { caja: "border-neutral-300 bg-neutral-50", t: "text-neutral-800", s: "text-neutral-500", barra: "bg-neutral-200", lleno: "bg-neutral-500" };
   return (
-    <div className="rounded-lg bg-neutral-50 py-1.5">
-      <p className={`text-lg font-semibold ${cls}`}>{n}</p>
-      <p className="text-[10px] text-neutral-500">{t}</p>
+    <div className={`flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2 text-sm ${c.caja}`}>
+      {icono}
+      <div className="min-w-[200px] flex-1">
+        <p className={`font-semibold ${c.t}`}>{titulo}</p>
+        {pct != null && (
+          <div className={`my-1 h-1.5 overflow-hidden rounded-full ${c.barra}`}>
+            <div className={`h-full rounded-full transition-all ${c.lleno}`} style={{ width: `${pct}%` }} />
+          </div>
+        )}
+        <p className={`text-xs ${c.s}`}>{children}</p>
+      </div>
+      {accion}
     </div>
   );
 }

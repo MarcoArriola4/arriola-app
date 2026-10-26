@@ -178,7 +178,7 @@ async function OficiosAnteriores() {
   const inicioMes = new Date(Date.UTC(ahora.getFullYear(), ahora.getMonth(), 1));
   const notifs = (
     await db.notificacion.findMany({
-      where: { estado: { in: [...ACTIVAS, "NO_PAGO"] }, fechaNotificacion: { lt: inicioMes } },
+      where: { estado: { in: [...ACTIVAS, "NO_PAGO"] }, fechaNotificacion: { lt: inicioMes }, NOT: { estado: "NO_PAGO", tipo: "ALEGATOS" } },
       include: { expediente: { select: { id: true, denominacion: true, numeroExpediente: true, clienteId: true, cliente: { select: { nombre: true, telefono: true } } } } },
     })
   )

@@ -289,7 +289,7 @@ export async function crearServicio(form: FormData) {
   const expedienteId = str(form, "expedienteId")!;
   const costo = num(form, "costo") ?? 0;
   const pagado = num(form, "pagado") ?? 0;
-  await db.servicio.create({
+  const nuevo = await db.servicio.create({
     data: {
       expedienteId,
       tipo: str(form, "tipo") ?? "OTRO",
@@ -303,6 +303,7 @@ export async function crearServicio(form: FormData) {
       notas: str(form, "notas"),
     },
   });
+  if (nuevo.tipo === "CONTESTACION") await sincronizarDesdeCobro(db, nuevo.id, (await requerirSesion()).nombre, { soloPago: true });
   refrescar(expedienteId);
 }
 
@@ -323,6 +324,7 @@ export async function registrarAbono(form: FormData) {
     },
   });
   await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId: s.expedienteId, fecha: hoyUTC(), titulo: "Pago registrado", detalle: `$${abono}` } });
+  await sincronizarDesdeCobro(db, id, (await requerirSesion()).nombre, { soloPago: true });
   refrescar(s.expedienteId);
 }
 
@@ -536,6 +538,7 @@ export async function editarServicio(form: FormData) {
     },
   });
   await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId: s.expedienteId, fecha: hoyUTC(), titulo: "Se editó un cobro", detalle: `Costo $${costo} · pagado $${pagado}` } });
+  if (s.pagado > 0) await sincronizarDesdeCobro(db, s.id, (await requerirSesion()).nombre, { soloPago: true });
   refrescar(s.expedienteId);
 }
 
@@ -595,7 +598,7 @@ export async function altaServicio(form: FormData) {
   const costo = num(form, "costo") ?? 0;
   const pagado = num(form, "pagado") ?? 0;
   const tipoServicio = esRegistro ? "REGISTRO" : servicio;
-  await db.servicio.create({
+  const alta = await db.servicio.create({
     data: {
       expedienteId,
       tipo: tipoServicio,
@@ -612,6 +615,8 @@ export async function altaServicio(form: FormData) {
   await db.evento.create({
     data: { autor: sesion.nombre, expedienteId, fecha: hoyUTC(), titulo: `Alta de servicio: ${TIPOS_SERVICIO_TXT[tipoServicio] ?? tipoServicio}`, detalle: costo ? `Costo $${costo} · pagado $${pagado}` : null },
   });
+  // Contestación vendida desde Alta: el oficio de esa misma marca queda como pagado
+  if (tipoServicio === "CONTESTACION") await sincronizarDesdeCobro(db, alta.id, sesion.nombre, { soloPago: true });
   refrescar(expedienteId);
   redirect(`/clientes/${clienteId}?marca=${expedienteId}&ok=alta`);
 }
@@ -730,6 +735,7 @@ export async function marcarParcialidad(servicioId: string, cual: 1 | 2, pagada:
   await db.evento.create({
     data: { autor: sesion.nombre, expedienteId: s.expedienteId, fecha: hoyUTC(), titulo: `${cual === 1 ? "1er" : "2º"} pago marcado como ${pagada ? "pagado" : "pendiente"}`, detalle: `$${cual === 1 ? s.parcialidad1 : s.parcialidad2}` },
   });
+  if (pagado > 0) await sincronizarDesdeCobro(db, servicioId, sesion.nombre, { soloPago: true });
   refrescar(s.expedienteId);
 }
 
@@ -743,6 +749,7 @@ export async function marcarPagadoCompleto(servicioId: string) {
     data: { pagado: costo, estadoPago: "PAGADO", editadoEnApp: true, ...(s.parcialidad2 != null && { parcialidad1Pagada: true, parcialidad2Pagada: true }) },
   });
   await db.evento.create({ data: { autor: sesion.nombre, expedienteId: s.expedienteId, fecha: hoyUTC(), titulo: "Cobro marcado como pagado completo", detalle: `$${costo}` } });
+  await sincronizarDesdeCobro(db, servicioId, sesion.nombre, { soloPago: true });
   refrescar(s.expedienteId);
 }
 
@@ -1003,4 +1010,60 @@ export async function eliminarNotaMarca(id: string) {
   await requerirPermiso("marcas");
   const n = await db.notaMarca.delete({ where: { id } });
   refrescar(n.expedienteId);
+}
+
+/**
+ * Seguimiento de un oficio de la tabla de MARCanet que aún no tiene tarjeta en la app: se crea (o se liga a la que ya había)
+ * para poder marcar si se avisó, si el cliente pagó, si se trabajó, etc. Solo afecta a esa misma marca.
+ */
+export async function seguimientoOficioImpi(oficioImpiId: string, tipo: string) {
+  const sesion = await requerirPermiso("oficios");
+  if (!(tipo in TIPOS_OFICIO)) throw new Error("Tipo de oficio inválido");
+  const o = await db.oficioImpi.findUniqueOrThrow({ where: { id: oficioImpiId } });
+  if (await db.notificacion.findUnique({ where: { numeroOficio: o.numero } })) return;
+  const fNotif = o.fechaNotificacion ?? o.fechaOficio ?? hoyUTC();
+  const plazos = plazosDeOficio(tipo, fNotif, await cargarInhabiles());
+  // ¿Ya había una tarjeta de ese oficio sin número (del Excel o capturada a mano)? Se liga en lugar de duplicarla
+  const previa = (await db.notificacion.findMany({ where: { expedienteId: o.expedienteId, tipo, numeroOficio: null } }))
+    .find((n) => Math.abs(n.fechaNotificacion.getTime() - fNotif.getTime()) <= 20 * 864e5);
+  if (previa) {
+    await db.notificacion.update({ where: { id: previa.id }, data: { numeroOficio: o.numero, editadoEnApp: true } });
+  } else {
+    const promo = await db.promocionImpi.findFirst({ where: { expedienteId: o.expedienteId, oficioRelacionado: o.numero }, orderBy: { fechaPresentacion: "desc" } });
+    await db.notificacion.create({
+      data: {
+        expedienteId: o.expedienteId, tipo, fechaNotificacion: fNotif, ...plazos, numeroOficio: o.numero, fuente: "MARCANET", editadoEnApp: true,
+        pendienteNotificar: !o.fechaNotificacion,
+        ...(promo?.fechaPresentacion ? { estado: "CONTESTADA", fechaContestacion: promo.fechaPresentacion } : {}),
+        notas: `MARCanet: ${o.descripcion} · oficio ${o.numero}`,
+      },
+    });
+  }
+  await db.evento.create({ data: { autor: sesion.nombre, expedienteId: o.expedienteId, fecha: hoyUTC(), titulo: `Seguimiento del oficio ${o.numero}: ${TIPOS_OFICIO[tipo]}`, detalle: o.descripcion } });
+  refrescar(o.expedienteId);
+}
+
+/** Botón "Actualizar todas": pide la búsqueda completa a la revisión automática (corre sola hasta el final, aunque cierres la app). */
+export async function solicitarBusqueda() {
+  await requerirSesion();
+  await db.configuracion.update({ where: { id: "main" }, data: { solicitudBusqueda: new Date() } });
+  revalidatePath("/", "layout");
+  return estadoBarrido();
+}
+
+/** Botón "Revisar ahora los oficios en curso": lo atiende la revisión automática en ≤15 min (aunque cierres la app). */
+export async function solicitarRevisionActivos() {
+  await requerirSesion();
+  await db.configuracion.update({ where: { id: "main" }, data: { solicitudActivos: new Date() } });
+  revalidatePath("/", "layout");
+  return estadoBarrido();
+}
+
+/** Desde el reporte de un cliente: pide revisar ya en MARCanet esas marcas (lo hace la revisión automática en ≤15 min). */
+export async function solicitarRevisionMarcas(ids: string[]) {
+  await requerirSesion();
+  const cfg = await db.configuracion.findUnique({ where: { id: "main" } });
+  const todas = [...new Set([...(cfg?.solicitudMarcas?.split(",").filter(Boolean) ?? []), ...ids])].slice(0, 300);
+  await db.configuracion.update({ where: { id: "main" }, data: { solicitudMarcas: todas.join(",") } });
+  revalidatePath("/clientes", "layout");
 }

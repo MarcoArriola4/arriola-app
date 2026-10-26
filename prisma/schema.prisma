@@ -169,6 +169,9 @@ model Configuracion {
   diasEntreBarridos  Int       @default(7)
   ultimaRevisionActivos DateTime?
   barridoPausa       DateTime? // el admin detuvo la búsqueda completa (se reanuda a mano)
+  solicitudBusqueda  DateTime? // se pidió desde la app correr la búsqueda completa (GitHub la toma en ≤15 min)
+  solicitudActivos   DateTime? // se pidió revisar ya los oficios en curso
+  solicitudMarcas    String?   // ids de marcas a revisar ya (p. ej. desde el reporte de un cliente), separados por coma
 }
 
 // Días inhábiles del IMPI (acuerdos publicados en el DOF y suspensiones extraordinarias)

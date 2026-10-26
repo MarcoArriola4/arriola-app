@@ -100,8 +100,8 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
               </p>
             </div>
             <div className="flex flex-col items-end gap-1">
-              <ActualizarTodas modo="activos" esAdmin />
-              <span className="text-[11px] text-neutral-400">{activosCount} marcas con oficios en curso · se revisan aquí mismo (deja la página abierta)</span>
+              <ActualizarTodas modo="activos" barrido={barrido} esAdmin />
+              <span className="text-[11px] text-neutral-400">{activosCount} marcas con oficios en curso · corre sola en segundo plano</span>
             </div>
           </div>
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-neutral-50 p-3 text-sm">

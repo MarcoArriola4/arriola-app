@@ -36,7 +36,7 @@ export function AvisoRecordatorios() {
   const visibles = lista.filter((r) => !cerrados.includes(r.id));
   if (!visibles.length) return null;
   return (
-    <div className="fixed bottom-4 left-4 z-50 w-[min(360px,calc(100vw-2rem))] space-y-2">
+    <div className="print:hidden fixed bottom-4 left-4 z-50 w-[min(360px,calc(100vw-2rem))] space-y-2">
       {visibles.slice(0, 3).map((r) => (
         <div key={r.id} className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 shadow-xl">
           <Bell size={18} className="mt-0.5 shrink-0 text-amber-600" />

@@ -15,13 +15,13 @@ export default async function Notificaciones({ searchParams }: { searchParams: P
   const [todas, cfg, noPago] = await Promise.all([
     db.notificacion.findMany({
       where: vista === "no-pago"
-        ? { estado: "NO_PAGO" }
+        ? { estado: "NO_PAGO", tipo: { not: "ALEGATOS" } } // alegatos sin contestar no son riesgo de abandono
         : { OR: [{ estado: { in: ACTIVAS } }, { estado: "CONTESTADA", fechaContestacion: { gte: hace30 } }] },
       include: { expediente: { include: { cliente: { select: { nombre: true, telefono: true, email: true } } } } },
       orderBy: { fechaLimite: "asc" },
     }),
     db.configuracion.findUnique({ where: { id: "main" } }),
-    db.notificacion.count({ where: { estado: "NO_PAGO" } }),
+    db.notificacion.count({ where: { estado: "NO_PAGO", tipo: { not: "ALEGATOS" } } }),
   ]);
   // Tablero: solo lo que aún se puede trabajar y cobrar. Vencidas: activas cuyo plazo final ya pasó.
   const vencidasTodas = todas.filter((n) => ACTIVAS.includes(n.estado) && estaVencida(n));
