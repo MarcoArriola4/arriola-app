@@ -1067,3 +1067,24 @@ export async function solicitarRevisionMarcas(ids: string[]) {
   await db.configuracion.update({ where: { id: "main" }, data: { solicitudMarcas: todas.join(",") } });
   revalidatePath("/clientes", "layout");
 }
+
+// ───────────── Auditoría + Reporte (búsqueda en MARCanet por titular y por apoderado) ─────────────
+
+/** Pide la auditoría: cada nombre se busca como titular y como apoderado (la hace la revisión automática). */
+export async function crearAuditoria(form: FormData) {
+  const sesion = await requerirSesion();
+  const clienteId = str(form, "clienteId");
+  const extra = (str(form, "otros") ?? "").split(/\n/).map((t) => t.replace(/\s+/g, " ").trim()).filter((t) => t.length >= 3);
+  const elegidos = form.getAll("nombres").map((v) => String(v).replace(/\s+/g, " ").trim()).filter(Boolean);
+  const nombres = [...new Set([...elegidos, ...extra])].slice(0, 15);
+  if (!nombres.length) redirect(`/clientes/${clienteId}/auditoria?error=nombres`);
+  const a = await db.auditoria.create({ data: { clienteId, nombres: JSON.stringify(nombres), autor: sesion.nombre } });
+  redirect(`/auditorias/${a.id}`);
+}
+
+export async function eliminarAuditoria(id: string) {
+  await requerirSesion();
+  const a = await db.auditoria.delete({ where: { id } });
+  revalidatePath(`/clientes/${a.clienteId}/auditoria`);
+  return a.clienteId;
+}

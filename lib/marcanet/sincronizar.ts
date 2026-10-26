@@ -250,8 +250,8 @@ export async function sincronizarMarcanet(opciones: { modo: string; expedientes?
         mensaje = `Detenida por el administrador; ${lista.length - i} marcas quedan pendientes`;
         break;
       }
-      if (c?.solicitudActivos || c?.solicitudMarcas) {
-        mensaje = `Pausa para revisar los oficios en curso que se pidieron desde la app; sigue en el siguiente bloque (${lista.length - i} pendientes)`;
+      if (c?.solicitudActivos || c?.solicitudMarcas || (await db.auditoria.count({ where: { estado: "PENDIENTE" } }))) {
+        mensaje = `Pausa para atender lo que se pidió desde la app (oficios en curso, marcas o auditoría); sigue en el siguiente bloque (${lista.length - i} pendientes)`;
         break;
       }
     }

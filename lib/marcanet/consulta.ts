@@ -2,7 +2,7 @@
 // Es la misma consulta que se hace a mano en acervomarcas.impi.gob.mx; se hace despacio para no saturar el servicio.
 import { parse, type HTMLElement } from "node-html-parser";
 
-const BASE = "https://acervomarcas.impi.gob.mx:8181";
+export const BASE = "https://acervomarcas.impi.gob.mx:8181";
 const BUSQUEDA = "/marcanet/vistas/common/datos/bsqExpedienteCompleto.pgi";
 const DETALLE = "/marcanet/vistas/common/busquedas/detalleExpedienteParcial.pgi";
 const PAUSA_MS = 3000; // entre solicitudes (MARCanet tiene una cuota de peticiones)
@@ -36,7 +36,7 @@ export class MarcanetCuotaError extends MarcanetError {}
 
 const AVISO_CUOTA = /cuota m[aá]xima de peticiones/i;
 
-const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** dd/mm/aaaa → Date UTC */
 export function fechaMx(s?: string | null): Date | null {
@@ -52,7 +52,7 @@ export function fechaDeNotificacion(estado: string): Date | null {
 
 const limpiar = (s: string) => s.replace(/\s+/g, " ").trim();
 
-function filas(raiz: HTMLElement, tbodyId: string): string[][] {
+export function filas(raiz: HTMLElement, tbodyId: string): string[][] {
   const tbody = raiz.querySelectorAll("tbody").find((t) => t.id === tbodyId);
   if (!tbody) return [];
   return tbody
@@ -66,7 +66,7 @@ function filas(raiz: HTMLElement, tbodyId: string): string[][] {
     );
 }
 
-class Sesion {
+export class Sesion {
   private cookies = new Map<string, string>();
 
   /** Reintenta una vez si falla la red (no si MARCanet responde con error o captcha). */
@@ -116,7 +116,7 @@ class Sesion {
   }
 }
 
-const viewState = (html: string) =>
+export const viewState = (html: string) =>
   html.match(/name="javax\.faces\.ViewState"[^>]*value="([^"]+)"/)?.[1] ??
   html.match(/javax\.faces\.ViewState[^"]*"><!\[CDATA\[([^\]]+)\]\]>/)?.[1] ??
   null;

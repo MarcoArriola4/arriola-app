@@ -9,6 +9,7 @@ import { ACTIVAS } from "../lib/consultas";
 import { TIPOS_SIGNO } from "../lib/catalogos";
 import { sincronizarMarcanet } from "../lib/marcanet/sincronizar";
 import { expedientesDelBarrido } from "../lib/marcanet/seleccion";
+import { procesarAuditoria } from "../lib/marcanet/auditoria";
 
 const horas = Number(process.argv.find((a) => a.startsWith("--horas="))?.split("=")[1] ?? 5);
 const log = (m: string) => console.log(`[${new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" })}] ${m}`);
@@ -35,6 +36,18 @@ async function main() {
     where: { fin: null, inicio: { lt: new Date(ahora.getTime() - 6 * 3600 * 1000) } },
     data: { fin: ahora, mensaje: "Interrumpida: la corrida se cortó por tiempo (lo que faltó se revisa en el siguiente bloque)" },
   });
+
+  // 0) Auditorías (búsqueda por titular / apoderado) pedidas desde la app: tienen prioridad
+  await db.auditoria.updateMany({ where: { estado: "BUSCANDO", creado: { lt: new Date(ahora.getTime() - 6 * 3600 * 1000) } }, data: { estado: "PENDIENTE" } });
+  for (const a of await db.auditoria.findMany({ where: { estado: "PENDIENTE" }, orderBy: { creado: "asc" }, take: 3 })) {
+    log("Auditoría pedida desde la app");
+    try {
+      await procesarAuditoria(db, a.id, log);
+    } catch (e) {
+      await db.auditoria.update({ where: { id: a.id }, data: { estado: "ERROR", avance: e instanceof Error ? e.message : "Error" } });
+      log("La auditoría terminó con error");
+    }
+  }
 
   // 1) Revisión de oficios en curso pedida desde la app (botón "Revisar ahora los oficios en curso")
   if (cfg.solicitudActivos) {

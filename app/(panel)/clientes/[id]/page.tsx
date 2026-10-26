@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Prisma } from "@prisma/client";
-import { CheckCircle2, ChevronLeft, FileText, Mail, MessageCircle, Phone, Plus } from "lucide-react";
+import { CheckCircle2, ChevronLeft, FileText, SearchCheck, Mail, MessageCircle, Phone, Plus } from "lucide-react";
 import { db } from "@/lib/db";
 import { requerirSesion } from "@/lib/auth";
 import { ESTADOS_TRABAJO, ETAPAS, TIPOS_EXPEDIENTE, TIPOS_OFICIO, TIPOS_SERVICIO, esSigno, fmtFecha, mxn, normalizarNombre } from "@/lib/catalogos";
@@ -91,7 +91,8 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
             {tel.length >= 10 && <a href={`https://wa.me/${tel.length === 10 ? "52" + tel : tel}`} target="_blank" rel="noreferrer" className="btn text-green-700"><MessageCircle size={14} /> WhatsApp</a>}
             {tel.length >= 10 && <a href={`tel:${tel}`} className="btn"><Phone size={14} /> Llamar</a>}
             {c.email && <a href={`mailto:${c.email}`} className="btn"><Mail size={14} /> Correo</a>}
-            <Link href={`/clientes/${c.id}/reporte`} className="btn"><FileText size={14} /> Reporte para el cliente</Link>
+            <Link href={`/clientes/${c.id}/auditoria`} className="btn"><SearchCheck size={14} /> Auditoría + Reporte</Link>
+            <Link href={`/clientes/${c.id}/reporte`} className="btn"><FileText size={14} /> Reporte rápido</Link>
             {puede("altas") && <EditarCliente c={{ id: c.id, nombre: c.nombre, telefono: c.telefono, email: c.email, rfc: c.rfc, notas: c.notas }} />}
             {puede("altas") && <Link href={`/admin/alta?cliente=${c.id}`} className="btn-primario"><Plus size={14} /> Agregar servicio</Link>}
           </div>

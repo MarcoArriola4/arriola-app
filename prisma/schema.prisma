@@ -274,3 +274,20 @@ model NotaMarca {
 
   @@index([expedienteId])
 }
+
+// Auditoría + Reporte: búsqueda en MARCanet por nombre (como titular y como apoderado).
+// El resultado vive solo aquí (JSON); no crea marcas en la app.
+model Auditoria {
+  id        String    @id @default(cuid())
+  clienteId String?
+  nombres   String    // JSON: ["NOMBRE 1", "NOMBRE 2"] (cada uno se busca como titular y como apoderado)
+  estado    String    @default("PENDIENTE") // PENDIENTE | BUSCANDO | LISTA | ERROR
+  avance    String?
+  resultado String?   // JSON con búsquedas y marcas
+  autor     String?
+  creado    DateTime  @default(now())
+  terminado DateTime?
+
+  @@index([clienteId])
+  @@index([estado])
+}
