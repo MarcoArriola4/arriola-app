@@ -40,8 +40,9 @@ export async function vencimientos({ desdeDias = -90, hastaDias = 365 } = {}) {
       /ddu/i.test(e.ultimoEstatus ?? "") ||
       e.tramitesImpi.some((t) => /DECLARACI[OÓ]N DE USO/i.test(t.descripcion)); // presentada ante el IMPI (MARCanet)
     const dduContratada = e.servicios.some((s) => s.tipo === "DDU" && s.estadoTrabajo === "PENDIENTE");
-    if (!dduHecha) {
-      const f = fechaLimiteDDU(conc, inhabiles);
+    const limiteDDU = fechaLimiteDDU(conc, inhabiles); // null = concedida antes del 10/08/2018: no aplica
+    if (!dduHecha && limiteDDU) {
+      const f = limiteDDU;
       const d = diasRestantes(f);
       if (dduContratada || (d >= desdeDias && d <= hastaDias)) out.push({ ...base, tipo: "DDU", fecha: f, dias: d, contratada: dduContratada });
     }

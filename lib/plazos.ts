@@ -86,8 +86,12 @@ export function siguientePlazo(
   return { fecha: limite, etiqueta: null as string | null };
 }
 
-/** Declaración de uso: dentro de los 3 meses posteriores al 3er aniversario de la concesión. */
+/**
+ * Declaración de uso: dentro de los 3 meses posteriores al 3er aniversario de la concesión
+ * (solo marcas concedidas a partir del 10/08/2018; antes de esa fecha no aplica). null = no aplica.
+ */
 export function fechaLimiteDDU(concesion: Date, inhabiles: Inhabiles) {
+  if (concesion.getTime() < Date.UTC(2018, 7, 10)) return null;
   return siguienteHabil(sumarMeses(concesion, 39), inhabiles);
 }
 

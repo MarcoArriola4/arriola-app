@@ -1,10 +1,11 @@
 // Auditoría + Reporte: busca cada nombre en MARCanet como titular y como apoderado, junta todas sus marcas
 // y consulta el estatus actual de cada una. Todo se guarda solo en la auditoría (no crea marcas en la app).
 import type { PrismaClient } from "@prisma/client";
-import { ETAPAS } from "../catalogos";
 import { buscarPorNombre, type Como, type MarcaEncontrada } from "./busqueda-nombre";
 import { consultarMarcanet, esperar, MarcanetCuotaError, type ExpedienteMarcanet } from "./consulta";
 import { tipoDesdeImpi, ultimaActualizacion } from "./sincronizar";
+import { analizarContestaciones, analizarDDU, analizarRenovacion, vigenciaDe, type Juicio } from "../cumplimiento";
+import { sumarMeses } from "../plazos";
 
 export type MarcaAuditada = Omit<MarcaEncontrada, "nombreImpi"> & {
   encontradaComo: { como: Como; nombre: string }[];
@@ -16,7 +17,15 @@ export type MarcaAuditada = Omit<MarcaEncontrada, "nombreImpi"> & {
   vigencia: string | null;
   enApp: { id: string; clienteId: string } | null;
   error?: string;
+  /** GANADA (registrada) · PROCESO · PERDIDA (abandonada, negada o vencida) */
+  categoria?: "GANADA" | "PROCESO" | "PERDIDA";
+  ddu?: Juicio | null;
+  renovacion?: Juicio | null;
+  contestaciones?: Juicio[];
 };
+
+/** Categoría para agrupar el reporte (las auditorías anteriores no la traen: se deduce del color). */
+export const categoriaDe = (m: MarcaAuditada) => m.categoria ?? (m.tono === "verde" ? "GANADA" : m.tono === "gris" || /vencid|negad/i.test(m.estatus) ? "PERDIDA" : "PROCESO");
 
 export type ResultadoAuditoria = {
   busquedas: { nombre: string; como: Como; coincidencias: string[]; parecidos: string[]; marcas: number; error?: string }[];
@@ -26,27 +35,55 @@ export type ResultadoAuditoria = {
 const ESPERA_CUOTA_MS = 11 * 60 * 1000;
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
-/** Estatus actual de una marca según su ficha de MARCanet, en palabras para el cliente. */
-export function estatusDesdeMarcanet(r: ExpedienteMarcanet, hoy = new Date()): { estatus: string; tono: MarcaAuditada["tono"] } {
+/**
+ * Estatus actual y real de una marca según su ficha de MARCanet, en palabras para el cliente, con su categoría,
+ * la declaración de uso / renovación y si contestó sus oficios en tiempo.
+ */
+export function analizarMarca(r: ExpedienteMarcanet, hoy = new Date()) {
+  const contestaciones = analizarContestaciones(r.oficios, r.promociones, r.tramites, tipoDesdeImpi, hoy);
   const oficios = [...r.oficios].sort((a, b) => ((b.fechaNotificacion ?? b.fechaOficio)?.getTime() ?? 0) - ((a.fechaNotificacion ?? a.fechaOficio)?.getTime() ?? 0));
   const ultimo = oficios.find((o) => !/ARCHIVO FON|EXAMEN FIGURATIVO/i.test(o.descripcion));
-  if (r.numeroRegistro || r.fechaConcesion || (ultimo && /CONCESI|T[IÍ]TULO DE REGISTRO|SE OTORGA/i.test(ultimo.descripcion))) {
-    if (r.fechaVigencia && r.fechaVigencia < hoy) return { estatus: "Registro vencido (sin renovar)", tono: "rojo" };
-    return { estatus: r.fechaVigencia ? `Registrada · vigente hasta ${r.fechaVigencia.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })}` : "Registrada", tono: "verde" };
+  const registrada = !!(r.numeroRegistro || r.fechaConcesion || (ultimo && /CONCESI|T[IÍ]TULO DE REGISTRO|SE OTORGA/i.test(ultimo.descripcion)));
+  const vigencia = r.fechaConcesion ? vigenciaDe(r.fechaConcesion, r.fechaVigencia) : r.fechaVigencia;
+  const ddu = registrada ? analizarDDU(r.fechaConcesion, r.tramites, hoy) : null;
+  const renovacion = registrada ? analizarRenovacion(r.fechaConcesion, r.fechaVigencia, r.tramites, hoy) : null;
+  const f = (d: Date) => d.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+
+  let estatus: string;
+  let tono: MarcaAuditada["tono"];
+  let categoria: NonNullable<MarcaAuditada["categoria"]>;
+  if (registrada) {
+    const vencida = vigencia && hoy > sumarMeses(vigencia, 6) && renovacion?.tono === "rojo";
+    if (vencida) [estatus, tono, categoria] = ["Registro vencido (no se renovó)", "rojo", "PERDIDA"];
+    else if (ddu?.tono === "rojo" && /NO presentada/.test(ddu.texto)) [estatus, tono, categoria] = ["Registrada · sin declaración de uso (riesgo de caducidad)", "ambar", "GANADA"];
+    else [estatus, tono, categoria] = [vigencia ? `Registrada · vigente hasta ${f(vigencia)}` : "Registrada", "verde", "GANADA"];
+  } else if (ultimo && /ABANDON/i.test(ultimo.descripcion)) {
+    [estatus, tono, categoria] = ["Abandonada (declarada por el IMPI)", "gris", "PERDIDA"];
+  } else {
+    // El oficio más reciente que pide respuesta decide: vencido sin contestar = abandonada (o negativa firme)
+    const pendiente = [...contestaciones].reverse().find((c) => !c.contestado && c.tono !== "gris");
+    const negativa = ultimo && /NEGATIVA/i.test(ultimo.descripcion);
+    const confirma = ultimo && /CONFIRMA EL ACTO/i.test(ultimo.descripcion);
+    const enRecurso = r.tramites.some((t) => /RECURSO DE REVISI/i.test(t.descripcion) && !t.fechaConclusion);
+    if (confirma && ultimo?.fechaNotificacion && pendiente?.vencido) [estatus, tono, categoria] = ["Negada (se confirmó la negativa y no se presentó juicio de nulidad)", "rojo", "PERDIDA"];
+    else if (confirma) [estatus, tono, categoria] = ["Recurso de revisión perdido (se confirma la negativa)", "rojo", "PROCESO"];
+    else if (negativa && pendiente?.vencido) [estatus, tono, categoria] = ["Negada (no se impugnó la negativa)", "rojo", "PERDIDA"];
+    else if (enRecurso) [estatus, tono, categoria] = ["En recurso de revisión", "ambar", "PROCESO"];
+    else if (negativa) [estatus, tono, categoria] = ["Negativa del IMPI · aún se puede impugnar", "rojo", "PROCESO"];
+    else if (pendiente?.vencido) [estatus, tono, categoria] = ["Abandonada (no se contestó el oficio en el plazo de 4 meses)", "gris", "PERDIDA"];
+    else if (pendiente && pendiente.tono === "ambar") [estatus, tono, categoria] = ["Oficio por contestar (en plazo)", "ambar", "PROCESO"];
+    else if (pendiente) [estatus, tono, categoria] = ["Oficio del IMPI por notificar", "azul", "PROCESO"];
+    else if (contestaciones.some((c) => c.contestado)) [estatus, tono, categoria] = ["En trámite · requerimiento contestado", "azul", "PROCESO"];
+    else [estatus, tono, categoria] = ["En trámite ante el IMPI", "azul", "PROCESO"];
   }
-  if (ultimo && /ABANDON/i.test(ultimo.descripcion)) return { estatus: "Abandonada", tono: "gris" };
-  if (r.tramites.some((t) => /RECURSO DE REVISI/i.test(t.descripcion) && !t.fechaConclusion)) return { estatus: "En recurso de revisión", tono: "ambar" };
-  if (ultimo && /NEGATIVA/i.test(ultimo.descripcion)) return { estatus: "Negativa del IMPI", tono: "rojo" };
-  if (ultimo && tipoDesdeImpi(ultimo.descripcion)) {
-    const contestado = r.promociones.some((p) => p.oficioRelacionado === ultimo.numero) || r.promociones.some((p) => p.fechaPresentacion && ultimo.fechaNotificacion && p.fechaPresentacion >= ultimo.fechaNotificacion);
-    if (contestado) return { estatus: "En trámite · requerimiento contestado", tono: "azul" };
-    if (!ultimo.fechaNotificacion) return { estatus: "Oficio del IMPI por notificar", tono: "ambar" };
-    return { estatus: `Oficio por contestar (${ultimo.descripcion.toLowerCase()})`, tono: "ambar" };
-  }
-  return { estatus: "En trámite ante el IMPI", tono: "azul" };
+  return { estatus, tono, categoria, ddu, renovacion, contestaciones: contestaciones.map(({ texto, tono: t }) => ({ texto, tono: t })), vigencia };
 }
 
-const TONO_ETAPA: Record<string, MarcaAuditada["tono"]> = { CONCEDIDA: "verde", EN_TRAMITE: "azul", POR_PRESENTAR: "azul", CON_OFICIO: "ambar", EN_JUICIO: "ambar", NEGATIVA: "rojo", CONFIRMA_ACTO: "rojo", ABANDONADA: "gris" };
+/** Compatibilidad: solo estatus y color. */
+export function estatusDesdeMarcanet(r: ExpedienteMarcanet, hoy = new Date()): { estatus: string; tono: MarcaAuditada["tono"] } {
+  const a = analizarMarca(r, hoy);
+  return { estatus: a.estatus, tono: a.tono };
+}
 
 type Estado = ResultadoAuditoria & { fase?: "BUSQUEDA" | "DETALLES"; paso?: number };
 
@@ -97,7 +134,7 @@ export async function avanzarAuditoria(db: PrismaClient, id: string, limite: num
 
   // 2) Estatus actual de cada marca encontrada (si la app la consultó hace menos de 7 días, se usan sus datos)
   const enApp = new Map(
-    (await db.expediente.findMany({ where: { numeroExpediente: { in: st.marcas.map((m) => m.expediente) } }, select: { id: true, clienteId: true, numeroExpediente: true, etapa: true, desistio: true, marcanetSync: true, ultimaActImpi: true, ultimaActImpiFecha: true, fechaPresentacion: true, fechaConcesion: true } }))
+    (await db.expediente.findMany({ where: { numeroExpediente: { in: st.marcas.map((m) => m.expediente) } }, select: { id: true, clienteId: true, numeroExpediente: true, numeroRegistro: true, marcanetSync: true, fechaPresentacion: true, fechaConcesion: true, tramitesImpi: true, oficiosImpi: true, promocionesImpi: true } }))
       .map((e) => [e.numeroExpediente!, e])
   );
   const reciente = Date.now() - 7 * 864e5;
@@ -107,28 +144,29 @@ export async function avanzarAuditoria(db: PrismaClient, id: string, limite: num
     await db.auditoria.update({ where: { id }, data: { avance: `Consultando el estatus de cada marca: ${st.paso! + 1} de ${st.marcas.length}` } });
     const e = enApp.get(m.expediente);
     if (e) m.enApp = { id: e.id, clienteId: e.clienteId };
-    if (e && e.marcanetSync && e.marcanetSync.getTime() > reciente) {
-      const etapa = e.desistio ? "ABANDONADA" : e.etapa;
-      m.estatus = etapa === "CONCEDIDA" ? "Registrada" : ETAPAS[etapa] ?? etapa;
-      m.tono = TONO_ETAPA[etapa] ?? "gris";
-      m.ultimo = e.ultimaActImpi && e.ultimaActImpiFecha ? { fecha: e.ultimaActImpiFecha.toISOString(), texto: e.ultimaActImpi } : null;
-      m.fechaPresentacion = iso(e.fechaPresentacion);
-      m.fechaConcesion = iso(e.fechaConcesion);
-    } else {
-      try {
-        const r = await consultarMarcanet(m.expediente);
-        Object.assign(m, estatusDesdeMarcanet(r));
-        const u = ultimaActualizacion(r);
-        m.ultimo = u ? { fecha: u.fecha.toISOString(), texto: u.texto } : null;
-        m.fechaPresentacion = iso(r.fechaPresentacion);
-        m.fechaConcesion = iso(r.fechaConcesion);
-        m.vigencia = iso(r.fechaVigencia);
-        if (!m.registro && r.numeroRegistro) m.registro = r.numeroRegistro;
-      } catch (err) {
-        if (err instanceof MarcanetCuotaError) throw err;
-        m.estatus = "No se pudo consultar";
-        m.error = err instanceof Error ? err.message : "Error";
-      }
+    try {
+      // Si la app consultó esa marca hace menos de 7 días se usan sus datos de MARCanet; si no, se consulta de nuevo
+      const r: ExpedienteMarcanet =
+        e && e.marcanetSync && e.marcanetSync.getTime() > reciente
+          ? {
+              numeroExpediente: m.expediente, denominacion: m.denominacion, numeroRegistro: e.numeroRegistro, fechaPresentacion: e.fechaPresentacion, fechaConcesion: e.fechaConcesion, fechaVigencia: null,
+              tramites: e.tramitesImpi.map((t) => ({ folio: t.folio, anio: t.anio, descripcion: t.descripcion, fechaInicio: t.fechaInicio, fechaConclusion: t.fechaConclusion })),
+              oficios: e.oficiosImpi.map((o) => ({ descripcion: o.descripcion, numero: o.numero, fechaOficio: o.fechaOficio, estadoNotificacion: o.estadoNotificacion ?? "", fechaNotificacion: o.fechaNotificacion, tramite: o.tramite ?? "" })),
+              promociones: e.promocionesImpi.map((p) => ({ folio: p.folio, anio: p.anio, fechaPresentacion: p.fechaPresentacion, oficioRelacionado: p.oficioRelacionado, descripcion: p.descripcion, tramite: p.tramite ?? "" })),
+            }
+          : await consultarMarcanet(m.expediente);
+      const an = analizarMarca(r);
+      Object.assign(m, { estatus: an.estatus, tono: an.tono, categoria: an.categoria, ddu: an.ddu, renovacion: an.renovacion, contestaciones: an.contestaciones, vigencia: iso(an.vigencia) });
+      const u = ultimaActualizacion(r);
+      m.ultimo = u ? { fecha: u.fecha.toISOString(), texto: u.texto } : null;
+      m.fechaPresentacion = iso(r.fechaPresentacion);
+      m.fechaConcesion = iso(r.fechaConcesion);
+      if (!m.registro && r.numeroRegistro) m.registro = r.numeroRegistro;
+    } catch (err) {
+      if (err instanceof MarcanetCuotaError) throw err;
+      m.estatus = "No se pudo consultar";
+      m.categoria = "PROCESO";
+      m.error = err instanceof Error ? err.message : "Error";
     }
     st.paso!++;
     if (st.paso! % 3 === 0) await guardar(null);

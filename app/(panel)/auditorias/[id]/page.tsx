@@ -5,7 +5,7 @@ import { ChevronLeft, FileDown } from "lucide-react";
 import { db } from "@/lib/db";
 import { requerirAdmin } from "@/lib/auth";
 import { fmtFecha } from "@/lib/catalogos";
-import { progresoAuditoria, type MarcaAuditada, type ResultadoAuditoria } from "@/lib/marcanet/auditoria";
+import { categoriaDe, progresoAuditoria, type MarcaAuditada, type ResultadoAuditoria } from "@/lib/marcanet/auditoria";
 import { Imprimir } from "./cliente";
 import { RelojAuditoria } from "@/components/reloj-auditoria";
 import { oportunidades } from "@/components/seccion-auditoria";
@@ -20,6 +20,13 @@ const TONO: Record<MarcaAuditada["tono"], string> = {
   gris: "bg-neutral-100 text-neutral-600",
 };
 
+const TEXTO: Record<MarcaAuditada["tono"], string> = { verde: "text-green-700", azul: "text-sky-700", ambar: "text-amber-700", rojo: "text-red-700", gris: "text-neutral-500" };
+const CATEGORIAS = [
+  { id: "GANADA", titulo: "Ganadas · registradas", borde: "border-green-600" },
+  { id: "PROCESO", titulo: "En proceso", borde: "border-sky-600" },
+  { id: "PERDIDA", titulo: "Abandonadas, negadas o vencidas", borde: "border-red-600" },
+];
+
 export default async function Auditoria({ params }: { params: Promise<{ id: string }> }) {
   const [{ id }] = await Promise.all([params, requerirAdmin()]);
   const a = await db.auditoria.findUnique({ where: { id } });
@@ -29,12 +36,11 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
   const r: ResultadoAuditoria = a.resultado ? JSON.parse(a.resultado) : { busquedas: [], marcas: [] };
   const lista = a.estado === "LISTA";
 
-  // Ordenadas por titular (o apoderado) del IMPI y luego por marca
-  const grupoDe = (m: MarcaAuditada) => m.encontradaComo.find((x) => x.como === "TITULAR")?.nombre ?? `Apoderado: ${m.encontradaComo[0]?.nombre ?? "—"}`;
-  const grupos = new Map<string, MarcaAuditada[]>();
-  for (const m of r.marcas) grupos.set(grupoDe(m), [...(grupos.get(grupoDe(m)) ?? []), m]);
-  const ordenados = [...grupos.entries()].sort((x, y) => x[0].localeCompare(y[0], "es")).map(([g, ms]) => [g, ms.sort((p, q) => p.denominacion.localeCompare(q.denominacion, "es") || p.expediente.localeCompare(q.expediente))] as const);
-  const cuenta = (t: MarcaAuditada["tono"][]) => r.marcas.filter((m) => t.includes(m.tono)).length;
+  // Agrupadas en ganadas, en proceso y perdidas; dentro, por titular y por marca
+  const titularDe = (m: MarcaAuditada) => m.encontradaComo.find((x) => x.como === "TITULAR")?.nombre ?? m.encontradaComo[0]?.nombre ?? "";
+  const ordenar = (ms: MarcaAuditada[]) => ms.sort((p, q) => titularDe(p).localeCompare(titularDe(q), "es") || p.denominacion.localeCompare(q.denominacion, "es") || p.expediente.localeCompare(q.expediente));
+  const ordenados = CATEGORIAS.map((c) => [c, ordenar(r.marcas.filter((m) => categoriaDe(m) === c.id))] as const).filter(([, ms]) => ms.length);
+  const cuentaCat = (id: string) => r.marcas.filter((m) => categoriaDe(m) === id).length;
   const hoy = a.terminado ?? new Date();
 
   return (
@@ -51,7 +57,7 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
 
       <div className="mb-4 print:hidden"><RelojAuditoria p={progresoAuditoria(a)} /></div>
 
-      <article className="mx-auto max-w-6xl overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5 print:max-w-none print:rounded-none print:shadow-none print:ring-0">
+      <article className="mx-auto max-w-7xl overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5 print:max-w-none print:rounded-none print:shadow-none print:ring-0">
         <header className="flex flex-wrap items-center justify-between gap-4 bg-carbon px-8 py-6 text-white print:[print-color-adjust:exact]">
           <Image src="/logo.png" alt="Arriola Abogados" width={1040} height={380} className="w-44" />
           <div className="text-right">
@@ -66,15 +72,15 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
 
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
             {[
-              { t: "Marcas encontradas", n: r.marcas.length },
-              { t: "Registradas", n: cuenta(["verde"]) },
-              { t: "En trámite", n: cuenta(["azul"]) },
-              { t: "Requieren atención", n: cuenta(["ambar", "rojo"]) },
-              { t: "Abandonadas", n: cuenta(["gris"]) },
+              { t: "Marcas encontradas", n: r.marcas.length, cls: "" },
+              { t: "Ganadas (registradas)", n: cuentaCat("GANADA"), cls: "text-green-700" },
+              { t: "En proceso", n: cuentaCat("PROCESO"), cls: "text-sky-700" },
+              { t: "Abandonadas, negadas o vencidas", n: cuentaCat("PERDIDA"), cls: "text-red-700" },
+              { t: "No contratadas con nosotros", n: oportunidades(r).length, cls: "text-violet-700" },
             ].map((x) => (
               <div key={x.t} className="rounded-xl border border-black/[0.07] px-4 py-3">
                 <p className="text-xs text-neutral-500">{x.t}</p>
-                <p className="text-2xl font-semibold">{x.n}</p>
+                <p className={`text-2xl font-semibold ${x.cls}`}>{x.n}</p>
               </div>
             ))}
           </div>
@@ -86,18 +92,18 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
             </section>
           )}
 
-          {ordenados.map(([grupo, marcas]) => (
-            <section key={grupo} className="mt-8">
-              <h2 className="mb-2 border-b-2 border-carbon pb-1 text-sm font-semibold uppercase tracking-wide">{grupo} <span className="font-normal text-neutral-400">· {marcas.length} {marcas.length === 1 ? "marca" : "marcas"}</span></h2>
+          {ordenados.map(([cat, marcas]) => (
+            <section key={cat.id} className="mt-8">
+              <h2 className={`mb-2 border-b-2 pb-1 text-sm font-semibold uppercase tracking-wide ${cat.borde}`}>{cat.titulo} <span className="font-normal text-neutral-400">· {marcas.length} {marcas.length === 1 ? "marca" : "marcas"}</span></h2>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-[11px] uppercase tracking-wide text-neutral-500">
                     <th className="py-2 pr-3">Marca</th>
-                    <th className="py-2 pr-3">Expediente / registro</th>
-                    <th className="py-2 pr-3">Clase</th>
+                    <th className="py-2 pr-3">Expediente · clase</th>
+                    <th className="py-2 pr-3">Presentación · concesión · vigencia</th>
                     <th className="py-2 pr-3">Estatus actual</th>
-                    <th className="py-2 pr-3">Último movimiento</th>
-                    <th className="py-2">Encontrada como</th>
+                    <th className="py-2 pr-3">Declaración de uso · renovación</th>
+                    <th className="py-2">Oficios y contestaciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/5 align-top">
@@ -105,21 +111,31 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
                     <tr key={m.expediente} className="break-inside-avoid">
                       <td className="py-2.5 pr-3">
                         <p className="font-semibold">{m.denominacion}</p>
-                        <p className="text-xs text-neutral-500">{m.tipoMarca}</p>
-                        {m.enApp ? <Link href={`/clientes/${m.enApp.clienteId}?marca=${m.enApp.id}`} className="text-[11px] text-marca-oscuro hover:underline print:hidden">Contratada con nosotros →</Link> : <span className="text-[11px] font-medium text-violet-700 print:hidden">No contratada con nosotros</span>}
+                        <p className="text-[11px] text-neutral-500">{m.tipoMarca}</p>
+                        <p className="text-[11px] text-neutral-400">{m.encontradaComo.map((x) => `${x.como === "TITULAR" ? "Titular" : "Apoderado"}: ${x.nombre}`).join(" · ")}</p>
+                        {m.enApp ? <Link href={`/clientes/${m.enApp.clienteId}?marca=${m.enApp.id}`} className="text-[11px] text-marca-oscuro hover:underline print:hidden">Contratada con nosotros →</Link> : <span className="text-[11px] font-medium text-violet-700">No contratada con nosotros</span>}
                       </td>
                       <td className="py-2.5 pr-3 text-xs">
                         <p>Exp. {m.expediente}</p>
                         {m.registro && <p>Reg. {m.registro}</p>}
-                        {m.fechaPresentacion && <p className="text-neutral-500">Presentada {fmtFecha(m.fechaPresentacion)}</p>}
-                        {m.fechaConcesion && <p className="text-neutral-500">Concesión {fmtFecha(m.fechaConcesion)}</p>}
+                        <p className="text-neutral-500">Clase {m.clase ?? "—"}</p>
                       </td>
-                      <td className="py-2.5 pr-3 text-xs">{m.clase ?? "—"}</td>
+                      <td className="py-2.5 pr-3 text-xs text-neutral-600">
+                        <p>Presentación: {m.fechaPresentacion ? fmtFecha(m.fechaPresentacion) : "—"}</p>
+                        <p>Concesión: {m.fechaConcesion ? fmtFecha(m.fechaConcesion) : "—"}</p>
+                        <p>Vigencia: {m.vigencia ? fmtFecha(m.vigencia) : "—"}</p>
+                      </td>
                       <td className="py-2.5 pr-3">
                         {m.estatus ? <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-medium print:[print-color-adjust:exact] ${TONO[m.tono]}`}>{m.estatus}</span> : <span className="text-xs text-neutral-400">Consultando…</span>}
+                        {m.ultimo && <p className="mt-1 text-[11px] text-neutral-500">Último movimiento: {fmtFecha(m.ultimo.fecha)} · {m.ultimo.texto}</p>}
                       </td>
-                      <td className="py-2.5 pr-3 text-xs text-neutral-600">{m.ultimo ? <>{fmtFecha(m.ultimo.fecha)} · {m.ultimo.texto}</> : "—"}</td>
-                      <td className="py-2.5 text-[11px] text-neutral-500">{m.encontradaComo.map((x) => <p key={x.como + x.nombre}>{x.como === "TITULAR" ? "Titular" : "Apoderado"}: {x.nombre}</p>)}</td>
+                      <td className="py-2.5 pr-3 text-[11px]">
+                        {[m.ddu, m.renovacion].filter(Boolean).map((j) => <p key={j!.texto} className={TEXTO[j!.tono]}>{j!.texto}</p>)}
+                        {!m.ddu && !m.renovacion && <span className="text-neutral-400">{categoriaDe(m) === "GANADA" ? "Sin fecha de concesión" : "No aplica (no registrada)"}</span>}
+                      </td>
+                      <td className="py-2.5 text-[11px]">
+                        {m.contestaciones?.length ? m.contestaciones.map((c) => <p key={c.texto} className={TEXTO[c.tono]}>{c.texto}</p>) : <span className="text-neutral-400">Sin oficios que contestar</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

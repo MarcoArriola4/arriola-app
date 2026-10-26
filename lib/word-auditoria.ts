@@ -4,7 +4,8 @@ import path from "path";
 import {
   AlignmentType, BorderStyle, Document, Footer, HeadingLevel, ImageRun, Packer, PageOrientation, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType,
 } from "docx";
-import type { MarcaAuditada, ResultadoAuditoria } from "./marcanet/auditoria";
+import { categoriaDe, type MarcaAuditada, type ResultadoAuditoria } from "./marcanet/auditoria";
+import type { Juicio } from "./cumplimiento";
 
 const OSCURO = "1F1F1F";
 const VERDE_MARCA = "8DC63F";
@@ -49,47 +50,61 @@ export async function auditoriaEnWord(datos: { cliente: string | null; nombres: 
   });
 
   const noContratadas = r.marcas.filter((m) => !m.enApp).sort((a, b) => a.denominacion.localeCompare(b.denominacion, "es"));
-  const cuenta = (tonos: MarcaAuditada["tono"][]) => r.marcas.filter((m) => tonos.includes(m.tono)).length;
+  const cuentaCat = (c: string) => r.marcas.filter((m) => categoriaDe(m) === c).length;
   const resumen = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: bordesTabla,
     rows: [
-      new TableRow({ children: ["Marcas encontradas", "Registradas", "En trámite", "Requieren atención", "Abandonadas"].map((x) => celda([p(t(x, { size: 16, color: "666666" }))], { fondo: "F7F7F7" })) }),
-      new TableRow({ children: [r.marcas.length, cuenta(["verde"]), cuenta(["azul"]), cuenta(["ambar", "rojo"]), cuenta(["gris"])].map((n) => celda([p(t(String(n), { bold: true, size: 32 }))])) }),
+      new TableRow({ children: ["Marcas encontradas", "Ganadas (registradas)", "En proceso", "Abandonadas, negadas o vencidas", "No contratadas con nosotros"].map((x) => celda([p(t(x, { size: 16, color: "666666" }))], { fondo: "F7F7F7" })) }),
+      new TableRow({ children: [r.marcas.length, cuentaCat("GANADA"), cuentaCat("PROCESO"), cuentaCat("PERDIDA"), noContratadas.length].map((n) => celda([p(t(String(n), { bold: true, size: 32 }))])) }),
     ],
   });
 
-  // Agrupadas por titular (o apoderado) y luego por marca
-  const grupoDe = (m: MarcaAuditada) => m.encontradaComo.find((x) => x.como === "TITULAR")?.nombre ?? `Apoderado: ${m.encontradaComo[0]?.nombre ?? "—"}`;
-  const grupos = new Map<string, MarcaAuditada[]>();
-  for (const m of r.marcas) grupos.set(grupoDe(m), [...(grupos.get(grupoDe(m)) ?? []), m]);
-  const secciones = [...grupos.entries()].sort((a, b) => a[0].localeCompare(b[0], "es")).flatMap(([grupo, marcas]) => {
-    marcas.sort((a, b) => a.denominacion.localeCompare(b.denominacion, "es") || a.expediente.localeCompare(b.expediente));
-    const encabezados = ["Marca", "Expediente / registro", "Clase", "Estatus actual", "Último movimiento", "Encontrada como"];
-    const anchos = [20, 16, 6, 18, 24, 16];
+  // Ganadas, en proceso y perdidas; dentro, por titular y por marca
+  const titularDe = (m: MarcaAuditada) => m.encontradaComo.find((x) => x.como === "TITULAR")?.nombre ?? m.encontradaComo[0]?.nombre ?? "";
+  const CATS = [
+    { id: "GANADA", titulo: "GANADAS · REGISTRADAS", color: "1B5E20" },
+    { id: "PROCESO", titulo: "EN PROCESO", color: "0D47A1" },
+    { id: "PERDIDA", titulo: "ABANDONADAS, NEGADAS O VENCIDAS", color: "B71C1C" },
+  ];
+  const linea = (j: Juicio) => p(t(j.texto, { size: 15, color: COLOR_TONO[j.tono].texto }));
+  const secciones = CATS.flatMap((cat) => {
+    const marcas = r.marcas
+      .filter((m) => categoriaDe(m) === cat.id)
+      .sort((a, b) => titularDe(a).localeCompare(titularDe(b), "es") || a.denominacion.localeCompare(b.denominacion, "es") || a.expediente.localeCompare(b.expediente));
+    if (!marcas.length) return [];
+    const encabezados = ["Marca", "Expediente · clase", "Presentación · concesión · vigencia", "Estatus actual", "Declaración de uso · renovación", "Oficios y contestaciones"];
+    const anchos = [18, 11, 15, 18, 18, 20];
     return [
-      new Paragraph({ heading: HeadingLevel.HEADING_2, spacing: { before: 300, after: 100 }, children: [t(grupo.toUpperCase(), { bold: true, size: 22 }), t(`  ·  ${marcas.length} ${marcas.length === 1 ? "marca" : "marcas"}`, { size: 18, color: "888888" })] }),
+      new Paragraph({ heading: HeadingLevel.HEADING_2, spacing: { before: 300, after: 100 }, children: [t(cat.titulo, { bold: true, size: 22, color: cat.color }), t(`  ·  ${marcas.length} ${marcas.length === 1 ? "marca" : "marcas"}`, { size: 18, color: "888888" })] }),
       new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
         borders: bordesTabla,
         rows: [
-          new TableRow({ tableHeader: true, children: encabezados.map((h, i) => celda([p(t(h.toUpperCase(), { bold: true, size: 15, color: "666666" }))], { ancho: anchos[i], fondo: "F7F7F7" })) }),
+          new TableRow({ tableHeader: true, children: encabezados.map((h, i) => celda([p(t(h.toUpperCase(), { bold: true, size: 14, color: "666666" }))], { ancho: anchos[i], fondo: "F7F7F7" })) }),
           ...marcas.map(
             (m) =>
               new TableRow({
                 cantSplit: true,
                 children: [
-                  celda([p(t(m.denominacion, { bold: true })), p(t(m.tipoMarca, { size: 15, color: "777777" }))], { ancho: anchos[0] }),
                   celda([
-                    p(t(`Exp. ${m.expediente}`)),
-                    ...(m.registro ? [p(t(`Reg. ${m.registro}`))] : []),
-                    ...(m.fechaPresentacion ? [p(t(`Presentada ${fecha(m.fechaPresentacion)}`, { size: 15, color: "777777" }))] : []),
-                    ...(m.fechaConcesion ? [p(t(`Concesión ${fecha(m.fechaConcesion)}`, { size: 15, color: "777777" }))] : []),
-                  ], { ancho: anchos[1] }),
-                  celda([p(t(m.clase ?? "—"))], { ancho: anchos[2] }),
-                  celda([p(t(m.estatus || "—", { bold: true, color: COLOR_TONO[m.tono].texto }))], { ancho: anchos[3], fondo: COLOR_TONO[m.tono].fondo }),
-                  celda([p(t(m.ultimo ? `${fecha(m.ultimo.fecha)} · ${m.ultimo.texto}` : "—", { size: 16 }))], { ancho: anchos[4] }),
-                  celda(m.encontradaComo.map((x) => p(t(`${x.como === "TITULAR" ? "Titular" : "Apoderado"}: ${x.nombre}`, { size: 15, color: "555555" }))), { ancho: anchos[5] }),
+                    p(t(m.denominacion, { bold: true })),
+                    p(t(m.tipoMarca, { size: 14, color: "777777" })),
+                    p(t(m.encontradaComo.map((x) => `${x.como === "TITULAR" ? "Titular" : "Apoderado"}: ${x.nombre}`).join(" · "), { size: 14, color: "777777" })),
+                    p(t(m.enApp ? "Contratada con nosotros" : "No contratada con nosotros", { size: 14, bold: !m.enApp, color: m.enApp ? "1B5E20" : "5B21B6" })),
+                  ], { ancho: anchos[0] }),
+                  celda([p(t(`Exp. ${m.expediente}`)), ...(m.registro ? [p(t(`Reg. ${m.registro}`))] : []), p(t(`Clase ${m.clase ?? "—"}`, { size: 15, color: "777777" }))], { ancho: anchos[1] }),
+                  celda([
+                    p(t(`Presentación: ${m.fechaPresentacion ? fecha(m.fechaPresentacion) : "—"}`, { size: 15 })),
+                    p(t(`Concesión: ${m.fechaConcesion ? fecha(m.fechaConcesion) : "—"}`, { size: 15 })),
+                    p(t(`Vigencia: ${m.vigencia ? fecha(m.vigencia) : "—"}`, { size: 15 })),
+                  ], { ancho: anchos[2] }),
+                  celda([
+                    p(t(m.estatus || "—", { bold: true, color: COLOR_TONO[m.tono].texto })),
+                    ...(m.ultimo ? [p(t(`Último movimiento: ${fecha(m.ultimo.fecha)} · ${m.ultimo.texto}`, { size: 14, color: "555555" }))] : []),
+                  ], { ancho: anchos[3], fondo: COLOR_TONO[m.tono].fondo }),
+                  celda([m.ddu, m.renovacion].filter(Boolean).length ? ([m.ddu, m.renovacion].filter(Boolean) as Juicio[]).map(linea) : [p(t(cat.id === "GANADA" ? "Sin fecha de concesión" : "No aplica (no registrada)", { size: 15, color: "888888" }))], { ancho: anchos[4] }),
+                  celda(m.contestaciones?.length ? m.contestaciones.map(linea) : [p(t("Sin oficios que contestar", { size: 15, color: "888888" }))], { ancho: anchos[5] }),
                 ],
               })
           ),

@@ -5,9 +5,10 @@ import { CheckCircle2, ChevronLeft, FileText, SearchCheck, Mail, MessageCircle, 
 import { db } from "@/lib/db";
 import { requerirSesion } from "@/lib/auth";
 import { ESTADOS_TRABAJO, ETAPAS, TIPOS_EXPEDIENTE, TIPOS_OFICIO, TIPOS_SERVICIO, esSigno, fmtFecha, mxn, normalizarNombre } from "@/lib/catalogos";
-import { fechaLimiteDDU, fechaRenovacion, type Inhabiles } from "@/lib/plazos";
+import { type Inhabiles } from "@/lib/plazos";
+import { analizarDDU, analizarRenovacion } from "@/lib/cumplimiento";
 import { cargarInhabiles } from "@/lib/inhabiles";
-import { EstadoPago, Etapa, Metrica, Origen, Parcialidades, Plazo, PlazoOficio, Vacio } from "@/components/ui";
+import { EstadoPago, Etapa, Metrica, Origen, Parcialidades, PlazoOficio, Vacio } from "@/components/ui";
 import { AccesoImpi, Abono, BotonMarcanet, CambiarEtapa, EditarCliente, EditarExpediente, EditarServicio, EliminarMarca, NuevoCobro, YaNoContinua } from "@/components/ficha";
 import { ControlOficio, SeguimientoNuevo } from "@/components/control-oficio";
 import { tipoDesdeImpi } from "@/lib/marcanet/sincronizar";
@@ -204,13 +205,11 @@ function ListaExpedientes({ titulo, lista, clienteId, selId, vacio, cliente }: {
 
 type Exp = Prisma.ExpedienteGetPayload<{ include: { servicios: true; notificaciones: true; eventos: true; oficiosImpi: true; promocionesImpi: true; tramitesImpi: true; notasMarca: true } }>;
 
-function DetalleMarca({ e, permisos, inhabiles }: { e: Exp; permisos: Set<string>; inhabiles: Inhabiles }) {
+function DetalleMarca({ e, permisos }: { e: Exp; permisos: Set<string>; inhabiles: Inhabiles }) {
   const puede = (p: string) => permisos.has(p);
   const totalCosto = e.servicios.reduce((a, s) => a + (s.costo ?? 0), 0);
   const totalPagado = e.servicios.reduce((a, s) => a + s.pagado, 0);
   const signo = esSigno(e.tipo);
-  const ddu = signo && e.fechaConcesion ? fechaLimiteDDU(e.fechaConcesion, inhabiles) : null;
-  const renov = signo && e.fechaConcesion ? fechaRenovacion(e.fechaConcesion) : null;
   const dduHecha =
     e.servicios.some((s) => s.tipo === "DDU" && s.estadoTrabajo !== "PENDIENTE") ||
     /ddu/i.test(e.ultimoEstatus ?? "") ||
@@ -300,8 +299,19 @@ function DetalleMarca({ e, permisos, inhabiles }: { e: Exp; permisos: Set<string
           <dl className="space-y-2 text-sm">
             <Fila label="Presentación" valor={fmtFecha(e.fechaPresentacion)} />
             <Fila label="Concesión" valor={fmtFecha(e.fechaConcesion)} />
-            {ddu && <Fila label="Declaración de uso" valor={dduHecha ? <span className="text-marca-oscuro">Presentada</span> : <span className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">{fmtFecha(ddu)} <Plazo fecha={ddu} /></span>} />}
-            {renov && <Fila label="Renovación" valor={<span className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">{fmtFecha(renov)} <Plazo fecha={renov} /></span>} />}
+            {signo && e.fechaConcesion && (() => {
+              // Reglas: DDU solo si se concedió a partir del 10/08/2018 (3 meses tras el 3er aniversario); renovación a los 10 años
+              const tono = { verde: "text-marca-oscuro", azul: "text-sky-700", ambar: "text-amber-700", rojo: "text-red-600", gris: "text-neutral-500" };
+              const ddu = analizarDDU(e.fechaConcesion, e.tramitesImpi);
+              const dduTexto = ddu && dduHecha && ddu.tono !== "verde" && ddu.tono !== "gris" && ddu.tono !== "azul" ? { texto: "Presentada (según el registro del despacho)", tono: "verde" as const } : ddu;
+              const renov = analizarRenovacion(e.fechaConcesion, null, e.tramitesImpi);
+              return (
+                <>
+                  {dduTexto && <Fila label="Declaración de uso" valor={<span className={`text-xs ${tono[dduTexto.tono]}`}>{dduTexto.texto.replace(/^Declaración de uso:? ?/, "")}</span>} />}
+                  {renov && <Fila label="Renovación" valor={<span className={`text-xs ${tono[renov.tono]}`}>{renov.texto}</span>} />}
+                </>
+              );
+            })()}
           </dl>
         </section>
         <AccesoImpi expedienteId={e.id} usuario={e.impiUsuario} tienePassword={!!e.impiPasswordEnc} />

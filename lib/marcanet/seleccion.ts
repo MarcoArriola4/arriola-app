@@ -6,6 +6,7 @@
 import type { Expediente, PrismaClient } from "@prisma/client";
 import { DIA, sumarMeses } from "../plazos";
 import { expedientesParaHoy } from "./sincronizar";
+import { REFORMA_DDU } from "../cumplimiento";
 
 const UN_MES = 30 * DIA;
 
@@ -51,7 +52,8 @@ export async function expedientesDelBarrido(db: PrismaClient, hoy = new Date()) 
     }
     // Registrada: solo cerca de la declaración de uso (3 años) o de la renovación (10 años)
     const concesion = e.fechaConcesion;
-    const cerca = concesion && (enVentana(concesion, 34, 39, hoy) || enVentana(concesion, 114, 126, hoy));
+    // (la DDU a los 3 años solo aplica a marcas concedidas a partir del 10/08/2018)
+    const cerca = concesion && ((concesion >= REFORMA_DDU && enVentana(concesion, 34, 39, hoy)) || enVentana(concesion, 114, 126, hoy));
     if (!cerca) omitir.set(e.id, "REGISTRADA");
   }
   const lista: Expediente[] = todas.filter((e) => !omitir.has(e.id));

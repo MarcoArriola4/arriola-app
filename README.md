@@ -30,6 +30,8 @@ y el historial ("se notificó el …, quedan N días", "se contestó el …"). A
 - Oficios (anterioridad, requerimiento, impedimento, alegatos y demás): **4 meses** desde la notificación.
 - Requerimiento de pago: **5 días hábiles**.
 - Alegatos / oposición: **5 días hábiles**, opcional: si no se contesta no pasa nada; queda "En espera del IMPI" (nunca se marca como vencido).
+- Declaración de uso: solo marcas **concedidas a partir del 10/08/2018**; se presenta en los **3 meses** siguientes al 3er aniversario de la concesión (concesión 23/08/2023 → del 23/08/2026 al 23/11/2026). Antes de esa fecha no aplica a los 3 años.
+- Renovación: a los **10 años** de la concesión (6 meses de gracia). Un oficio sin contestar con más de **4 meses** desde su notificación = marca abandonada (`lib/cumplimiento.ts`).
 - Negativa: **15 días naturales** para recurso de revisión; si no se presenta, hasta **30 días naturales** para juicio de nulidad (uno u otro). No es definitiva: se le ofrece al cliente.
 - Se confirma el acto (revisión perdida): **15 días hábiles** para juicio de nulidad.
 - Declaración de uso: **3 años + 3 meses** desde la concesión.
