@@ -4,7 +4,7 @@ import type { PrismaClient } from "@prisma/client";
 import { buscarPorNombre, type Como, type MarcaEncontrada } from "./busqueda-nombre";
 import { consultarMarcanet, esperar, MarcanetCuotaError, type ExpedienteMarcanet } from "./consulta";
 import { tipoDesdeImpi, ultimaActualizacion } from "./sincronizar";
-import { analizarContestaciones, analizarDDU, analizarRenovacion, vigenciaDe, type Juicio } from "../cumplimiento";
+import { analizarContestaciones, analizarDDU, analizarRenovacion, limiteOficio, vigenciaDe, type Juicio } from "../cumplimiento";
 import { sumarMeses } from "../plazos";
 
 export type MarcaAuditada = Omit<MarcaEncontrada, "nombreImpi"> & {
@@ -65,7 +65,11 @@ export function analizarMarca(r: ExpedienteMarcanet, hoy = new Date()) {
     const negativa = ultimo && /NEGATIVA/i.test(ultimo.descripcion);
     const confirma = ultimo && /CONFIRMA EL ACTO/i.test(ultimo.descripcion);
     const enRecurso = r.tramites.some((t) => /RECURSO DE REVISI/i.test(t.descripcion) && !t.fechaConclusion);
-    if (confirma && ultimo?.fechaNotificacion && pendiente?.vencido) [estatus, tono, categoria] = ["Negada (se confirmó la negativa y no se presentó juicio de nulidad)", "rojo", "PERDIDA"];
+    // Se confirmó la negativa: hay 15 días hábiles para el juicio de nulidad; pasado ese plazo sin juicio, queda negada
+    const fConfirma = confirma ? ultimo!.fechaNotificacion ?? ultimo!.fechaOficio : null;
+    const limiteNulidad = fConfirma ? limiteOficio("CONFIRMA_ACTO", fConfirma) : null;
+    const conNulidad = r.tramites.some((t) => /NULIDAD/i.test(t.descripcion) && t.fechaInicio && fConfirma && t.fechaInicio >= fConfirma);
+    if (confirma && !conNulidad && limiteNulidad && hoy > limiteNulidad) [estatus, tono, categoria] = ["Negada (se confirmó la negativa y no se presentó juicio de nulidad)", "rojo", "PERDIDA"];
     else if (confirma) [estatus, tono, categoria] = ["Recurso de revisión perdido (se confirma la negativa)", "rojo", "PROCESO"];
     else if (negativa && pendiente?.vencido) [estatus, tono, categoria] = ["Negada (no se impugnó la negativa)", "rojo", "PERDIDA"];
     else if (enRecurso) [estatus, tono, categoria] = ["En recurso de revisión", "ambar", "PROCESO"];
