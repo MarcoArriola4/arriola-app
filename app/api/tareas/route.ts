@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { db } from "@/lib/db";
 import { despertarTrabajador } from "@/lib/despertar";
-import { PRESUPUESTO_MS, soltarCandado, tomarCandado, trabajar } from "@/lib/trabajador";
+import { PRESUPUESTO_MS, hayTrabajo, soltarCandado, tomarCandado, trabajar } from "@/lib/trabajador";
 
 // Cada corrida trabaja ~3–4 min en segundo plano y, si queda trabajo, se vuelve a llamar.
 export const maxDuration = 300;
@@ -28,6 +28,8 @@ async function correr(req: Request) {
     } finally {
       await soltarCandado(db);
     }
+    // Lo que se pidió mientras esta corrida trabajaba (p. ej. una auditoría nueva) también se atiende
+    if (!queda) queda = await hayTrabajo(db).catch(() => false);
     if (queda) await despertarTrabajador(origen);
   });
   return Response.json({ ok: true }, { status: 202 });
