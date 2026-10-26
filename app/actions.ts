@@ -1078,7 +1078,7 @@ export async function solicitarRevisionMarcas(ids: string[]) {
 
 /** Pide la auditoría: cada nombre se busca como titular y como apoderado (la hace la revisión automática). */
 export async function crearAuditoria(form: FormData) {
-  const sesion = await requerirSesion();
+  const sesion = await requerirAdmin(); // solo administradores
   const clienteId = str(form, "clienteId");
   const extra = (str(form, "otros") ?? "").split(/\n/).map((t) => t.replace(/\s+/g, " ").trim()).filter((t) => t.length >= 3);
   const elegidos = form.getAll("nombres").map((v) => String(v).replace(/\s+/g, " ").trim()).filter(Boolean);
@@ -1090,7 +1090,7 @@ export async function crearAuditoria(form: FormData) {
 }
 
 export async function eliminarAuditoria(id: string) {
-  await requerirSesion();
+  await requerirAdmin();
   const a = await db.auditoria.delete({ where: { id } });
   revalidatePath(`/clientes/${a.clienteId}/auditoria`);
   return a.clienteId;

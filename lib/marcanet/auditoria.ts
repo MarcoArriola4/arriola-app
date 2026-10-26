@@ -155,3 +155,40 @@ export async function procesarAuditoria(db: PrismaClient, id: string, log: (m: s
   }
   log("Auditoría lista");
 }
+
+export type ProgresoAuditoria = {
+  estado: string; // PENDIENTE | BUSCANDO | LISTA | ERROR
+  pct: number;
+  restanteSeg: number | null;
+  transcurridoSeg: number;
+  texto: string;
+  marcas: number;
+  /** marcas del IMPI que no están en la app: posibles servicios por vender */
+  noContratadas: number;
+  calculadoEn: string;
+};
+
+const SEG_POR_BUSQUEDA = 90; // cada nombre como titular o apoderado (medido)
+const SEG_POR_MARCA = 16; // ficha de cada marca (medido)
+
+/** Avance aproximado de una auditoría y su tiempo restante (para el reloj). */
+export function progresoAuditoria(a: { estado: string; nombres: string; avance: string | null; resultado: string | null; creado: Date; terminado: Date | null }): ProgresoAuditoria {
+  const st = a.resultado ? (JSON.parse(a.resultado) as ResultadoAuditoria & { fase?: string; paso?: number }) : { busquedas: [], marcas: [] as MarcaAuditada[] };
+  const tareas = (JSON.parse(a.nombres) as string[]).length * 2;
+  const marcas = st.marcas.length;
+  const noContratadas = st.marcas.filter((m) => !m.enApp).length;
+  const fin = a.terminado ?? new Date();
+  const base = { marcas, noContratadas, transcurridoSeg: Math.round((fin.getTime() - a.creado.getTime()) / 1000), calculadoEn: new Date().toISOString() };
+  if (a.estado === "LISTA") return { ...base, estado: a.estado, pct: 100, restanteSeg: 0, texto: "Terminada" };
+  if (a.estado === "ERROR") return { ...base, estado: a.estado, pct: 0, restanteSeg: null, texto: a.avance ?? "No pudo terminar" };
+  if (a.estado === "PENDIENTE" || !st.fase) return { ...base, estado: a.estado, pct: 2, restanteSeg: tareas * SEG_POR_BUSQUEDA, texto: "Empezando…" };
+  const paso = st.paso ?? 0;
+  if (st.fase === "BUSQUEDA") {
+    // Mientras busca aún no se sabe cuántas marcas habrá: se estima con las encontradas hasta ahora
+    const estimadas = paso ? Math.round((marcas / paso) * tareas) : marcas;
+    const restante = (tareas - paso) * SEG_POR_BUSQUEDA + estimadas * SEG_POR_MARCA;
+    return { ...base, estado: a.estado, pct: Math.max(3, Math.round((paso / tareas) * 45)), restanteSeg: restante, texto: a.avance ?? "Buscando en MARCanet…" };
+  }
+  const restante = Math.max(0, marcas - paso) * SEG_POR_MARCA;
+  return { ...base, estado: a.estado, pct: 45 + Math.round((paso / Math.max(1, marcas)) * 55), restanteSeg: restante, texto: a.avance ?? "Consultando el estatus de cada marca…" };
+}

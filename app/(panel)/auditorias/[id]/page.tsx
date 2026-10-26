@@ -1,12 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, FileDown, Hourglass } from "lucide-react";
+import { ChevronLeft, FileDown } from "lucide-react";
 import { db } from "@/lib/db";
-import { requerirSesion } from "@/lib/auth";
+import { requerirAdmin } from "@/lib/auth";
 import { fmtFecha } from "@/lib/catalogos";
-import type { MarcaAuditada, ResultadoAuditoria } from "@/lib/marcanet/auditoria";
-import { Imprimir, Refrescar } from "./cliente";
+import { progresoAuditoria, type MarcaAuditada, type ResultadoAuditoria } from "@/lib/marcanet/auditoria";
+import { Imprimir } from "./cliente";
+import { RelojAuditoria } from "@/components/reloj-auditoria";
+import { oportunidades } from "@/components/seccion-auditoria";
 
 export const metadata = { title: "Auditoría + Reporte" };
 
@@ -19,7 +21,7 @@ const TONO: Record<MarcaAuditada["tono"], string> = {
 };
 
 export default async function Auditoria({ params }: { params: Promise<{ id: string }> }) {
-  const [{ id }] = await Promise.all([params, requerirSesion()]);
+  const [{ id }] = await Promise.all([params, requerirAdmin()]);
   const a = await db.auditoria.findUnique({ where: { id } });
   if (!a) notFound();
   const cliente = a.clienteId ? await db.cliente.findUnique({ where: { id: a.clienteId }, select: { id: true, nombre: true } }) : null;
@@ -47,16 +49,7 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
         )}
       </div>
 
-      {!lista && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 print:hidden">
-          <Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />
-          <div>
-            <p className="font-semibold">{a.estado === "ERROR" ? "La auditoría no pudo terminar" : a.estado === "PENDIENTE" ? "Auditoría en espera · empieza en unos minutos" : "Auditoría en curso"}</p>
-            <p className="text-xs">{a.avance ?? "Corre sola en segundo plano; puedes cerrar la app y volver después."} {r.marcas.length > 0 && `· ${r.marcas.length} marcas encontradas hasta ahora`}</p>
-          </div>
-          {a.estado !== "ERROR" && <Refrescar />}
-        </div>
-      )}
+      <div className="mb-4 print:hidden"><RelojAuditoria p={progresoAuditoria(a)} /></div>
 
       <article className="mx-auto max-w-6xl overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5 print:max-w-none print:rounded-none print:shadow-none print:ring-0">
         <header className="flex flex-wrap items-center justify-between gap-4 bg-carbon px-8 py-6 text-white print:[print-color-adjust:exact]">
@@ -86,6 +79,13 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
             ))}
           </div>
 
+          {lista && oportunidades(r).length > 0 && (
+            <section className="mt-6 rounded-xl border border-violet-200 bg-violet-50/50 px-5 py-4 print:[print-color-adjust:exact]">
+              <h2 className="text-sm font-semibold text-violet-900">Marcas no contratadas con Arriola Abogados · {oportunidades(r).length}</h2>
+              <p className="mt-0.5 text-xs text-violet-800">{oportunidades(r).map((m) => `${m.denominacion} (exp. ${m.expediente}${m.clase ? `, clase ${m.clase}` : ""})`).join(" · ")}</p>
+            </section>
+          )}
+
           {ordenados.map(([grupo, marcas]) => (
             <section key={grupo} className="mt-8">
               <h2 className="mb-2 border-b-2 border-carbon pb-1 text-sm font-semibold uppercase tracking-wide">{grupo} <span className="font-normal text-neutral-400">· {marcas.length} {marcas.length === 1 ? "marca" : "marcas"}</span></h2>
@@ -106,7 +106,7 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
                       <td className="py-2.5 pr-3">
                         <p className="font-semibold">{m.denominacion}</p>
                         <p className="text-xs text-neutral-500">{m.tipoMarca}</p>
-                        {m.enApp && <Link href={`/clientes/${m.enApp.clienteId}?marca=${m.enApp.id}`} className="text-[11px] text-marca-oscuro hover:underline print:hidden">En la app →</Link>}
+                        {m.enApp ? <Link href={`/clientes/${m.enApp.clienteId}?marca=${m.enApp.id}`} className="text-[11px] text-marca-oscuro hover:underline print:hidden">Contratada con nosotros →</Link> : <span className="text-[11px] font-medium text-violet-700 print:hidden">No contratada con nosotros</span>}
                       </td>
                       <td className="py-2.5 pr-3 text-xs">
                         <p>Exp. {m.expediente}</p>

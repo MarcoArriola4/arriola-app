@@ -12,6 +12,7 @@ import { AccesoImpi, Abono, BotonMarcanet, CambiarEtapa, EditarCliente, EditarEx
 import { ControlOficio, SeguimientoNuevo } from "@/components/control-oficio";
 import { tipoDesdeImpi } from "@/lib/marcanet/sincronizar";
 import { NotasMarca } from "@/components/notas-marca";
+import { SeccionAuditoria } from "@/components/seccion-auditoria";
 import { dondeAparece, textoPlazo } from "@/lib/estado-oficio";
 import { estaVencida } from "@/lib/plazos";
 import { agregarEvento } from "@/app/actions";
@@ -53,6 +54,7 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
   if (!c) notFound();
 
   const sel = c.expedientes.find((e) => e.id === marca) ?? c.expedientes[0];
+  const auditoria = sesion.rol === "ADMIN" ? await db.auditoria.findFirst({ where: { clienteId: c.id }, orderBy: { creado: "desc" } }) : null;
   const inhabiles = await cargarInhabiles();
   const servicios = c.expedientes.flatMap((e) => e.servicios);
   const pagado = servicios.reduce((a, s) => a + s.pagado, 0);
@@ -91,7 +93,7 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
             {tel.length >= 10 && <a href={`https://wa.me/${tel.length === 10 ? "52" + tel : tel}`} target="_blank" rel="noreferrer" className="btn text-green-700"><MessageCircle size={14} /> WhatsApp</a>}
             {tel.length >= 10 && <a href={`tel:${tel}`} className="btn"><Phone size={14} /> Llamar</a>}
             {c.email && <a href={`mailto:${c.email}`} className="btn"><Mail size={14} /> Correo</a>}
-            <Link href={`/clientes/${c.id}/auditoria`} className="btn"><SearchCheck size={14} /> Auditoría + Reporte</Link>
+            {sesion.rol === "ADMIN" && <Link href={`/clientes/${c.id}/auditoria`} className="btn"><SearchCheck size={14} /> Auditoría + Reporte</Link>}
             <Link href={`/clientes/${c.id}/reporte`} className="btn"><FileText size={14} /> Reporte rápido</Link>
             {puede("altas") && <EditarCliente c={{ id: c.id, nombre: c.nombre, telefono: c.telefono, email: c.email, rfc: c.rfc, notas: c.notas }} />}
             {puede("altas") && <Link href={`/admin/alta?cliente=${c.id}`} className="btn-primario"><Plus size={14} /> Agregar servicio</Link>}
@@ -106,6 +108,8 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
         <Metrica label="Total pagado" valor={mxn.format(pagado)} tono="verde" />
         <Metrica label="Saldo pendiente" valor={mxn.format(debe)} tono={debe > 0 ? "rojo" : undefined} />
       </div>
+
+      {sesion.rol === "ADMIN" && <SeccionAuditoria clienteId={c.id} a={auditoria} />}
 
       <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         {/* Lista de marcas */}

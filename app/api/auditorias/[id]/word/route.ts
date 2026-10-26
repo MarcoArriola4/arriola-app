@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { requerirSesion } from "@/lib/auth";
+import { requerirAdmin } from "@/lib/auth";
 import { auditoriaEnWord } from "@/lib/word-auditoria";
 import type { ResultadoAuditoria } from "@/lib/marcanet/auditoria";
 
@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 /** Descarga la auditoría en Word (.docx) para editarla. */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await requerirSesion();
+  await requerirAdmin(); // la auditoría es solo para administradores
   const { id } = await params;
   const a = await db.auditoria.findUnique({ where: { id } });
   if (!a?.resultado) return new Response("La auditoría aún no tiene resultados", { status: 404 });

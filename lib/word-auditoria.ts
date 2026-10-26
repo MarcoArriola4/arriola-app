@@ -48,6 +48,7 @@ export async function auditoriaEnWord(datos: { cliente: string | null; nombres: 
     ],
   });
 
+  const noContratadas = r.marcas.filter((m) => !m.enApp).sort((a, b) => a.denominacion.localeCompare(b.denominacion, "es"));
   const cuenta = (tonos: MarcaAuditada["tono"][]) => r.marcas.filter((m) => tonos.includes(m.tono)).length;
   const resumen = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -125,6 +126,12 @@ export async function auditoriaEnWord(datos: { cliente: string | null; nombres: 
           ...(datos.cliente ? [new Paragraph({ children: [t(datos.cliente, { bold: true, size: 36 })] })] : []),
           new Paragraph({ spacing: { after: 200 }, children: [t("Búsqueda en el IMPI (MARCanet) por titular y por apoderado de: ", { color: "555555" }), t(datos.nombres.join(" · "), { bold: true })] }),
           resumen,
+          ...(noContratadas.length
+            ? [
+                new Paragraph({ spacing: { before: 300, after: 60 }, children: [t(`MARCAS NO CONTRATADAS CON ARRIOLA ABOGADOS · ${noContratadas.length}`, { bold: true, size: 18, color: "5B21B6" })] }),
+                new Paragraph({ children: [t(noContratadas.map((m) => `${m.denominacion} (exp. ${m.expediente}${m.clase ? `, clase ${m.clase}` : ""}) – ${m.estatus}`).join(" · "), { size: 16, color: "444444" })] }),
+              ]
+            : []),
           ...secciones,
           ...(r.marcas.length ? [] : [new Paragraph({ spacing: { before: 300 }, children: [t("El IMPI no tiene marcas registradas a nombre de estos titulares o apoderados.", { italics: true, color: "666666" })] })]),
           ...detalle,
