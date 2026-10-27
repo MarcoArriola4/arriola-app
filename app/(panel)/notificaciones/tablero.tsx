@@ -17,6 +17,8 @@ export type Tarjeta = {
   pendienteNotificar: boolean;
   numeroOficio: string | null;
   nuevaImpi: boolean;
+  /** llegó después de la última vez que este usuario abrió Notificaciones */
+  nueva: boolean;
   fechaAvisoCliente: string | null;
   fechaPago: string | null;
   fechaContestacion: string | null;
@@ -107,6 +109,7 @@ export function Tablero({ tarjetas, diasSeguimiento, modoLista }: { tarjetas: Ta
           const items = filtradas
             .filter((t) => t.estado === c.id)
             .sort((a, b) =>
+              Number(b.nueva) - Number(a.nueva) ||
               Number(b.nuevaImpi) - Number(a.nuevaImpi) ||
               Number(a.pendienteNotificar) - Number(b.pendienteNotificar) ||
               siguientePlazo(a).fecha.getTime() - siguientePlazo(b).fecha.getTime()
@@ -139,12 +142,13 @@ function TarjetaOficio({ t, diasSeguimiento }: { t: Tarjeta; diasSeguimiento: nu
 
   return (
     <article
-      className={`rounded-lg border p-3 shadow-[0_1px_0_rgba(0,0,0,0.03)] ${
-        t.nuevaImpi ? "border-violet-300 bg-violet-50 ring-1 ring-violet-200" : "border-black/[0.06] bg-white"
+      id={`oficio-${t.id}`}
+      className={`scroll-mt-24 rounded-lg border p-3 shadow-[0_1px_0_rgba(0,0,0,0.03)] target:ring-4 target:ring-violet-400 ${
+        t.nueva ? "border-violet-500 bg-violet-50 ring-2 ring-violet-400" : t.nuevaImpi ? "border-violet-300 bg-violet-50 ring-1 ring-violet-200" : "border-black/[0.06] bg-white"
       }`}
     >
-      {t.nuevaImpi && (
-        <p className="mb-1.5 inline-flex items-center gap-1 rounded bg-violet-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">Nueva · IMPI</p>
+      {(t.nueva || t.nuevaImpi) && (
+        <p className="mb-1.5 inline-flex items-center gap-1 rounded bg-violet-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">{t.nueva ? "Nueva · sin ver" : "Nueva · IMPI"}</p>
       )}
       <div className="flex items-start justify-between gap-2">
         <Link href={`/expedientes/${t.expedienteId}`} className="min-w-0 text-sm font-semibold leading-snug hover:underline">

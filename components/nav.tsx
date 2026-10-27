@@ -35,7 +35,7 @@ export function Nav({ urgentes, esAdmin, permisos, recordatorios }: { urgentes: 
               <span title="Recordatorios pendientes" className={`ml-auto rounded-full px-1.5 text-[11px] font-semibold ${activo ? "bg-carbon text-marca" : "bg-amber-400 text-carbon"}`}>{recordatorios}</span>
             )}
             {href === "/notificaciones" && urgentes > 0 && (
-              <span className={`ml-auto rounded-full px-1.5 text-[11px] font-semibold ${activo ? "bg-carbon text-marca" : "bg-red-500 text-white"}`}>{urgentes}</span>
+              <span data-numerito="notificaciones" title="Notificaciones nuevas sin ver" className={`ml-auto rounded-full px-1.5 text-[11px] font-semibold ${activo ? "bg-carbon text-marca" : "bg-red-500 text-white"}`}>{urgentes}</span>
             )}
           </Link>
         );

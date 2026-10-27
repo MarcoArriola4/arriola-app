@@ -17,6 +17,7 @@ model Usuario {
   rol          String   @default("OPERATIVO") // ADMIN | OPERATIVO
   permisos     String   @default("oficios,marcas,cobros,contrataciones") // lo que puede hacer (el admin puede todo)
   activo       Boolean  @default(true)
+  notifVistasHasta DateTime? // última vez que abrió Notificaciones: lo nuevo después de esto cuenta en el numerito
   creado       DateTime @default(now())
   recordatorios Recordatorio[]
 }

@@ -506,15 +506,59 @@ export async function buscarGlobal(q: string): Promise<ResultadoBusqueda[]> {
 
 // ───────────── Administración ─────────────
 
-export async function actualizarCliente(form: FormData) {
+export type ResultadoCliente = { ok: boolean; mensaje?: string; conflicto?: { id: string; nombre: string } };
+
+export async function actualizarCliente(form: FormData): Promise<ResultadoCliente> {
   await requerirPermiso("altas");
   const id = str(form, "id")!;
   const nombre = str(form, "nombre")!;
+  // El nombre es único: si ya existe otro cliente con ese nombre, se ofrece unirlos en lugar de fallar
+  const otro = await db.cliente.findUnique({ where: { nombreNorm: normalizarNombre(nombre) } });
+  if (otro && otro.id !== id) return { ok: false, mensaje: `Ya existe el cliente "${otro.nombre}".`, conflicto: { id: otro.id, nombre: otro.nombre } };
   await db.cliente.update({
     where: { id },
     data: { nombre, nombreNorm: normalizarNombre(nombre), telefono: str(form, "telefono"), email: str(form, "email"), rfc: str(form, "rfc"), notas: str(form, "notas") },
   });
   revalidatePath(`/clientes/${id}`);
+  return { ok: true };
+}
+
+/**
+ * Une dos clientes que son la misma persona: pasa todas las marcas (con sus cobros, oficios e historial) y auditorías
+ * de `origenId` a `destinoId`, junta los datos de contacto y elimina el origen. Solo administradores.
+ */
+export async function unirClientes(origenId: string, destinoId: string) {
+  const sesion = await requerirAdmin();
+  if (origenId === destinoId) return { ok: false, mensaje: "Es el mismo cliente." };
+  const [o, d] = await Promise.all([db.cliente.findUniqueOrThrow({ where: { id: origenId } }), db.cliente.findUniqueOrThrow({ where: { id: destinoId } })]);
+  const juntar = (a: string | null, b: string | null) => [...new Set([a, b].filter(Boolean).flatMap((x) => x!.split(" / ")))].join(" / ") || null;
+  const marcas = await db.expediente.findMany({ where: { clienteId: origenId }, select: { id: true, titular: true } });
+  await db.$transaction(async (tx) => {
+    for (const m of marcas) {
+      // Cada marca conserva su titular (para verse separada dentro del cliente)
+      await tx.expediente.update({ where: { id: m.id }, data: { clienteId: destinoId, titular: m.titular ?? o.nombre } });
+      await tx.evento.create({ data: { autor: sesion.nombre, expedienteId: m.id, fecha: hoyUTC(), titulo: `Cliente unido: "${o.nombre}" → "${d.nombre}"` } });
+    }
+    await tx.auditoria.updateMany({ where: { clienteId: origenId }, data: { clienteId: destinoId } });
+    await tx.cliente.delete({ where: { id: origenId } });
+    await tx.cliente.update({
+      where: { id: destinoId },
+      data: { telefono: juntar(d.telefono, o.telefono), email: d.email ?? o.email, rfc: d.rfc ?? o.rfc, notas: [d.notas, o.notas, `Se unió con "${o.nombre}" (${marcas.length} marcas)`].filter(Boolean).join("\n") },
+    });
+  });
+  revalidatePath("/", "layout");
+  return { ok: true, destinoId };
+}
+
+/** Elimina un cliente sin marcas (los que tienen marcas se unen a otro o se eliminan sus marcas primero). Solo administradores. */
+export async function eliminarCliente(id: string) {
+  await requerirAdmin();
+  const n = await db.expediente.count({ where: { clienteId: id } });
+  if (n) return { ok: false, mensaje: `Este cliente tiene ${n} marca(s). Únelo con otro cliente o elimina sus marcas primero.` };
+  await db.auditoria.deleteMany({ where: { clienteId: id } });
+  await db.cliente.delete({ where: { id } });
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 export async function editarServicio(form: FormData) {
@@ -1103,4 +1147,11 @@ export async function asegurarTrabajador() {
   const cfg = await db.configuracion.findUnique({ where: { id: "main" }, select: { trabajadorHasta: true } });
   if (cfg?.trabajadorHasta && cfg.trabajadorHasta > new Date()) return;
   if (await hayTrabajo(db)) await despertarTrabajador();
+}
+
+/** Al abrir Notificaciones: lo nuevo ya se vio (se quita el numerito del menú). */
+export async function marcarNotificacionesVistas() {
+  const s = await requerirSesion();
+  await db.usuario.update({ where: { id: s.id }, data: { notifVistasHasta: new Date() } });
+  // (sin recargar la página: en esta visita las nuevas siguen resaltadas; el numerito se quita al cambiar de pantalla)
 }

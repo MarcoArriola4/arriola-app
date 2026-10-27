@@ -26,6 +26,7 @@ export default async function Reportes({ searchParams }: { searchParams: Promise
         <div className="inline-flex rounded-lg bg-neutral-200/70 p-1">
           <Link href="/reportes" className={tab(!anteriores)}>Nuevas por búsqueda</Link>
           <Link href="/reportes?vista=anteriores" className={tab(anteriores)}>Oficios anteriores por contestar</Link>
+          <Link href="/reportes/revision" className={tab(false)}>Reporte de revisión (Word / PDF)</Link>
         </div>
       </Encabezado>
       {anteriores ? <OficiosAnteriores /> : <NuevasPorBusqueda />}

@@ -1,8 +1,8 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Eye, EyeOff, KeyRound, Pencil, RefreshCw, Trash2, X } from "lucide-react";
-import { eliminarExpediente, marcarDesistio, actualizarCliente, actualizarDesdeMarcanet, actualizarExpediente, cambiarEtapa, unirExpedientes, type ResultadoEdicion, crearServicio, editarServicio, eliminarServicio, guardarCredenciales, registrarAbono, verPasswordImpi } from "@/app/actions";
+import { Copy, Eye, EyeOff, KeyRound, Pencil, RefreshCw, Trash2, Users, X } from "lucide-react";
+import { buscarClientes, eliminarCliente, unirClientes, eliminarExpediente, marcarDesistio, actualizarCliente, actualizarDesdeMarcanet, actualizarExpediente, cambiarEtapa, unirExpedientes, type ResultadoEdicion, crearServicio, editarServicio, eliminarServicio, guardarCredenciales, registrarAbono, verPasswordImpi } from "@/app/actions";
 import { BANCOS, TIPOS_SERVICIO } from "@/lib/catalogos";
 
 export function AccesoImpi({ expedienteId, usuario, tienePassword }: { expedienteId: string; usuario: string | null; tienePassword: boolean }) {
@@ -249,12 +249,30 @@ type ClienteEditable = { id: string; nombre: string; telefono: string | null; em
 
 export function EditarCliente({ c }: { c: ClienteEditable }) {
   const [abierto, setAbierto] = useState(false);
+  const [conflicto, setConflicto] = useState<{ id: string; nombre: string } | null>(null);
+  const router = useRouter();
   return (
     <>
       <button onClick={() => setAbierto(true)} className="btn"><Pencil size={14} /> Editar cliente</button>
       {abierto && (
         <Modal titulo="Editar cliente" cerrar={() => setAbierto(false)}>
-          <form action={async (f) => { await actualizarCliente(f); setAbierto(false); }} className="space-y-3">
+          {conflicto && (
+            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p>Ya existe el cliente <b>{conflicto.nombre}</b>. ¿Es la misma persona?</p>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!confirm(`¿Unir "${c.nombre}" con "${conflicto.nombre}"?\n\nTodas las marcas, cobros, oficios e historial pasan a "${conflicto.nombre}" y "${c.nombre}" se elimina.`)) return;
+                  const r = await unirClientes(c.id, conflicto.id);
+                  if (r.ok) router.push(`/clientes/${conflicto.id}`);
+                }}
+                className="btn-primario mt-2"
+              >
+                Unir con «{conflicto.nombre}»
+              </button>
+            </div>
+          )}
+          <form action={async (f) => { const r = await actualizarCliente(f); if (r.ok) setAbierto(false); else setConflicto(r.conflicto ?? null); }} className="space-y-3">
             <input type="hidden" name="id" value={c.id} />
             <L t="Nombre o razón social"><input name="nombre" defaultValue={c.nombre} required className="input" /></L>
             <div className="grid grid-cols-2 gap-3">
@@ -374,5 +392,80 @@ export function EliminarMarca({ expedienteId, denominacion, cobros }: { expedien
     >
       <Trash2 size={13} /> {pendiente ? "Eliminando…" : "Eliminar marca"}
     </button>
+  );
+}
+
+/** Herramientas del cliente (admin): unirlo con otro cliente (misma persona) o eliminarlo si no tiene marcas. */
+export function HerramientasCliente({ c, marcas }: { c: { id: string; nombre: string }; marcas: number }) {
+  const [abierto, setAbierto] = useState(false);
+  const [q, setQ] = useState("");
+  const [lista, setLista] = useState<{ id: string; nombre: string; telefono: string | null }[]>([]);
+  const [pendiente, iniciar] = useTransition();
+  const [mensaje, setMensaje] = useState<string | null>(null);
+  const router = useRouter();
+
+  const buscar = async (t: string) => {
+    setQ(t);
+    setLista(t.trim().length >= 2 ? (await buscarClientes(t)).filter((x) => x.id !== c.id) : []);
+  };
+
+  return (
+    <>
+      <button onClick={() => setAbierto(true)} className="btn"><Users size={14} /> Unir o eliminar</button>
+      {abierto && (
+        <Modal titulo="Unir o eliminar cliente" cerrar={() => setAbierto(false)}>
+          <div className="space-y-5">
+            <section>
+              <h3 className="text-sm font-semibold">Unir con otro cliente</h3>
+              <p className="mb-2 text-xs text-neutral-500">Para cuando es la misma persona registrada dos veces. Las {marcas} marca(s) de «{c.nombre}» (con cobros, oficios e historial) pasan al cliente que elijas y «{c.nombre}» se elimina.</p>
+              <input value={q} onChange={(e) => buscar(e.target.value)} placeholder="Busca el cliente que se queda (nombre o teléfono)" className="input" autoFocus />
+              <ul className="mt-2 max-h-56 divide-y divide-black/5 overflow-y-auto rounded-lg border border-black/[0.07]">
+                {lista.map((x) => (
+                  <li key={x.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                    <span className="min-w-0 truncate">{x.nombre}{x.telefono && <span className="text-xs text-neutral-400"> · {x.telefono}</span>}</span>
+                    <button
+                      disabled={pendiente}
+                      onClick={() => {
+                        if (!confirm(`¿Unir «${c.nombre}» con «${x.nombre}»?\n\nSe queda «${x.nombre}» con todas las marcas de ambos. «${c.nombre}» se elimina. No se puede deshacer.`)) return;
+                        iniciar(async () => {
+                          const r = await unirClientes(c.id, x.id);
+                          if (r.ok) router.push(`/clientes/${x.id}`);
+                          else setMensaje(r.mensaje ?? "No se pudo unir");
+                        });
+                      }}
+                      className="btn-primario shrink-0 px-2.5 py-1 text-xs"
+                    >
+                      Unir aquí
+                    </button>
+                  </li>
+                ))}
+                {q.trim().length >= 2 && lista.length === 0 && <li className="px-3 py-3 text-xs text-neutral-400">Sin resultados.</li>}
+              </ul>
+            </section>
+            <section className="border-t border-black/5 pt-4">
+              <h3 className="text-sm font-semibold text-red-700">Eliminar cliente</h3>
+              <p className="mb-2 text-xs text-neutral-500">
+                {marcas ? `Tiene ${marcas} marca(s): para eliminarlo primero únelo con otro cliente o elimina sus marcas.` : "No tiene marcas: se puede eliminar."}
+              </p>
+              <button
+                disabled={pendiente || marcas > 0}
+                onClick={() => {
+                  if (!confirm(`¿Eliminar el cliente «${c.nombre}»? No se puede deshacer.`)) return;
+                  iniciar(async () => {
+                    const r = await eliminarCliente(c.id);
+                    if (r.ok) router.push("/clientes");
+                    else setMensaje(r.mensaje ?? "No se pudo eliminar");
+                  });
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
+              >
+                <Trash2 size={14} /> Eliminar cliente
+              </button>
+            </section>
+            {mensaje && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{mensaje}</p>}
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }

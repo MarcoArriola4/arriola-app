@@ -9,7 +9,7 @@ import { type Inhabiles } from "@/lib/plazos";
 import { analizarDDU, analizarRenovacion } from "@/lib/cumplimiento";
 import { cargarInhabiles } from "@/lib/inhabiles";
 import { EstadoPago, Etapa, Metrica, Origen, Parcialidades, PlazoOficio, Vacio } from "@/components/ui";
-import { AccesoImpi, Abono, BotonMarcanet, CambiarEtapa, EditarCliente, EditarExpediente, EditarServicio, EliminarMarca, NuevoCobro, YaNoContinua } from "@/components/ficha";
+import { AccesoImpi, Abono, BotonMarcanet, CambiarEtapa, EditarCliente, EditarExpediente, EditarServicio, EliminarMarca, HerramientasCliente, NuevoCobro, YaNoContinua } from "@/components/ficha";
 import { ControlOficio, SeguimientoNuevo } from "@/components/control-oficio";
 import { tipoDesdeImpi } from "@/lib/marcanet/sincronizar";
 import { NotasMarca } from "@/components/notas-marca";
@@ -94,6 +94,7 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
             {tel.length >= 10 && <a href={`https://wa.me/${tel.length === 10 ? "52" + tel : tel}`} target="_blank" rel="noreferrer" className="btn text-green-700"><MessageCircle size={14} /> WhatsApp</a>}
             {tel.length >= 10 && <a href={`tel:${tel}`} className="btn"><Phone size={14} /> Llamar</a>}
             {c.email && <a href={`mailto:${c.email}`} className="btn"><Mail size={14} /> Correo</a>}
+            {sesion.rol === "ADMIN" && <HerramientasCliente c={{ id: c.id, nombre: c.nombre }} marcas={c.expedientes.length} />}
             {sesion.rol === "ADMIN" && <Link href={`/clientes/${c.id}/auditoria`} className="btn"><SearchCheck size={14} /> Auditoría + Reporte</Link>}
             <Link href={`/clientes/${c.id}/reporte`} className="btn"><FileText size={14} /> Reporte rápido</Link>
             {puede("altas") && <EditarCliente c={{ id: c.id, nombre: c.nombre, telefono: c.telefono, email: c.email, rfc: c.rfc, notas: c.notas }} />}

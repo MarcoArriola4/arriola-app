@@ -3,7 +3,6 @@ import Link from "next/link";
 import { KeyRound, LogOut, UserPlus } from "lucide-react";
 import { requerirSesion } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { DIA } from "@/lib/plazos";
 import { salir } from "../login/actions";
 import { Nav } from "@/components/nav";
 import { Buscador } from "@/components/buscador";
@@ -13,16 +12,12 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   const sesion = await requerirSesion();
   const esAdmin = sesion.rol === "ADMIN";
   const permisos = [...sesion.permisos];
-  const ahora = new Date();
-  const hoyUTC = new Date(Date.UTC(ahora.getFullYear(), ahora.getMonth(), ahora.getDate())); // los plazos se guardan a medianoche UTC
   // Recordatorios del bloc de notas de este usuario que ya tocan
   const recordatorios = await db.recordatorio.count({ where: { usuarioId: sesion.id, hecho: false, recordarEn: { lte: new Date() } } });
+  // Numerito de Notificaciones: oficios en curso que llegaron después de la última vez que este usuario abrió Notificaciones
+  const vistas = (await db.usuario.findUnique({ where: { id: sesion.id }, select: { notifVistasHasta: true } }))?.notifVistasHasta;
   const urgentes = await db.notificacion.count({
-    where: {
-      estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"] },
-      pendienteNotificar: false,
-      fechaLimite: { gte: hoyUTC, lte: new Date(hoyUTC.getTime() + 7 * DIA) }, // vencen en los próximos 7 días (no las ya vencidas)
-    },
+    where: { estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"] }, creado: { gt: vistas ?? new Date(Date.now() - 30 * 864e5) } },
   });
 
   return (

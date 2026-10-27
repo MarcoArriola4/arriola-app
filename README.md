@@ -13,6 +13,7 @@ App web para llevar marcas del IMPI, notificaciones (oficios), pagos y vencimien
 | **Clientes y marcas** | Perfil del cliente (una persona, con sus marcas separadas por titular o razón social): marcas y, aparte, patentes / modelos / diseños industriales; oficios con su paso editable, pagos, historial, acceso IMPI y última actualización de MARCanet. Botones "Ya no quiere continuar" y "Eliminar marca" (admin) |
 | **Auditoría + Reporte** | En el perfil del cliente: busca en MARCanet cada titular y apoderado (como titular y como apoderado), junta todas sus marcas y su estatus actual en un reporte para imprimir o guardar en PDF. Solo queda en el reporte; no crea marcas en la app. Se descarga en Word (para editar) o PDF. Corre en segundo plano dentro de la app |
 | **Reporte rápido** | En el perfil del cliente (o por titular): estatus de todas sus marcas, último movimiento del IMPI y próximos pasos, listo para imprimir o guardar en PDF |
+| **Reporte de revisión** | En Reportes: de cada revisión con MARCanet, qué se revisó, novedades del IMPI (ganadas, negadas, abandonadas, oficios nuevos), qué no se revisó y por qué (registradas con su próxima revisión programada, abandonadas/negadas) y pendientes de los últimos 3 meses. Word y PDF |
 | **Reportes** | Notificaciones nuevas de cada búsqueda en MARCanet y oficios de meses anteriores aún en plazo; el paso de cada oficio se cambia ahí mismo |
 | **Exportar Excel** (admin) | Descarga la pestaña "Pagos" con todo lo de la app, en el mismo formato (A–Z, encabezado en la fila 5, mismos colores) |
 | **Pagos** | Cobrado por mes, por banco y pendientes de cobro |
@@ -40,6 +41,10 @@ y el historial ("se notificó el …, quedan N días", "se contestó el …"). A
 **Días hábiles:** se descuentan sábados, domingos y los días inhábiles del IMPI (calendario anual y suspensiones publicadas en el DOF). Están en `lib/inhabiles-oficiales.ts` y se administran en **Admin → Días inhábiles**. Al agregar o quitar un día, los plazos se recalculan solos. Los plazos en meses que terminan en día inhábil pasan al siguiente día hábil.
 
 La fecha límite de cada oficio también se puede escribir a mano al registrarlo; esa no se recalcula.
+
+## Horario
+
+Toda la app (servidor de Vercel y revisión de GitHub) usa la hora de la Ciudad de México (`lib/db.ts`, `instrumentation.ts`).
 
 ## Uso en esta computadora
 
