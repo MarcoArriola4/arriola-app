@@ -121,7 +121,11 @@ export async function auditoriaEnWord(datos: { cliente: string | null; nombres: 
           borders: bordesTabla,
           rows: [
             new TableRow({ children: ["Nombre buscado", "Como", "Marcas", "Nombres parecidos en el IMPI (no incluidos)"].map((h) => celda([p(t(h, { bold: true, size: 15, color: "666666" }))], { fondo: "F7F7F7" })) }),
-            ...r.busquedas.map((b) => new TableRow({ children: [b.nombre, b.como === "TITULAR" ? "Titular" : "Apoderado", b.error ? "No se pudo buscar" : String(b.marcas), b.parecidos.join(" · ") || "—"].map((x) => celda([p(t(x, { size: 15 }))])) })),
+            ...r.busquedas.map((b) => {
+              const nombre = [b.nombre, b.consulta && b.consulta !== b.nombre ? `(encontrado como «${b.consulta}»)` : "", b.aproximadas?.length ? `· incluidos por parecido: ${b.aproximadas.join(" · ")}` : ""].filter(Boolean).join(" ");
+              const marcas = b.error && !b.marcas ? "No se pudo buscar" : String(b.marcas);
+              return new TableRow({ children: [nombre, b.como === "TITULAR" ? "Titular" : "Apoderado", marcas, b.parecidos.join(" · ") || "—"].map((x) => celda([p(t(x, { size: 15 }))])) });
+            }),
           ],
         }),
       ]

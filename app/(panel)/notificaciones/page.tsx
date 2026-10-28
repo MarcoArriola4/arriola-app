@@ -2,7 +2,8 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { ACTIVAS } from "@/lib/consultas";
 import { esNuevaDeImpi, estaVencida } from "@/lib/plazos";
-import { Encabezado } from "@/components/ui";
+import { Encabezado, PlazoOficio } from "@/components/ui";
+import { avisarCliente } from "@/app/actions";
 import { Prioridades } from "@/components/prioridades";
 import { requerirSesion } from "@/lib/auth";
 import { TIPOS_OFICIO } from "@/lib/catalogos";
@@ -60,6 +61,10 @@ export default async function Notificaciones({ searchParams }: { searchParams: P
   }));
 
   const sinVer = tarjetas.filter((t) => t.nueva);
+  // Por atender: oficios en plazo a los que aún no se les hace nada (ni aviso al cliente). Se quedan hasta que se mueven.
+  const porAtender = tarjetas
+    .filter((t) => t.estado === "RECIBIDA")
+    .sort((a, b) => b.fechaNotificacion.localeCompare(a.fechaNotificacion) || Number(b.nueva) - Number(a.nueva));
   const titulo = vista === "vencidas" ? "Notificaciones vencidas" : vista === "no-pago" ? "Riesgo de abandono · no pagaron" : "Notificaciones del IMPI";
   const subtitulo =
     vista === "vencidas"
@@ -79,19 +84,31 @@ export default async function Notificaciones({ searchParams }: { searchParams: P
         <NuevaNotificacion abiertoInicial={nueva === "1"} />
       </Encabezado>
       {vista === "tablero" && <MarcarVistas />}
-      {vista === "tablero" && sinVer.length > 0 && (
-        <section className="mb-6 rounded-2xl border-2 border-violet-400 bg-violet-50 p-4">
-          <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-violet-900">
-            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-violet-600" />
-            {sinVer.length === 1 ? "1 notificación nueva desde tu última visita" : `${sinVer.length} notificaciones nuevas desde tu última visita`} · da clic para ir a cada una
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {sinVer.map((t) => (
-              <a key={t.id} href={`#oficio-${t.id}`} className="rounded-lg bg-white px-3 py-1.5 text-sm ring-1 ring-violet-200 hover:ring-violet-500">
-                <b className="font-semibold">{t.denominacion}</b> <span className="text-xs text-violet-700">· {TIPOS_OFICIO[t.tipo] ?? t.tipo}</span>
-              </a>
-            ))}
+      {vista === "tablero" && porAtender.length > 0 && (
+        <section className="mb-6 rounded-2xl border-2 border-violet-300 bg-violet-50/70 p-4">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <p className="flex items-center gap-2 text-sm font-semibold text-violet-900">
+              {sinVer.length > 0 && <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-violet-600" />}
+              Notificaciones por atender ({porAtender.length}){sinVer.length > 0 && ` · ${sinVer.length} sin ver`}
+            </p>
+            <p className="text-xs text-violet-700/80">De la más reciente a la más antigua. El punto se quita al verlas; cada una se queda aquí hasta que avises al cliente o la muevas de paso.</p>
           </div>
+          <ul className="overflow-hidden rounded-xl border border-violet-200 bg-white">
+            {porAtender.map((t, i) => (
+              <li key={t.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 ${i ? "border-t border-violet-100" : ""}`}>
+                <span className={`h-2 w-2 shrink-0 rounded-full ${t.nueva ? "bg-violet-600" : "bg-transparent"}`} title={t.nueva ? "Sin ver" : undefined} />
+                <a href={`#oficio-${t.id}`} className="min-w-0 flex-1 basis-52 hover:underline">
+                  <p className={`truncate text-sm ${t.nueva ? "font-semibold" : "font-medium"}`}>{t.denominacion}</p>
+                  <p className="truncate text-xs text-neutral-500">{t.cliente} · {TIPOS_OFICIO[t.tipo] ?? t.tipo} · notificada {new Date(t.fechaNotificacion).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}</p>
+                </a>
+                <span className="shrink-0 text-xs"><PlazoOficio n={t} /></span>
+                <form action={avisarCliente} className="shrink-0">
+                  <input type="hidden" name="id" value={t.id} />
+                  <button className="rounded-lg border border-violet-300 px-2.5 py-1 text-xs font-medium text-violet-800 hover:bg-violet-100">Ya avisé al cliente</button>
+                </form>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
       {vista === "tablero" && <Prioridades seguimiento={cfg?.diasSeguimientoPago ?? 5} />}

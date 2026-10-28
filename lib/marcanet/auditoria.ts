@@ -1,7 +1,7 @@
 // Auditoría + Reporte: busca cada nombre en MARCanet como titular y como apoderado, junta todas sus marcas
 // y consulta el estatus actual de cada una. Todo se guarda solo en la auditoría (no crea marcas en la app).
 import type { PrismaClient } from "@prisma/client";
-import { buscarPorNombre, type Como, type MarcaEncontrada } from "./busqueda-nombre";
+import { listarNombres, marcasDeFila, type Como, type FilaNombre, type MarcaEncontrada } from "./busqueda-nombre";
 import { consultarMarcanet, esperar, MarcanetCuotaError, type ExpedienteMarcanet } from "./consulta";
 import { tipoDesdeImpi, ultimaActualizacion } from "./sincronizar";
 import { analizarContestaciones, analizarDDU, analizarRenovacion, limiteOficio, vigenciaDe, type Juicio } from "../cumplimiento";
@@ -28,7 +28,18 @@ export type MarcaAuditada = Omit<MarcaEncontrada, "nombreImpi"> & {
 export const categoriaDe = (m: MarcaAuditada) => m.categoria ?? (m.tono === "verde" ? "GANADA" : m.tono === "gris" || /vencid|negad/i.test(m.estatus) ? "PERDIDA" : "PROCESO");
 
 export type ResultadoAuditoria = {
-  busquedas: { nombre: string; como: Como; coincidencias: string[]; parecidos: string[]; marcas: number; error?: string }[];
+  busquedas: {
+    nombre: string;
+    como: Como;
+    /** texto con el que MARCanet sí lo encontró (puede ser sin «S.A. de C.V.», sin acentos…) */
+    consulta?: string;
+    coincidencias: string[];
+    /** incluidos sin ser idénticos: cotitulares, o falta / sobra un apellido */
+    aproximadas?: string[];
+    parecidos: string[];
+    marcas: number;
+    error?: string;
+  }[];
   marcas: MarcaAuditada[];
 };
 
@@ -39,7 +50,7 @@ const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
  * Estatus actual y real de una marca según su ficha de MARCanet, en palabras para el cliente, con su categoría,
  * la declaración de uso / renovación y si contestó sus oficios en tiempo.
  */
-export function analizarMarca(r: ExpedienteMarcanet, hoy = new Date()) {
+export function analizarMarca(r: ExpedienteMarcanet, hoy = new Date(), app?: { juicioNulidad?: Date | null }) {
   const contestaciones = analizarContestaciones(r.oficios, r.promociones, r.tramites, tipoDesdeImpi, hoy);
   const oficios = [...r.oficios].sort((a, b) => ((b.fechaNotificacion ?? b.fechaOficio)?.getTime() ?? 0) - ((a.fechaNotificacion ?? a.fechaOficio)?.getTime() ?? 0));
   const ultimo = oficios.find((o) => !/ARCHIVO FON|EXAMEN FIGURATIVO/i.test(o.descripcion));
@@ -55,6 +66,8 @@ export function analizarMarca(r: ExpedienteMarcanet, hoy = new Date()) {
   if (registrada) {
     const vencida = vigencia && hoy > sumarMeses(vigencia, 6) && renovacion?.tono === "rojo";
     if (vencida) [estatus, tono, categoria] = ["Registro vencido (no se renovó)", "rojo", "PERDIDA"];
+    // Ya pasó la vigencia pero sigue en los 6 meses de gracia: aún se puede renovar (urgente)
+    else if (renovacion && /^Vencida el/.test(renovacion.texto)) [estatus, tono, categoria] = [`Registrada · ${renovacion.texto}`, "ambar", "GANADA"];
     else if (ddu?.tono === "rojo" && /NO presentada/.test(ddu.texto)) [estatus, tono, categoria] = ["Registrada · sin declaración de uso (riesgo de caducidad)", "ambar", "GANADA"];
     else [estatus, tono, categoria] = [vigencia ? `Registrada · vigente hasta ${f(vigencia)}` : "Registrada", "verde", "GANADA"];
   } else if (ultimo && /ABANDON/i.test(ultimo.descripcion)) {
@@ -69,9 +82,21 @@ export function analizarMarca(r: ExpedienteMarcanet, hoy = new Date()) {
     const fConfirma = confirma ? ultimo!.fechaNotificacion ?? ultimo!.fechaOficio : null;
     const limiteNulidad = fConfirma ? limiteOficio("CONFIRMA_ACTO", fConfirma) : null;
     const conNulidad = r.tramites.some((t) => /NULIDAD/i.test(t.descripcion) && t.fechaInicio && fConfirma && t.fechaInicio >= fConfirma);
-    if (confirma && !conNulidad && limiteNulidad && hoy > limiteNulidad) [estatus, tono, categoria] = ["Negada (se confirmó la negativa y no se presentó juicio de nulidad)", "rojo", "PERDIDA"];
+    // El juicio de nulidad va al Tribunal y no aparece en MARCanet: durante 2 meses desde la negativa no se da por
+    // perdida (se sigue revisando); si en la app se registró el juicio, sigue en proceso.
+    const fNegativa = (negativa || confirma) && ultimo ? ultimo.fechaNotificacion ?? ultimo.fechaOficio : null;
+    const revisarHasta = fNegativa ? sumarMeses(fNegativa, 2) : null;
+    const enGracia = !!revisarHasta && hoy <= revisarHasta;
+    if ((negativa || confirma) && app?.juicioNulidad) [estatus, tono, categoria] = [`En juicio de nulidad (presentado el ${f(app.juicioNulidad)} · registrado en la app)`, "ambar", "PROCESO"];
+    else if (confirma && !conNulidad && limiteNulidad && hoy > limiteNulidad)
+      [estatus, tono, categoria] = enGracia
+        ? [`Negativa confirmada · sin juicio de nulidad a la vista (no aparece en MARCanet); se sigue revisando hasta el ${f(revisarHasta!)}`, "rojo", "PROCESO"]
+        : ["Negada (se confirmó la negativa y no se presentó juicio de nulidad)", "rojo", "PERDIDA"];
     else if (confirma) [estatus, tono, categoria] = ["Recurso de revisión perdido (se confirma la negativa)", "rojo", "PROCESO"];
-    else if (negativa && pendiente?.vencido) [estatus, tono, categoria] = ["Negada (no se impugnó la negativa)", "rojo", "PERDIDA"];
+    else if (negativa && pendiente?.vencido)
+      [estatus, tono, categoria] = enGracia
+        ? [`Negativa · venció el plazo sin recurso en MARCanet (pudo presentarse juicio de nulidad); se sigue revisando hasta el ${f(revisarHasta!)}`, "rojo", "PROCESO"]
+        : ["Negada (no se impugnó la negativa)", "rojo", "PERDIDA"];
     else if (enRecurso) [estatus, tono, categoria] = ["En recurso de revisión", "ambar", "PROCESO"];
     else if (negativa) [estatus, tono, categoria] = ["Negativa del IMPI · aún se puede impugnar", "rojo", "PROCESO"];
     else if (pendiente?.vencido) [estatus, tono, categoria] = ["Abandonada (no se contestó el oficio en el plazo de 4 meses)", "gris", "PERDIDA"];
@@ -89,7 +114,24 @@ export function estatusDesdeMarcanet(r: ExpedienteMarcanet, hoy = new Date()): {
   return { estatus: a.estatus, tono: a.tono };
 }
 
-type Estado = ResultadoAuditoria & { fase?: "BUSQUEDA" | "DETALLES"; paso?: number };
+/** Búsqueda de un nombre a medias: renglones del IMPI por recorrer y en qué página de marcas va. */
+type BusquedaEnCurso = {
+  consulta: string;
+  filas: FilaNombre[];
+  coincidencias: string[];
+  aproximadas: string[];
+  parecidos: string[];
+  fila: number;
+  desde: number;
+  expedientes: string[];
+  errores: string[];
+};
+
+type Estado = ResultadoAuditoria & { fase?: "BUSQUEDA" | "DETALLES"; paso?: number; sub?: BusquedaEnCurso };
+
+// Lo que tarda como máximo cada pedazo (la corrida en Vercel se corta a los 300 s): si no alcanza, sigue en la próxima
+const TIEMPO_LISTAR_MS = 100 * 1000;
+const TIEMPO_FILA_MS = 45 * 1000;
 
 /**
  * Avanza una auditoría hasta `limite` (ms epoch) y guarda dónde se quedó: se puede continuar en otra corrida.
@@ -105,7 +147,21 @@ export async function avanzarAuditoria(db: PrismaClient, id: string, limite: num
   const guardar = (avance: string | null) => db.auditoria.update({ where: { id }, data: { estado: "BUSCANDO", avance, resultado: JSON.stringify(st) } });
   const tareas = nombres.flatMap((nombre) => (["TITULAR", "APODERADO"] as Como[]).map((como) => ({ nombre, como })));
 
-  // 1) Cada nombre como titular y como apoderado
+  const agregar = (marcas: MarcaEncontrada[], como: Como, sub: BusquedaEnCurso) => {
+    for (const m of marcas) {
+      if (!sub.expedientes.includes(m.expediente)) sub.expedientes.push(m.expediente);
+      const previa = st.marcas.find((x) => x.expediente === m.expediente);
+      if (previa) {
+        if (!previa.encontradaComo.some((x) => x.como === como && x.nombre === m.nombreImpi)) previa.encontradaComo.push({ como, nombre: m.nombreImpi });
+        continue;
+      }
+      const { nombreImpi, ...datos } = m;
+      st.marcas.push({ ...datos, encontradaComo: [{ como, nombre: nombreImpi }], estatus: "", tono: "gris", ultimo: null, fechaPresentacion: null, fechaConcesion: null, vigencia: null, enApp: null });
+    }
+  };
+
+  // 1) Cada nombre como titular y como apoderado. Se guarda el avance por renglón y por página de marcas,
+  //    así un nombre con cientos de marcas se reparte en varias corridas sin empezar de cero.
   while (st.fase === "BUSQUEDA") {
     if (st.paso >= tareas.length) {
       st.fase = "DETALLES";
@@ -113,32 +169,58 @@ export async function avanzarAuditoria(db: PrismaClient, id: string, limite: num
       await guardar("Consultando el estatus de cada marca…");
       break;
     }
-    if (Date.now() > limite) return false;
     const { nombre, como } = tareas[st.paso];
-    await db.auditoria.update({ where: { id }, data: { estado: "BUSCANDO", avance: `Buscando «${nombre}» como ${como === "TITULAR" ? "titular" : "apoderado"} (${st.paso + 1} de ${tareas.length})…` } });
+    const quien = como === "TITULAR" ? "titular" : "apoderado";
     try {
-      const r = await buscarPorNombre(nombre, como);
-      st.busquedas.push({ nombre, como, coincidencias: r.coincidencias, parecidos: r.parecidos, marcas: new Set(r.marcas.map((m) => m.expediente)).size });
-      for (const m of r.marcas) {
-        const previa = st.marcas.find((x) => x.expediente === m.expediente);
-        if (previa) {
-          if (!previa.encontradaComo.some((x) => x.como === como && x.nombre === m.nombreImpi)) previa.encontradaComo.push({ como, nombre: m.nombreImpi });
-          continue;
-        }
-        const { nombreImpi, ...datos } = m;
-        st.marcas.push({ ...datos, encontradaComo: [{ como, nombre: nombreImpi }], estatus: "", tono: "gris", ultimo: null, fechaPresentacion: null, fechaConcesion: null, vigencia: null, enApp: null });
+      if (!st.sub) {
+        if (limite - Date.now() < TIEMPO_LISTAR_MS) return false;
+        await db.auditoria.update({ where: { id }, data: { estado: "BUSCANDO", avance: `Buscando «${nombre}» como ${quien} (${st.paso + 1} de ${tareas.length})…` } });
+        st.sub = { ...(await listarNombres(nombre, como)), fila: 0, desde: 0, expedientes: [], errores: [] };
+        await guardar(null);
       }
+      const sub = st.sub;
+      while (sub.fila < sub.filas.length) {
+        if (limite - Date.now() < TIEMPO_FILA_MS) return false;
+        const f = sub.filas[sub.fila];
+        await db.auditoria.update({
+          where: { id },
+          data: { estado: "BUSCANDO", avance: `«${nombre}» como ${quien} (${st.paso + 1} de ${tareas.length}): marcas de ${f.nombre}${sub.filas.length > 1 ? ` · ${sub.fila + 1} de ${sub.filas.length}` : ""}…` },
+        });
+        try {
+          const r = await marcasDeFila(sub.consulta, como, f, sub.desde, limite - 30 * 1000);
+          agregar(r.marcas, como, sub);
+          if (r.siguiente !== null) {
+            sub.desde = r.siguiente;
+            await guardar(null);
+            return false;
+          }
+        } catch (e) {
+          if (e instanceof MarcanetCuotaError) throw e;
+          sub.errores.push(`${f.nombre}: ${e instanceof Error ? e.message : "Error"}`);
+        }
+        sub.fila++;
+        sub.desde = 0;
+        await guardar(null);
+      }
+      st.busquedas.push({
+        nombre, como, consulta: sub.consulta, coincidencias: sub.coincidencias, aproximadas: sub.aproximadas, parecidos: sub.parecidos, marcas: sub.expedientes.length,
+        ...(sub.errores.length && { error: `No se pudieron leer ${sub.errores.length} de ${sub.filas.length} nombres` }),
+      });
     } catch (e) {
-      if (e instanceof MarcanetCuotaError) throw e;
-      st.busquedas.push({ nombre, como, coincidencias: [], parecidos: [], marcas: 0, error: e instanceof Error ? e.message : "Error" });
+      if (e instanceof MarcanetCuotaError) {
+        await guardar(null);
+        throw e;
+      }
+      st.busquedas.push({ nombre, como, coincidencias: [], parecidos: [], marcas: st.sub?.expedientes.length ?? 0, error: e instanceof Error ? e.message : "Error" });
     }
+    st.sub = undefined;
     st.paso++;
     await guardar(null);
   }
 
   // 2) Estatus actual de cada marca encontrada (si la app la consultó hace menos de 7 días, se usan sus datos)
   const enApp = new Map(
-    (await db.expediente.findMany({ where: { numeroExpediente: { in: st.marcas.map((m) => m.expediente) } }, select: { id: true, clienteId: true, numeroExpediente: true, numeroRegistro: true, marcanetSync: true, fechaPresentacion: true, fechaConcesion: true, tramitesImpi: true, oficiosImpi: true, promocionesImpi: true } }))
+    (await db.expediente.findMany({ where: { numeroExpediente: { in: st.marcas.map((m) => m.expediente) } }, select: { id: true, clienteId: true, numeroExpediente: true, numeroRegistro: true, juicioNulidad: true, marcanetSync: true, fechaPresentacion: true, fechaConcesion: true, tramitesImpi: true, oficiosImpi: true, promocionesImpi: true } }))
       .map((e) => [e.numeroExpediente!, e])
   );
   const reciente = Date.now() - 7 * 864e5;
@@ -159,7 +241,7 @@ export async function avanzarAuditoria(db: PrismaClient, id: string, limite: num
               promociones: e.promocionesImpi.map((p) => ({ folio: p.folio, anio: p.anio, fechaPresentacion: p.fechaPresentacion, oficioRelacionado: p.oficioRelacionado, descripcion: p.descripcion, tramite: p.tramite ?? "" })),
             }
           : await consultarMarcanet(m.expediente);
-      const an = analizarMarca(r);
+      const an = analizarMarca(r, new Date(), { juicioNulidad: e?.juicioNulidad });
       Object.assign(m, { estatus: an.estatus, tono: an.tono, categoria: an.categoria, ddu: an.ddu, renovacion: an.renovacion, contestaciones: an.contestaciones, vigencia: iso(an.vigencia) });
       const u = ultimaActualizacion(r);
       m.ultimo = u ? { fecha: u.fecha.toISOString(), texto: u.texto } : null;
@@ -175,8 +257,8 @@ export async function avanzarAuditoria(db: PrismaClient, id: string, limite: num
     st.paso!++;
     if (st.paso! % 3 === 0) await guardar(null);
   }
-  const { fase: _f, paso: _p, ...final } = st;
-  void _f; void _p;
+  const { fase: _f, paso: _p, sub: _s, ...final } = st;
+  void _f; void _p; void _s;
   await db.auditoria.update({ where: { id }, data: { estado: "LISTA", avance: null, terminado: new Date(), resultado: JSON.stringify(final) } });
   return true;
 }

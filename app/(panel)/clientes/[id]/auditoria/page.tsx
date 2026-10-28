@@ -52,7 +52,8 @@ export default async function NuevaAuditoria({ params, searchParams }: { params:
           <textarea name="otros" rows={3} placeholder={"Ej. JUAN PÉREZ LÓPEZ\nEMPRESA EJEMPLO, S.A. DE C.V."} className="input" />
         </label>
         <p className="text-xs text-neutral-500">
-          Escribe el nombre completo, como aparece en el IMPI. Se toman los nombres iguales (sin importar acentos, comas o «S.A. de C.V.»); los parecidos se listan aparte en el reporte.
+          Escribe el nombre lo más completo posible. Si MARCanet no lo encuentra tal cual, se prueba sin «S.A. de C.V.», sin puntuación, sin acentos y por apellidos.
+          Se toman los nombres iguales (sin importar acentos, comas o tipo de sociedad) y, si no hay ninguno idéntico, los que solo difieren en un apellido o son cotitulares (se marcan en el reporte). Los parecidos se listan aparte.
           Corre sola en segundo plano: empieza en unos minutos y tarda según cuántas marcas tenga (aprox. 1–2 min por nombre y ~20 s por marca). Puedes cerrar la app.
         </p>
         <button className="btn-primario"><SearchCheck size={15} /> Hacer auditoría y reporte</button>

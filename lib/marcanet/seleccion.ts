@@ -3,7 +3,10 @@
 //     · Declaración de uso (concedidas desde el 10/08/2018): desde 1 semana antes del 3er aniversario de la concesión
 //       hasta que la declaración salga favorable o hasta 3 meses después del aniversario (fin del plazo).
 //     · Renovación: desde 6 meses antes de que venza la vigencia hasta 6 meses después (periodo de gracia).
-// - Abandonadas, negadas sin impugnar o que el cliente ya no quiere continuar (desde hace más de 1 mes): ya no se revisan.
+// - Abandonadas o que el cliente ya no quiere continuar (desde hace más de 1 mes): ya no se revisan.
+// - Negativas: se siguen revisando 2 meses desde que se notificó (puede presentarse recurso de revisión o juicio de
+//   nulidad); pasado eso, sin recurso en MARCanet ni juicio de nulidad registrado en la app, ya no se revisan.
+//   Con juicio de nulidad registrado (botón en la marca) se revisa siempre.
 // - Todas las demás (en trámite, con oficio, en juicio…): siempre.
 import type { Expediente, PrismaClient } from "@prisma/client";
 import { DIA, sumarMeses } from "../plazos";
@@ -32,7 +35,7 @@ export async function expedientesDelBarrido(db: PrismaClient, hoy = new Date()) 
   const especiales = await db.expediente.findMany({
     where: { id: { in: ids }, OR: [{ etapa: { in: ["CONCEDIDA", "ABANDONADA", "NEGATIVA"] } }, { numeroRegistro: { not: null } }, { desistio: { not: null } }] },
     select: {
-      id: true, clienteId: true, denominacion: true, numeroExpediente: true, etapa: true, numeroRegistro: true, fechaConcesion: true, marcanetSync: true, desistio: true, ultimaActImpiFecha: true,
+      id: true, clienteId: true, denominacion: true, numeroExpediente: true, etapa: true, numeroRegistro: true, fechaConcesion: true, marcanetSync: true, desistio: true, juicioNulidad: true, ultimaActImpiFecha: true,
       oficiosImpi: { where: { OR: [{ descripcion: { contains: "ABANDON", mode: "insensitive" } }, { descripcion: { contains: "NEGATIVA", mode: "insensitive" } }, { descripcion: { contains: "CONFIRMA EL ACTO", mode: "insensitive" } }] }, select: { descripcion: true, fechaNotificacion: true, fechaOficio: true } },
       tramitesImpi: { select: { descripcion: true, fechaInicio: true, fechaConclusion: true } },
       servicios: { select: { creado: true }, orderBy: { creado: "desc" }, take: 1 },
@@ -48,6 +51,7 @@ export async function expedientesDelBarrido(db: PrismaClient, hoy = new Date()) 
   const omitidas: Omitida[] = [];
   for (const e of especiales) {
     if (!e.marcanetSync || conOficio.has(e.id)) continue; // nunca consultada (se revisa una vez) o con oficio en curso
+    if (e.juicioNulidad && !e.desistio) continue; // juicio de nulidad en curso (no se ve en MARCanet): siempre se revisa
     const sync = e.marcanetSync;
     // ¿Se ingresó algo nuevo en la app sobre esta marca desde la última consulta?
     const nuevo = [e.servicios[0]?.creado, e.notificaciones[0]?.creado, e.notasMarca[0]?.creado, e.eventos[0]?.creado].some((d) => d && d > sync);
@@ -62,7 +66,7 @@ export async function expedientesDelBarrido(db: PrismaClient, hoy = new Date()) 
       continue;
     }
     if (e.etapa === "NEGATIVA") {
-      // Negativa firme: notificada hace más de 2 meses y sin recurso ni juicio en curso
+      // Negativa firme: notificada hace más de 2 meses y sin recurso (MARCanet) ni juicio de nulidad (app) en curso
       const neg = e.oficiosImpi.filter((o) => /NEGATIVA|CONFIRMA EL ACTO/i.test(o.descripcion)).map((o) => o.fechaNotificacion ?? o.fechaOficio).filter(Boolean).sort((a, b) => b!.getTime() - a!.getTime())[0];
       const enRecurso = e.tramitesImpi.some((t) => /RECURSO DE REVISI|NULIDAD/i.test(t.descripcion) && !t.fechaConclusion);
       if (neg && !enRecurso && hoy.getTime() - neg.getTime() > 2 * UN_MES) omitidas.push({ ...base, motivo: "NEGADA", proximaRevision: null, porque: "Negativa no impugnada" });

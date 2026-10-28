@@ -44,9 +44,16 @@ export function fechaMx(s?: string | null): Date | null {
   return m ? new Date(Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]))) : null;
 }
 
-/** Fecha en que se notificó el oficio, según el texto de "Estado de la notificación". null = aún no notificado. */
+/**
+ * Fecha en que se notificó el oficio, según el texto de "Estado de la notificación". null = aún no notificado.
+ * Formatos vistos: «… fecha de notificación 29/01/2024», «Notificado el …» y, en oficios entregados en domicilio o por
+ * correo, «Entregado el 14/08/2018, lo recibió …».
+ */
 export function fechaDeNotificacion(estado: string): Date | null {
-  const m = estado.match(/fecha de notificaci[oó]n\s*(\d{2}\/\d{2}\/\d{4})/i) ?? estado.match(/notificad[oa] el\s*(\d{2}\/\d{2}\/\d{4})/i);
+  const m =
+    estado.match(/fecha de notificaci[oó]n\s*(\d{2}\/\d{2}\/\d{4})/i) ??
+    estado.match(/notificad[oa] el\s*(\d{2}\/\d{2}\/\d{4})/i) ??
+    estado.match(/entregad[oa] el\s*(\d{2}\/\d{2}\/\d{4})/i);
   return m ? fechaMx(m[1]) : null;
 }
 

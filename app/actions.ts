@@ -7,7 +7,7 @@ import { requerirAdmin, requerirPermiso, requerirSesion } from "@/lib/auth";
 import { cifrar, descifrar } from "@/lib/crypto";
 import { plazosDeOficio } from "@/lib/plazos";
 import { cargarInhabiles, recalcularPlazos } from "@/lib/inhabiles";
-import { ESTADOS_TRABAJO, ETAPAS, TIPOS_SIGNO, claveVendedor, normalizarNombre, TIPOS_OFICIO } from "@/lib/catalogos";
+import { ESTADOS_TRABAJO, ETAPAS, SEGUIMIENTOS_DEUDA, TIPOS_SIGNO, claveVendedor, normalizarNombre, TIPOS_OFICIO } from "@/lib/catalogos";
 import { enviarResumen } from "@/lib/alertas";
 import { sincronizarExpediente, sincronizarMarcanet } from "@/lib/marcanet/sincronizar";
 import { expedientesDelBarrido } from "@/lib/marcanet/seleccion";
@@ -982,6 +982,42 @@ export async function marcarDesistio(expedienteId: string, activar: boolean) {
     await db.evento.create({ data: { autor: sesion.nombre, expedienteId, fecha: hoyUTC(), titulo: "Se reactivó la marca (el cliente sí continúa)" } });
   }
   refrescar(expedienteId);
+}
+
+/**
+ * Juicio de nulidad contra la negativa (va al Tribunal: no aparece en MARCanet, por eso se registra a mano).
+ * Con juicio la marca sigue en la búsqueda de MARCanet sin importar cuánto tiempo pase. `fechaISO = null` lo quita.
+ */
+export async function marcarJuicioNulidad(expedienteId: string, fechaISO: string | null) {
+  const sesion = await requerirPermiso("marcas");
+  const e = await db.expediente.findUniqueOrThrow({ where: { id: expedienteId } });
+  if (fechaISO) {
+    const f = new Date(`${fechaISO}T00:00:00Z`);
+    if (Number.isNaN(f.getTime())) throw new Error("Fecha inválida");
+    await db.expediente.update({ where: { id: expedienteId }, data: { juicioNulidad: f, etapa: "EN_JUICIO", etapaManual: true, ultimoEstatus: `Juicio de nulidad presentado ${fechaISO}` } });
+    await db.evento.create({ data: { autor: sesion.nombre, expedienteId, fecha: f, titulo: "Se presentó juicio de nulidad contra la negativa", detalle: "Registrado en la app (no aparece en MARCanet). La marca sigue en la revisión con MARCanet." } });
+  } else {
+    await db.expediente.update({ where: { id: expedienteId }, data: { juicioNulidad: null, etapa: e.etapa === "EN_JUICIO" ? "NEGATIVA" : e.etapa, etapaManual: false } });
+    await db.evento.create({ data: { autor: sesion.nombre, expedienteId, fecha: hoyUTC(), titulo: "Se quitó el juicio de nulidad registrado" } });
+  }
+  refrescar(expedienteId);
+}
+
+// ───────────── Seguimiento de clientes que deben ─────────────
+
+/** Qué pasó con lo que debe un cliente (va a pagar, no contesta, ya no quiere). `estado = null` lo borra. */
+export async function fijarSeguimientoCliente(clienteId: string, estado: string | null, nota: string | null) {
+  const sesion = await requerirSesion();
+  if (estado && !(estado in SEGUIMIENTOS_DEUDA)) throw new Error("Seguimiento inválido");
+  const texto = nota?.replace(/\s+/g, " ").trim() || null;
+  await db.cliente.update({
+    where: { id: clienteId },
+    data: estado || texto
+      ? { seguimiento: estado, seguimientoNota: texto, seguimientoFecha: new Date(), seguimientoAutor: sesion.nombre }
+      : { seguimiento: null, seguimientoNota: null, seguimientoFecha: null, seguimientoAutor: null },
+  });
+  revalidatePath("/");
+  revalidatePath(`/clientes/${clienteId}`);
 }
 
 // ───────────── Bloc de notas con recordatorio (personal: solo lo ve su usuario) ─────────────

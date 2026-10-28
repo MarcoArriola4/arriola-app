@@ -153,9 +153,16 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
                 <tbody className="divide-y divide-black/5 align-top">
                   {r.busquedas.map((b) => (
                     <tr key={b.nombre + b.como}>
-                      <td className="py-1.5 pr-3">{b.nombre}</td>
+                      <td className="py-1.5 pr-3">
+                        {b.nombre}
+                        {b.consulta && b.consulta !== b.nombre && <span className="block text-neutral-400">encontrado como «{b.consulta}»</span>}
+                        {b.aproximadas?.length ? <span className="block text-amber-700">incluidos por parecido: {b.aproximadas.join(" · ")}</span> : null}
+                      </td>
                       <td className="py-1.5 pr-3">{b.como === "TITULAR" ? "Titular" : "Apoderado"}</td>
-                      <td className="py-1.5 pr-3">{b.error ? <span className="text-red-600">No se pudo buscar</span> : b.marcas}</td>
+                      <td className="py-1.5 pr-3">
+                        {b.error && !b.marcas ? <span className="text-red-600">No se pudo buscar</span> : b.marcas}
+                        {b.error && b.marcas > 0 && <span className="block text-red-600">{b.error}</span>}
+                      </td>
                       <td className="py-1.5 text-neutral-500">{b.parecidos.length ? b.parecidos.join(" · ") : "—"}</td>
                     </tr>
                   ))}

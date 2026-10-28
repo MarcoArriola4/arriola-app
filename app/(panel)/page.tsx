@@ -6,6 +6,8 @@ import { ESTADOS_TRABAJO, TIPOS_SERVICIO, mxn } from "@/lib/catalogos";
 import { diasRestantes, fechaLimiteDDU, siguientePlazo } from "@/lib/plazos";
 import { vigenciaDe } from "@/lib/cumplimiento";
 import { cargarInhabiles } from "@/lib/inhabiles";
+import { SEGUIMIENTOS_DEUDA } from "@/lib/catalogos";
+import { FilaDeudor, type Deudor } from "@/components/seguimiento-deuda";
 
 export const metadata = { title: "Inicio" };
 
@@ -28,7 +30,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
     verPagos
       ? db.servicio.findMany({
           where: { costo: { gt: 0 }, estadoPago: { not: "PAGADO" }, fechaContratacion: { gte: hace12m } },
-          select: { costo: true, pagado: true, expediente: { select: { clienteId: true, cliente: { select: { nombre: true } } } } },
+          select: { costo: true, pagado: true, expediente: { select: { clienteId: true, cliente: { select: { nombre: true, seguimiento: true, seguimientoNota: true, seguimientoFecha: true, seguimientoAutor: true } } } } },
         })
       : Promise.resolve([]),
     // Trabajos contratados que aún no se presentan
@@ -53,17 +55,26 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
   const vendido = delMes.reduce((a, s) => a + (s.costo ?? 0), 0);
   const cobrado = delMes.reduce((a, s) => a + s.pagado, 0);
 
-  // Quién debe (últimos 12 meses)
-  const porCliente = new Map<string, { nombre: string; debe: number }>();
+  // Quién debe (últimos 12 meses). Los que dejaron de contestar o ya no quieren se apartan (no estorban en Inicio).
+  const porCliente = new Map<string, Deudor>();
   for (const s of deudas) {
     const saldo = Math.max(0, (s.costo ?? 0) - s.pagado);
     if (!saldo) continue;
-    const c = porCliente.get(s.expediente.clienteId) ?? { nombre: s.expediente.cliente.nombre, debe: 0 };
+    const cl = s.expediente.cliente;
+    const c = porCliente.get(s.expediente.clienteId) ?? {
+      id: s.expediente.clienteId, nombre: cl.nombre, debe: 0,
+      seguimiento: cl.seguimiento, nota: cl.seguimientoNota, fecha: cl.seguimientoFecha?.toISOString() ?? null, autor: cl.seguimientoAutor,
+    };
     c.debe += saldo;
     porCliente.set(s.expediente.clienteId, c);
   }
-  const deudores = [...porCliente.entries()].sort((a, b) => b[1].debe - a[1].debe);
-  const totalDeuda = deudores.reduce((a, [, c]) => a + c.debe, 0);
+  const todosDeudores = [...porCliente.values()].sort((a, b) => b.debe - a.debe);
+  const esActivo = (d: Deudor) => !d.seguimiento || SEGUIMIENTOS_DEUDA[d.seguimiento]?.activo !== false;
+  // Primero los que dijeron que van a pagar, luego los que aún no tienen seguimiento (cada grupo por monto)
+  const deudores = todosDeudores.filter(esActivo).sort((a, b) => Number(b.seguimiento === "VA_A_PAGAR") - Number(a.seguimiento === "VA_A_PAGAR") || b.debe - a.debe);
+  const inactivos = todosDeudores.filter((d) => !esActivo(d));
+  const totalDeuda = deudores.reduce((a, c) => a + c.debe, 0);
+  const totalInactivos = inactivos.reduce((a, c) => a + c.debe, 0);
 
   // Trabajos por presentar: con fecha límite (contestaciones, DDU, renovaciones) o con días desde que se contrató
   const lista = trabajos
@@ -78,10 +89,11 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
       const desdeContrato = s.fechaContratacion ? -diasRestantes(s.fechaContratacion) : null;
       return { ...s, limite, dias, desdeContrato };
     })
-    // Fuera lo viejo del Excel que nunca se actualizó: con fecha límite vencida hace más de 30 días o contratado hace más de un año
-    .filter((s) => (s.dias != null ? s.dias >= -30 : s.desdeContrato != null && s.desdeContrato <= 365))
-    .sort((a, b) => (a.dias ?? 9999) - (b.dias ?? 9999) || (b.desdeContrato ?? 0) - (a.desdeContrato ?? 0));
-  const venceProximo = lista.filter((s) => s.dias != null && s.dias <= 15).length;
+    // Todo lo pendiente aparece. Lo viejo del Excel que nunca se actualizó (vencido hace más de 30 días o contratado
+    // hace más de un año) va al final, marcado como antiguo, para que no tape lo urgente.
+    .map((s) => ({ ...s, antiguo: s.dias != null ? s.dias < -30 : s.desdeContrato == null || s.desdeContrato > 365 }))
+    .sort((a, b) => Number(a.antiguo) - Number(b.antiguo) || (a.dias ?? 9999) - (b.dias ?? 9999) || (b.desdeContrato ?? 0) - (a.desdeContrato ?? 0));
+  const venceProximo = lista.filter((s) => s.dias != null && s.dias <= 15 && !s.antiguo).length;
 
   const h = ahora.getHours();
   const saludo = h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches";
@@ -135,12 +147,15 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
           <Link href="/pagos?estado=pendientes" className="rounded-2xl border border-black/[0.06] bg-white px-5 py-4 transition hover:border-black/15">
             <p className="text-xs text-neutral-500">Te deben (últimos 12 meses)</p>
             <p className={`mt-1 text-3xl font-semibold tracking-tight ${totalDeuda ? "text-red-600" : "text-neutral-300"}`}>{mxn.format(totalDeuda)}</p>
-            <p className="mt-0.5 text-xs text-neutral-500">{deudores.length} {deudores.length === 1 ? "cliente" : "clientes"} con saldo</p>
+            <p className="mt-0.5 text-xs text-neutral-500">
+              {deudores.length} {deudores.length === 1 ? "cliente activo" : "clientes activos"} con saldo
+              {inactivos.length > 0 && <> · +{mxn.format(totalInactivos)} de {inactivos.length} que ya no contestan</>}
+            </p>
           </Link>
         )}
       </div>
 
-      <div className={`grid gap-6 ${verPagos && deudores.length ? "lg:grid-cols-[minmax(0,1fr)_300px]" : ""}`}>
+      <div className={`grid gap-6 ${verPagos && todosDeudores.length ? "lg:grid-cols-[minmax(0,1fr)_320px]" : ""}`}>
         {/* Trabajos contratados por presentar */}
         <section>
           <div className="mb-3 flex items-baseline justify-between px-1">
@@ -150,52 +165,91 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
           {lista.length === 0 ? (
             <div className="flex items-center justify-center gap-2 rounded-2xl border border-black/[0.06] bg-white px-4 py-12 text-sm text-marca-oscuro"><CheckCircle2 size={18} /> Todo lo contratado ya se presentó.</div>
           ) : (
-            <ul className="overflow-hidden rounded-2xl border border-black/[0.06] bg-white">
-              {lista.slice(0, 8).map((s, i) => {
-                const urgente = s.dias != null && s.dias <= 7;
-                const pronto = s.dias != null && s.dias <= 30;
-                return (
-                  <li key={s.id} className={i ? "border-t border-black/[0.05]" : ""}>
-                    <Link href={`/clientes/${s.expediente.clienteId}?marca=${s.expediente.id}`} className="flex items-center gap-4 px-5 py-3.5 transition hover:bg-neutral-50">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[15px] font-semibold">{s.expediente.denominacion}</p>
-                        <p className="truncate text-xs text-neutral-500">{s.expediente.cliente.nombre} · {TIPOS_SERVICIO[s.tipo] ?? s.tipo}</p>
-                      </div>
-                      <span className="flex shrink-0 flex-col items-end gap-1">
-                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${ESTADOS_TRABAJO[s.estadoTrabajo!]?.cls ?? ""}`}>{ESTADOS_TRABAJO[s.estadoTrabajo!]?.txt}</span>
-                      <span className={`text-right text-xs font-medium ${urgente ? "text-red-600" : pronto ? "text-amber-700" : "text-neutral-500"}`}>
-                        {s.dias != null
-                          ? s.dias < 0 ? `Venció hace ${-s.dias} días` : s.dias === 0 ? "Vence hoy" : `Vence en ${s.dias} días`
-                          : s.desdeContrato != null ? `Contratado hace ${s.desdeContrato} días` : "—"}
-                      </span>
-                      </span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
+            <>
+              <ul className="overflow-hidden rounded-2xl border border-black/[0.06] bg-white">
+                {lista.slice(0, 8).map((s, i) => <FilaTrabajo key={s.id} s={s} primero={i === 0} />)}
+              </ul>
+              {lista.length > 8 && (
+                <details className="group mt-2">
+                  <summary className="cursor-pointer list-none px-1 text-sm font-medium text-neutral-600 hover:text-black">
+                    <span className="group-open:hidden">Ver los {lista.length - 8} trabajos restantes ↓</span>
+                    <span className="hidden group-open:inline">Ocultar ↑</span>
+                  </summary>
+                  <ul className="mt-2 overflow-hidden rounded-2xl border border-black/[0.06] bg-white">
+                    {lista.slice(8).map((s, i) => <FilaTrabajo key={s.id} s={s} primero={i === 0} />)}
+                  </ul>
+                </details>
+              )}
+            </>
           )}
-          {lista.length > 8 && <p className="mt-2 px-1 text-xs text-neutral-500">+{lista.length - 8} trabajos más por presentar</p>}
         </section>
 
         {/* Quién debe */}
-        {verPagos && deudores.length > 0 && (
+        {verPagos && todosDeudores.length > 0 && (
           <section>
             <h2 className="mb-3 px-1 text-sm font-semibold uppercase tracking-[0.12em] text-neutral-500">Quién debe</h2>
-            <ul className="overflow-hidden rounded-2xl border border-black/[0.06] bg-white">
-              {deudores.slice(0, 6).map(([id, c], i) => (
-                <li key={id} className={i ? "border-t border-black/[0.05]" : ""}>
-                  <Link href={`/clientes/${id}`} className="flex items-center justify-between gap-3 px-4 py-3 text-sm transition hover:bg-neutral-50">
-                    <span className="min-w-0 truncate">{c.nombre}</span>
-                    <span className="shrink-0 font-semibold text-red-600">{mxn.format(c.debe)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-            {deudores.length > 6 && <p className="mt-2 px-1 text-xs text-neutral-500">+{deudores.length - 6} clientes más</p>}
+            {deudores.length > 0 ? (
+              <ul className="divide-y divide-black/[0.05] overflow-hidden rounded-2xl border border-black/[0.06] bg-white">
+                {deudores.slice(0, 6).map((d) => <li key={d.id}><FilaDeudor d={d} /></li>)}
+              </ul>
+            ) : (
+              <p className="rounded-2xl border border-black/[0.06] bg-white px-4 py-6 text-center text-sm text-neutral-500">Ningún cliente activo debe.</p>
+            )}
+            {deudores.length > 6 && (
+              <details className="group mt-2">
+                <summary className="cursor-pointer list-none px-1 text-sm font-medium text-neutral-600 hover:text-black">
+                  <span className="group-open:hidden">+{deudores.length - 6} clientes más ↓</span>
+                  <span className="hidden group-open:inline">Ocultar ↑</span>
+                </summary>
+                <ul className="mt-2 divide-y divide-black/[0.05] overflow-hidden rounded-2xl border border-black/[0.06] bg-white">
+                  {deudores.slice(6).map((d) => <li key={d.id}><FilaDeudor d={d} /></li>)}
+                </ul>
+              </details>
+            )}
+            {inactivos.length > 0 && (
+              <details className="group mt-4">
+                <summary className="cursor-pointer list-none px-1 text-xs font-medium text-neutral-500 hover:text-black">
+                  Dejaron de contestar o ya no quieren: {inactivos.length} · {mxn.format(totalInactivos)} <span className="group-open:hidden">↓</span><span className="hidden group-open:inline">↑</span>
+                </summary>
+                <ul className="mt-2 divide-y divide-black/[0.05] overflow-hidden rounded-2xl border border-black/[0.06] bg-white/70">
+                  {inactivos.map((d) => <li key={d.id}><FilaDeudor d={d} /></li>)}
+                </ul>
+              </details>
+            )}
           </section>
         )}
       </div>
     </div>
+  );
+}
+
+type Trabajo = {
+  id: string; tipo: string; estadoTrabajo: string | null; dias: number | null; desdeContrato: number | null; antiguo: boolean;
+  expediente: { id: string; clienteId: string; denominacion: string; cliente: { nombre: string } };
+};
+
+function FilaTrabajo({ s, primero }: { s: Trabajo; primero: boolean }) {
+  const urgente = !s.antiguo && s.dias != null && s.dias <= 7;
+  const pronto = !s.antiguo && s.dias != null && s.dias <= 30;
+  return (
+    <li className={primero ? "" : "border-t border-black/[0.05]"}>
+      <Link href={`/clientes/${s.expediente.clienteId}?marca=${s.expediente.id}`} className={`flex items-center gap-4 px-5 py-3.5 transition hover:bg-neutral-50 ${s.antiguo ? "opacity-70" : ""}`}>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-semibold">{s.expediente.denominacion}</p>
+          <p className="truncate text-xs text-neutral-500">{s.expediente.cliente.nombre} · {TIPOS_SERVICIO[s.tipo] ?? s.tipo}</p>
+        </div>
+        <span className="flex shrink-0 flex-col items-end gap-1">
+          <span className="flex items-center gap-1">
+            {s.antiguo && <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500" title="Pendiente desde hace mucho: revisa si sigue vigente">Antiguo</span>}
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${ESTADOS_TRABAJO[s.estadoTrabajo!]?.cls ?? ""}`}>{ESTADOS_TRABAJO[s.estadoTrabajo!]?.txt}</span>
+          </span>
+          <span className={`text-right text-xs font-medium ${urgente ? "text-red-600" : pronto ? "text-amber-700" : "text-neutral-500"}`}>
+            {s.dias != null
+              ? s.dias < 0 ? `Venció hace ${-s.dias} días` : s.dias === 0 ? "Vence hoy" : `Vence en ${s.dias} días`
+              : s.desdeContrato != null ? `Contratado hace ${s.desdeContrato} días` : "Sin fecha de contratación"}
+          </span>
+        </span>
+      </Link>
+    </li>
   );
 }

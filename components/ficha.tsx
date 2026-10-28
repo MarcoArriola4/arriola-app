@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Eye, EyeOff, KeyRound, Pencil, RefreshCw, Trash2, Users, X } from "lucide-react";
-import { buscarClientes, eliminarCliente, unirClientes, eliminarExpediente, marcarDesistio, actualizarCliente, actualizarDesdeMarcanet, actualizarExpediente, cambiarEtapa, unirExpedientes, type ResultadoEdicion, crearServicio, editarServicio, eliminarServicio, guardarCredenciales, registrarAbono, verPasswordImpi } from "@/app/actions";
+import { buscarClientes, eliminarCliente, unirClientes, eliminarExpediente, marcarDesistio, marcarJuicioNulidad, actualizarCliente, actualizarDesdeMarcanet, actualizarExpediente, cambiarEtapa, unirExpedientes, type ResultadoEdicion, crearServicio, editarServicio, eliminarServicio, guardarCredenciales, registrarAbono, verPasswordImpi } from "@/app/actions";
 import { BANCOS, TIPOS_SERVICIO } from "@/lib/catalogos";
 
 export function AccesoImpi({ expedienteId, usuario, tienePassword }: { expedienteId: string; usuario: string | null; tienePassword: boolean }) {
@@ -366,6 +366,38 @@ export function YaNoContinua({ expedienteId, denominacion, activo }: { expedient
       title={activo ? "Clic para deshacer" : "Marcar que el cliente ya no quiere continuar con esta marca"}
     >
       {pendiente ? "Guardando…" : activo ? "Ya no quiere continuar ✓" : "Ya no quiere continuar"}
+    </button>
+  );
+}
+
+/**
+ * "Se metió juicio de nulidad": el juicio va al Tribunal y no aparece en MARCanet, así que se registra aquí.
+ * Con juicio registrado la marca sigue en la revisión con MARCanet aunque hayan pasado más de 2 meses de la negativa.
+ */
+export function JuicioNulidad({ expedienteId, denominacion, fecha }: { expedienteId: string; denominacion: string; fecha: string | null }) {
+  const [pendiente, iniciar] = useTransition();
+  const hoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
+  return (
+    <button
+      type="button"
+      disabled={pendiente}
+      onClick={() => {
+        if (fecha) {
+          if (confirm(`¿Quitar el juicio de nulidad registrado para "${denominacion}"?`)) iniciar(() => marcarJuicioNulidad(expedienteId, null));
+          return;
+        }
+        const f = prompt(`¿Se presentó juicio de nulidad contra la negativa de "${denominacion}"?\n\nFecha de presentación (AAAA-MM-DD):`, hoy);
+        if (f && /^\d{4}-\d{2}-\d{2}$/.test(f.trim())) iniciar(() => marcarJuicioNulidad(expedienteId, f.trim()));
+        else if (f) alert("Escribe la fecha como AAAA-MM-DD, por ejemplo " + hoy);
+      }}
+      className={
+        fecha
+          ? "inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-violet-700"
+          : "inline-flex items-center gap-1.5 rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-sm font-medium text-violet-700 hover:bg-violet-50"
+      }
+      title={fecha ? "Clic para quitarlo" : "No aparece en MARCanet: regístralo aquí para que la marca se siga revisando"}
+    >
+      {pendiente ? "Guardando…" : fecha ? `Juicio de nulidad ✓ (${fecha.split("-").reverse().join("/")})` : "¿Se metió juicio de nulidad?"}
     </button>
   );
 }

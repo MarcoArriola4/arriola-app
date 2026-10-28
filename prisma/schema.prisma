@@ -43,6 +43,11 @@ model Cliente {
   email        String?
   rfc          String?
   notas        String?
+  // Qué pasó con lo que debe: VA_A_PAGAR | NO_CONTESTA | YA_NO_QUIERE (los dos últimos salen de la lista principal de Inicio)
+  seguimiento      String?
+  seguimientoNota  String?
+  seguimientoFecha DateTime?
+  seguimientoAutor String?
   expedientes  Expediente[]
   creado       DateTime     @default(now())
 }
@@ -59,6 +64,7 @@ model Expediente {
   etapa              String         @default("EN_TRAMITE")
   etapaManual        Boolean        @default(false) // el admin fijó el estatus a mano: reimportar el Excel no lo cambia
   desistio           DateTime?      // "Ya no quiere continuar": el cliente dejó la marca (ya no es nuestro cliente)
+  juicioNulidad      DateTime?      // se presentó juicio de nulidad contra la negativa (no aparece en MARCanet: se registra a mano)
   fechaPresentacion  DateTime?
   fechaConcesion     DateTime?
   ultimoEstatus      String?

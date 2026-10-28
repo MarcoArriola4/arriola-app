@@ -9,7 +9,7 @@ import { type Inhabiles } from "@/lib/plazos";
 import { analizarDDU, analizarRenovacion } from "@/lib/cumplimiento";
 import { cargarInhabiles } from "@/lib/inhabiles";
 import { EstadoPago, Etapa, Metrica, Origen, Parcialidades, PlazoOficio, Vacio } from "@/components/ui";
-import { AccesoImpi, Abono, BotonMarcanet, CambiarEtapa, EditarCliente, EditarExpediente, EditarServicio, EliminarMarca, HerramientasCliente, NuevoCobro, YaNoContinua } from "@/components/ficha";
+import { AccesoImpi, Abono, BotonMarcanet, CambiarEtapa, EditarCliente, EditarExpediente, EditarServicio, EliminarMarca, HerramientasCliente, JuicioNulidad, NuevoCobro, YaNoContinua } from "@/components/ficha";
 import { ControlOficio, SeguimientoNuevo } from "@/components/control-oficio";
 import { tipoDesdeImpi } from "@/lib/marcanet/sincronizar";
 import { NotasMarca } from "@/components/notas-marca";
@@ -246,6 +246,9 @@ function DetalleMarca({ e, permisos }: { e: Exp; permisos: Set<string>; inhabile
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {puede("marcas") && <YaNoContinua expedienteId={e.id} denominacion={e.denominacion} activo={!!e.desistio} />}
+            {puede("marcas") && !e.desistio && (e.juicioNulidad || ["NEGATIVA", "EN_JUICIO"].includes(e.etapa) || e.notificaciones.some((n) => n.tipo === "NEGATIVA" || n.tipo === "CONFIRMA_ACTO") || e.oficiosImpi.some((o) => /NEGATIVA|CONFIRMA EL ACTO/i.test(o.descripcion))) && (
+              <JuicioNulidad expedienteId={e.id} denominacion={e.denominacion} fecha={e.juicioNulidad ? e.juicioNulidad.toISOString().slice(0, 10) : null} />
+            )}
             {puede("cobros") && <NuevoCobro expedienteId={e.id} />}
             {puede("oficios") && <NuevaNotificacion expediente={{ id: e.id, denominacion: e.denominacion, numeroExpediente: e.numeroExpediente }} />}
           </div>

@@ -55,6 +55,13 @@ export const MEDIOS_DEFENSA: Record<string, string> = {
   NULIDAD: "Juicio de nulidad",
 };
 
+/** Qué pasó con un cliente que debe (Inicio → Quién debe). activo = sigue en la lista principal. */
+export const SEGUIMIENTOS_DEUDA: Record<string, { txt: string; cls: string; activo: boolean }> = {
+  VA_A_PAGAR: { txt: "Va a pagar", cls: "bg-emerald-50 text-emerald-700", activo: true },
+  NO_CONTESTA: { txt: "Dejó de contestar", cls: "bg-amber-50 text-amber-800", activo: false },
+  YA_NO_QUIERE: { txt: "Ya no quiere", cls: "bg-neutral-100 text-neutral-600", activo: false },
+};
+
 export const ESTADOS_NOTIF = [
   { id: "RECIBIDA", label: "Recibida", accion: "Avisé al cliente" },
   { id: "AVISADO", label: "Cliente avisado", accion: "Ya pagó" },
