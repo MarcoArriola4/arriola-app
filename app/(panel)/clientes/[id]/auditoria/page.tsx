@@ -9,7 +9,7 @@ import { Encabezado } from "@/components/ui";
 
 export const metadata = { title: "Auditoría + Reporte" };
 
-const ESTADO: Record<string, string> = { PENDIENTE: "En espera", BUSCANDO: "Buscando…", LISTA: "Lista", ERROR: "Con error" };
+const ESTADO: Record<string, string> = { PENDIENTE: "En espera", BUSCANDO: "Buscando…", DETENIDA: "Detenida", LISTA: "Lista", ERROR: "Con error" };
 
 export default async function NuevaAuditoria({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
   const [{ id }, { error }] = await Promise.all([params, searchParams, requerirAdmin()]);

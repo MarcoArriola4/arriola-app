@@ -64,7 +64,7 @@ async function cicloConCandado(cfgInicial: Awaited<ReturnType<typeof db.configur
     try {
       await procesarAuditoria(db, a.id, log);
     } catch (e) {
-      await db.auditoria.update({ where: { id: a.id }, data: { estado: "ERROR", avance: e instanceof Error ? e.message : "Error" } });
+      await db.auditoria.updateMany({ where: { id: a.id, estado: { in: ["PENDIENTE", "BUSCANDO"] } }, data: { estado: "ERROR", avance: e instanceof Error ? e.message : "Error" } });
       log("La auditoría terminó con error");
     }
   }

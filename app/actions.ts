@@ -13,6 +13,7 @@ import { sincronizarExpediente, sincronizarMarcanet } from "@/lib/marcanet/sincr
 import { expedientesDelBarrido } from "@/lib/marcanet/seleccion";
 import { MarcanetCuotaError } from "@/lib/marcanet/consulta";
 import { estadoBarrido } from "@/lib/marcanet/estado";
+import { HORAS_REANUDAR } from "@/lib/marcanet/auditoria";
 import { despertarTrabajador } from "@/lib/despertar";
 import { hayTrabajo } from "@/lib/trabajador";
 import { PERMISOS } from "@/lib/permisos";
@@ -1164,9 +1165,47 @@ export async function crearAuditoria(form: FormData) {
   const elegidos = form.getAll("nombres").map((v) => String(v).replace(/\s+/g, " ").trim()).filter(Boolean);
   const nombres = [...new Set([...elegidos, ...extra])].slice(0, 15);
   if (!nombres.length) redirect(`/clientes/${clienteId}/auditoria?error=nombres`);
+  // Si la misma auditoría (mismos nombres) está corriendo o se detuvo hace menos de 12 h, se sigue esa
+  const clave = JSON.stringify([...nombres].sort());
+  const igual = (await db.auditoria.findMany({ where: { clienteId, estado: { in: ["PENDIENTE", "BUSCANDO", "DETENIDA"] } }, orderBy: { creado: "desc" } }))
+    .find((a) => JSON.stringify((JSON.parse(a.nombres) as string[]).sort()) === clave);
+  if (igual) redirect(`/auditorias/${await reactivar(igual.id, sesion.nombre)}`);
   const a = await db.auditoria.create({ data: { clienteId, nombres: JSON.stringify(nombres), autor: sesion.nombre } });
   await despertarTrabajador();
   redirect(`/auditorias/${a.id}`);
+}
+
+/** La ✕: detiene la auditoría en curso. Lo hecho queda guardado y se puede reanudar donde se quedó durante 12 h. */
+export async function detenerAuditoria(id: string) {
+  const sesion = await requerirAdmin();
+  await db.auditoria.updateMany({ where: { id, estado: { in: ["PENDIENTE", "BUSCANDO"] } }, data: { estado: "DETENIDA", detenida: new Date(), avance: `Detenida por ${sesion.nombre}` } });
+  revalidatePath(`/auditorias/${id}`);
+}
+
+/**
+ * Vuelve a activar una auditoría: si se detuvo hace menos de 12 h sigue donde se quedó; si pasaron más
+ * (o tuvo error) empieza de cero; si ya había terminado, se hace una nueva con los mismos nombres. Devuelve su id.
+ */
+export async function reactivarAuditoria(id: string) {
+  const sesion = await requerirAdmin();
+  return reactivar(id, sesion.nombre);
+}
+
+async function reactivar(id: string, autor: string) {
+  const a = await db.auditoria.findUniqueOrThrow({ where: { id } });
+  const ahora = new Date();
+  let nuevaId = a.id;
+  if (a.estado === "LISTA") {
+    nuevaId = (await db.auditoria.create({ data: { clienteId: a.clienteId, nombres: a.nombres, autor } })).id;
+  } else if (a.estado === "DETENIDA" && a.detenida && ahora.getTime() - a.detenida.getTime() <= HORAS_REANUDAR * 3600 * 1000) {
+    const pausa = Math.round((ahora.getTime() - a.detenida.getTime()) / 1000);
+    await db.auditoria.updateMany({ where: { id, estado: "DETENIDA" }, data: { estado: "BUSCANDO", detenida: null, avance: "Reanudando donde se quedó…", pausaSeg: { increment: pausa } } });
+  } else if (a.estado === "DETENIDA" || a.estado === "ERROR") {
+    await db.auditoria.update({ where: { id }, data: { estado: "PENDIENTE", detenida: null, pausaSeg: 0, avance: null, resultado: null, terminado: null, creado: ahora, autor } });
+  }
+  await despertarTrabajador();
+  if (a.clienteId) revalidatePath(`/clientes/${a.clienteId}`);
+  return nuevaId;
 }
 
 export async function eliminarAuditoria(id: string) {

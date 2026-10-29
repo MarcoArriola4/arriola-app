@@ -97,7 +97,7 @@ export async function trabajar(db: PrismaClient, limite = Date.now() + PRESUPUES
         if (!(await avanzarAuditoria(db, a.id, limite))) return true;
       } catch (e) {
         if (e instanceof MarcanetCuotaError) throw e;
-        await db.auditoria.update({ where: { id: a.id }, data: { estado: "ERROR", avance: e instanceof Error ? e.message : "Error" } });
+        await db.auditoria.updateMany({ where: { id: a.id, estado: { in: ["PENDIENTE", "BUSCANDO"] } }, data: { estado: "ERROR", avance: e instanceof Error ? e.message : "Error" } });
       }
     }
 

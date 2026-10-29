@@ -138,13 +138,33 @@ const TIEMPO_FILA_MS = 45 * 1000;
  * Devuelve true si ya terminó. Si MARCanet pide esperar, lanza MarcanetCuotaError (lo hecho queda guardado).
  */
 export async function avanzarAuditoria(db: PrismaClient, id: string, limite: number): Promise<boolean> {
+  try {
+    return await avanzar(db, id, limite);
+  } catch (e) {
+    if (e instanceof AuditoriaDetenida) return true; // la detuvieron con la ✕: lo hecho queda guardado
+    throw e;
+  }
+}
+
+/** Se detuvo con la ✕ mientras corría. */
+class AuditoriaDetenida extends Error {}
+
+/** Horas en que una auditoría detenida se puede reanudar donde se quedó; después empieza de cero. */
+export const HORAS_REANUDAR = 12;
+
+async function avanzar(db: PrismaClient, id: string, limite: number): Promise<boolean> {
   const a = await db.auditoria.findUniqueOrThrow({ where: { id } });
-  if (a.estado === "LISTA" || a.estado === "ERROR") return true;
+  if (a.estado !== "PENDIENTE" && a.estado !== "BUSCANDO") return true;
+  // Toda escritura solo procede si sigue activa: si la detuvieron, se deja de trabajar en ella
+  const escribir = async (data: { estado?: string; avance?: string | null; resultado?: string; terminado?: Date }) => {
+    const r = await db.auditoria.updateMany({ where: { id, estado: { in: ["PENDIENTE", "BUSCANDO"] } }, data });
+    if (!r.count) throw new AuditoriaDetenida();
+  };
   const nombres = JSON.parse(a.nombres) as string[];
   const st: Estado = a.resultado ? JSON.parse(a.resultado) : { busquedas: [], marcas: [] };
   st.fase ??= "BUSQUEDA";
   st.paso ??= 0;
-  const guardar = (avance: string | null) => db.auditoria.update({ where: { id }, data: { estado: "BUSCANDO", avance, resultado: JSON.stringify(st) } });
+  const guardar = (avance: string | null) => escribir({ estado: "BUSCANDO", avance, resultado: JSON.stringify(st) });
   const tareas = nombres.flatMap((nombre) => (["TITULAR", "APODERADO"] as Como[]).map((como) => ({ nombre, como })));
 
   const agregar = (marcas: MarcaEncontrada[], como: Como, sub: BusquedaEnCurso) => {
@@ -174,7 +194,7 @@ export async function avanzarAuditoria(db: PrismaClient, id: string, limite: num
     try {
       if (!st.sub) {
         if (limite - Date.now() < TIEMPO_LISTAR_MS) return false;
-        await db.auditoria.update({ where: { id }, data: { estado: "BUSCANDO", avance: `Buscando «${nombre}» como ${quien} (${st.paso + 1} de ${tareas.length})…` } });
+        await escribir({ estado: "BUSCANDO", avance: `Buscando «${nombre}» como ${quien} (${st.paso + 1} de ${tareas.length})…` });
         st.sub = { ...(await listarNombres(nombre, como)), fila: 0, desde: 0, expedientes: [], errores: [] };
         await guardar(null);
       }
@@ -182,10 +202,7 @@ export async function avanzarAuditoria(db: PrismaClient, id: string, limite: num
       while (sub.fila < sub.filas.length) {
         if (limite - Date.now() < TIEMPO_FILA_MS) return false;
         const f = sub.filas[sub.fila];
-        await db.auditoria.update({
-          where: { id },
-          data: { estado: "BUSCANDO", avance: `«${nombre}» como ${quien} (${st.paso + 1} de ${tareas.length}): marcas de ${f.nombre}${sub.filas.length > 1 ? ` · ${sub.fila + 1} de ${sub.filas.length}` : ""}…` },
-        });
+        await escribir({ estado: "BUSCANDO", avance: `«${nombre}» como ${quien} (${st.paso + 1} de ${tareas.length}): marcas de ${f.nombre}${sub.filas.length > 1 ? ` · ${sub.fila + 1} de ${sub.filas.length}` : ""}…` });
         try {
           const r = await marcasDeFila(sub.consulta, como, f, sub.desde, limite - 30 * 1000);
           agregar(r.marcas, como, sub);
@@ -207,6 +224,7 @@ export async function avanzarAuditoria(db: PrismaClient, id: string, limite: num
         ...(sub.errores.length && { error: `No se pudieron leer ${sub.errores.length} de ${sub.filas.length} nombres` }),
       });
     } catch (e) {
+      if (e instanceof AuditoriaDetenida) throw e;
       if (e instanceof MarcanetCuotaError) {
         await guardar(null);
         throw e;
@@ -227,7 +245,7 @@ export async function avanzarAuditoria(db: PrismaClient, id: string, limite: num
   while (st.paso! < st.marcas.length) {
     if (Date.now() > limite) return false;
     const m = st.marcas[st.paso!];
-    await db.auditoria.update({ where: { id }, data: { avance: `Consultando el estatus de cada marca: ${st.paso! + 1} de ${st.marcas.length}` } });
+    await escribir({ avance: `Consultando el estatus de cada marca: ${st.paso! + 1} de ${st.marcas.length}` });
     const e = enApp.get(m.expediente);
     if (e) m.enApp = { id: e.id, clienteId: e.clienteId };
     try {
@@ -259,7 +277,7 @@ export async function avanzarAuditoria(db: PrismaClient, id: string, limite: num
   }
   const { fase: _f, paso: _p, sub: _s, ...final } = st;
   void _f; void _p; void _s;
-  await db.auditoria.update({ where: { id }, data: { estado: "LISTA", avance: null, terminado: new Date(), resultado: JSON.stringify(final) } });
+  await escribir({ estado: "LISTA", avance: null, terminado: new Date(), resultado: JSON.stringify(final) });
   return true;
 }
 
@@ -270,7 +288,7 @@ export async function procesarAuditoria(db: PrismaClient, id: string, log: (m: s
       if (await avanzarAuditoria(db, id, Date.now() + 6 * 3600 * 1000)) break;
     } catch (e) {
       if (e instanceof MarcanetCuotaError && esperas++ < 6) {
-        await db.auditoria.update({ where: { id }, data: { avance: "Pausa obligatoria de MARCanet (10 min)…" } });
+        await db.auditoria.updateMany({ where: { id, estado: { in: ["PENDIENTE", "BUSCANDO"] } }, data: { avance: "Pausa obligatoria de MARCanet (10 min)…" } });
         await esperar(ESPERA_CUOTA_MS);
         continue;
       }
@@ -281,7 +299,10 @@ export async function procesarAuditoria(db: PrismaClient, id: string, log: (m: s
 }
 
 export type ProgresoAuditoria = {
-  estado: string; // PENDIENTE | BUSCANDO | LISTA | ERROR
+  id: string;
+  estado: string; // PENDIENTE | BUSCANDO | DETENIDA | LISTA | ERROR
+  /** si está detenida: hasta cuándo se puede reanudar donde se quedó (después empieza de cero) */
+  reanudarHasta: string | null;
   pct: number;
   restanteSeg: number | null;
   transcurridoSeg: number;
@@ -296,16 +317,23 @@ const SEG_POR_BUSQUEDA = 90; // cada nombre como titular o apoderado (medido)
 const SEG_POR_MARCA = 16; // ficha de cada marca (medido)
 
 /** Avance aproximado de una auditoría y su tiempo restante (para el reloj). */
-export function progresoAuditoria(a: { estado: string; nombres: string; avance: string | null; resultado: string | null; creado: Date; terminado: Date | null }): ProgresoAuditoria {
+export function progresoAuditoria(a: { id: string; estado: string; nombres: string; avance: string | null; resultado: string | null; creado: Date; terminado: Date | null; detenida: Date | null; pausaSeg: number }): ProgresoAuditoria {
+  const p = calcularProgreso(a);
+  if (a.estado !== "DETENIDA") return p;
+  const detenida = a.detenida ?? new Date();
+  return { ...p, restanteSeg: null, reanudarHasta: new Date(detenida.getTime() + HORAS_REANUDAR * 3600 * 1000).toISOString(), transcurridoSeg: Math.round((detenida.getTime() - a.creado.getTime()) / 1000) - a.pausaSeg };
+}
+
+function calcularProgreso(a: Parameters<typeof progresoAuditoria>[0]): ProgresoAuditoria {
   const st = a.resultado ? (JSON.parse(a.resultado) as ResultadoAuditoria & { fase?: string; paso?: number }) : { busquedas: [], marcas: [] as MarcaAuditada[] };
   const tareas = (JSON.parse(a.nombres) as string[]).length * 2;
   const marcas = st.marcas.length;
   const noContratadas = st.marcas.filter((m) => !m.enApp).length;
   const fin = a.terminado ?? new Date();
-  const base = { marcas, noContratadas, transcurridoSeg: Math.round((fin.getTime() - a.creado.getTime()) / 1000), calculadoEn: new Date().toISOString() };
+  const base = { id: a.id, reanudarHasta: null, marcas, noContratadas, transcurridoSeg: Math.round((fin.getTime() - a.creado.getTime()) / 1000) - a.pausaSeg, calculadoEn: new Date().toISOString() };
   if (a.estado === "LISTA") return { ...base, estado: a.estado, pct: 100, restanteSeg: 0, texto: "Terminada" };
   if (a.estado === "ERROR") return { ...base, estado: a.estado, pct: 0, restanteSeg: null, texto: a.avance ?? "No pudo terminar" };
-  if (a.estado === "PENDIENTE" || !st.fase) return { ...base, estado: a.estado, pct: 2, restanteSeg: tareas * SEG_POR_BUSQUEDA, texto: "Empezando…" };
+  if (!st.fase) return { ...base, estado: a.estado, pct: 2, restanteSeg: tareas * SEG_POR_BUSQUEDA, texto: "Empezando…" };
   const paso = st.paso ?? 0;
   if (st.fase === "BUSQUEDA") {
     // Mientras busca aún no se sabe cuántas marcas habrá: se estima con las encontradas hasta ahora

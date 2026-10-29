@@ -291,8 +291,10 @@ model Auditoria {
   id        String    @id @default(cuid())
   clienteId String?
   nombres   String    // JSON: ["NOMBRE 1", "NOMBRE 2"] (cada uno se busca como titular y como apoderado)
-  estado    String    @default("PENDIENTE") // PENDIENTE | BUSCANDO | LISTA | ERROR
+  estado    String    @default("PENDIENTE") // PENDIENTE | BUSCANDO | DETENIDA | LISTA | ERROR
   avance    String?
+  detenida  DateTime? // cuándo se detuvo con la ✕ (se puede reanudar donde se quedó durante 12 h)
+  pausaSeg  Int       @default(0) // tiempo que estuvo detenida (no cuenta en lo que tardó)
   resultado String?   // JSON con búsquedas y marcas
   autor     String?
   creado    DateTime  @default(now())
