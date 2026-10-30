@@ -685,7 +685,7 @@ export async function altaServicio(form: FormData) {
   });
   if (tipoServicio === "CONTESTACION") await ventaDeContestacion(alta.id, sesion.nombre);
   refrescar(expedienteId);
-  redirect(`/clientes/${clienteId}?marca=${expedienteId}&ok=alta`);
+  return { url: `/clientes/${clienteId}?marca=${expedienteId}&ok=alta` };
 }
 
 /**

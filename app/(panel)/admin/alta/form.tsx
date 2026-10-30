@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Award, BookOpen, Building2, PenTool, Wrench, CalendarCheck, Lightbulb, Megaphone, MessageSquareReply, MoreHorizontal, RefreshCw, Store } from "lucide-react";
 import { altaServicio, buscarClientes, marcasDeCliente } from "@/app/actions";
 import { BANCOS } from "@/lib/catalogos";
@@ -33,6 +34,7 @@ const COSTO_SUGERIDO: Record<string, string> = {
 };
 
 export function FormAlta({ cliente, servicioInicial, vendedores = [] }: { cliente: Cliente | null; servicioInicial?: string; vendedores?: string[] }) {
+  const router = useRouter();
   const [elegido, setElegido] = useState<Cliente | null>(cliente);
   const [nuevo, setNuevo] = useState(false);
   const [q, setQ] = useState("");
@@ -67,13 +69,16 @@ export function FormAlta({ cliente, servicioInicial, vendedores = [] }: { client
     if (!elegido && !nuevo) return setError("Paso 1: elige un cliente o crea uno nuevo.");
     setError("");
     setEnviando(true);
+    // Se guarda y luego se abre el cliente desde aquí (sin redirección dentro del guardado, que mostraba la pantalla de error)
+    let url: string;
     try {
-      await altaServicio(f);
-    } catch (e) {
-      // redirect() lanza una excepción especial que Next maneja; aquí solo llegan errores reales
-      if (!(e instanceof Error && e.message.includes("NEXT_REDIRECT"))) setError("No se pudo guardar. Revisa los datos.");
+      url = (await altaServicio(f)).url;
+    } catch {
+      setError("No se pudo guardar. Revisa los datos e intenta de nuevo.");
       setEnviando(false);
+      return;
     }
+    router.push(url);
   }
 
   return (

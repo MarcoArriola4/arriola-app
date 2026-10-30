@@ -5,6 +5,7 @@ import { requerirAdmin } from "@/lib/auth";
 import { construirResumen } from "@/lib/alertas";
 import { enviarAlertasAhora, guardarConfiguracion } from "@/app/actions";
 import { ActualizarTodas } from "@/components/actualizar-todas";
+import { BotonReporteGeneral } from "@/components/boton-reporte-general";
 import { estadoBarrido } from "@/lib/marcanet/estado";
 import { marcasRevisionSemanal } from "@/lib/marcanet/seleccion";
 import { Encabezado } from "@/components/ui";
@@ -89,6 +90,12 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
             <p className="text-xs text-neutral-500">{resumen.total} pendientes</p>
           </div>
           <iframe srcDoc={resumen.html} title="Vista previa del correo" className="h-[420px] w-full bg-neutral-50" />
+        </section>
+
+        <section className="card p-5 lg:col-span-2">
+          <h2 className="text-sm font-semibold">Reporte general de marcas</h2>
+          <p className="mb-3 mt-0.5 text-xs text-neutral-500">Actualiza todas las marcas en MARCanet y arma un reporte: marcas ganadas con su declaración de uso y renovación, negadas y abandonadas con su motivo, oficios en curso y lo que espera o ya recibió respuesta del IMPI.</p>
+          <BotonReporteGeneral enCurso={barrido.activo || barrido.solicitada} />
         </section>
 
         <section className="card p-5 lg:col-span-2">

@@ -9,6 +9,8 @@ import { type Inhabiles } from "@/lib/plazos";
 import { analizarDDU, analizarRenovacion } from "@/lib/cumplimiento";
 import { cargarInhabiles } from "@/lib/inhabiles";
 import { EstadoPago, Etapa, Metrica, Origen, Parcialidades, PlazoOficio, Vacio } from "@/components/ui";
+import { TrabajoEstatus } from "@/components/trabajo-estatus";
+import { PASOS_OFICIO } from "@/lib/estado-oficio";
 import { AccesoImpi, Abono, BotonMarcanet, CambiarEtapa, EditarCliente, EditarExpediente, EditarServicio, EliminarMarca, HerramientasCliente, JuicioNulidad, NuevoCobro, YaNoContinua } from "@/components/ficha";
 import { ControlOficio, SeguimientoNuevo } from "@/components/control-oficio";
 import { tipoDesdeImpi } from "@/lib/marcanet/sincronizar";
@@ -257,6 +259,16 @@ function DetalleMarca({ e, permisos }: { e: Exp; permisos: Set<string>; inhabile
           </div>
         </div>
 
+        {e.servicios.length > 0 && (
+          <div className="mt-4">
+            <TrabajoEstatus
+              editable={puede("contrataciones")}
+              servicios={e.servicios.slice(0, 4).map((s) => ({ id: s.id, tipo: s.tipo, fecha: (s.fechaContratacion ?? s.creado).toISOString(), estadoTrabajo: s.estadoTrabajo, avance: s.avance }))}
+            />
+          </div>
+        )}
+        <LoNuevo e={e} />
+
         {oficios.length > 0 && (
           <div className="mt-4 space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Oficios de esta marca</h3>
@@ -471,6 +483,37 @@ function Fila({ label, valor }: { label: string; valor: React.ReactNode }) {
     <div className="flex items-baseline justify-between gap-3">
       <dt className="shrink-0 text-neutral-500">{label}</dt>
       <dd className="flex min-w-0 flex-wrap justify-end text-right">{valor}</dd>
+    </div>
+  );
+}
+
+/** "Lo nuevo" de la marca: si tiene un oficio en curso, "Con oficio" y su fecha de notificación; si no, lo último del IMPI. */
+function LoNuevo({ e }: { e: Exp }) {
+  const oficio = e.notificaciones.filter((n) => ACTIVAS.includes(n.estado)).sort((a, b) => b.fechaNotificacion.getTime() - a.fechaNotificacion.getTime())[0];
+  const revisada = e.marcanetSync ? `Revisada en MARCanet el ${fmtFecha(e.marcanetSync)}` : "Aún sin revisar en MARCanet";
+  let titulo: string;
+  let detalle: string | null = null;
+  let tono = "border-neutral-200 bg-white text-neutral-800";
+  if (oficio) {
+    titulo = `Con oficio · notificado el ${fmtFecha(oficio.fechaNotificacion)}`;
+    detalle = `${TIPOS_OFICIO[oficio.tipo] ?? oficio.tipo} · ${PASOS_OFICIO[oficio.estado] ?? oficio.estado}`;
+    tono = "border-amber-300 bg-amber-50 text-amber-900";
+  } else if (e.ultimaActImpi && e.ultimaActImpiFecha) {
+    titulo = e.ultimaActImpiDe === "IMPI" ? `El IMPI contestó · ${fmtFecha(e.ultimaActImpiFecha)}` : `Respuesta ingresada · ${fmtFecha(e.ultimaActImpiFecha)} · en espera del IMPI`;
+    detalle = e.ultimaActImpi;
+    tono = e.ultimaActImpiDe === "IMPI" ? "border-violet-200 bg-violet-50 text-violet-900" : "border-sky-200 bg-sky-50 text-sky-900";
+  } else if (e.etapa === "CONCEDIDA") {
+    titulo = `Registrada${e.fechaConcesion ? ` · concedida el ${fmtFecha(e.fechaConcesion)}` : ""}`;
+    tono = "border-marca/30 bg-marca-claro/60 text-marca-oscuro";
+  } else {
+    titulo = ETAPAS[e.etapa] ?? e.etapa;
+  }
+  return (
+    <div className={`mt-3 rounded-xl border p-3 ${tono}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide opacity-70">Lo nuevo</p>
+      <p className="mt-0.5 text-sm font-semibold">{titulo}</p>
+      {detalle && <p className="mt-0.5 text-xs opacity-80">{detalle}</p>}
+      <p className="mt-1 text-[11px] opacity-60">{revisada}</p>
     </div>
   );
 }

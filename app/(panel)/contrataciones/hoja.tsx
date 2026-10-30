@@ -318,7 +318,7 @@ function Fila({ f, n, esAdmin, cobros, conAnio }: { f: FilaContratacion; n: numb
 }
 
 /** Texto que se edita en la misma celda: clic para escribir, Enter o salir para guardar. */
-function TextoEditable({ valor, placeholder, alGuardar, lista, chico }: { valor: string; placeholder: string; alGuardar: (v: string) => void; lista?: string; chico?: boolean }) {
+export function TextoEditable({ valor, placeholder, alGuardar, lista, chico }: { valor: string; placeholder: string; alGuardar: (v: string) => void; lista?: string; chico?: boolean }) {
   const [editando, setEditando] = useState(false);
   const [texto, setTexto] = useState(valor);
   const guardar = () => {
