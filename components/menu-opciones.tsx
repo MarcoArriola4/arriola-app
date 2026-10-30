@@ -27,7 +27,7 @@ export function MenuOpciones({ titulo = "Opciones", children }: { titulo?: strin
       <div
         // Al elegir una opción el menú se cierra (la ventana que abra, si abre una, se queda)
         onClick={() => setAbierto(false)}
-        className={`${abierto ? "" : "hidden"} absolute right-0 z-40 mt-1.5 w-56 overflow-hidden rounded-xl border border-black/[0.08] bg-white p-1 shadow-xl
+        className={`${abierto ? "" : "hidden"} absolute left-0 z-40 mt-1.5 w-60 max-w-[calc(100vw-2rem)] sm:left-auto sm:right-0 overflow-hidden rounded-xl border border-black/[0.08] bg-white p-1 shadow-xl
           [&_.btn]:w-full [&_.btn]:justify-start [&_.btn]:rounded-lg [&_.btn]:border-0 [&_.btn]:bg-transparent [&_.btn]:shadow-none [&_.btn:hover]:bg-neutral-100`}
       >
         {children}

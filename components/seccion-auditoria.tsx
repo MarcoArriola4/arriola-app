@@ -28,7 +28,7 @@ export function SeccionAuditoria({ clienteId, a }: { clienteId: string; a: Audit
   if (!a) {
     return (
       <div className="mb-6">
-        <Link href={`/clientes/${clienteId}/auditoria`} className="btn"><SearchCheck size={14} /> Reporte 2 · todavía no se ha hecho</Link>
+        <Link href={`/clientes/${clienteId}/auditoria`} className="btn max-w-full flex-wrap"><SearchCheck size={14} /> Reporte 2 · todavía no se ha hecho</Link>
       </div>
     );
   }
@@ -40,16 +40,16 @@ export function SeccionAuditoria({ clienteId, a }: { clienteId: string; a: Audit
 
   return (
     <details className="group mb-6">
-      <summary className="btn w-fit cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+      <summary className="btn max-w-full cursor-pointer list-none flex-wrap text-left sm:w-fit [&::-webkit-details-marker]:hidden">
         <SearchCheck size={14} /> Reporte 2 · {a.creado.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })} · {ESTADO[a.estado] ?? a.estado}
         {lista && opo.length > 0 && <span className="rounded bg-violet-100 px-1.5 text-[11px] font-medium text-violet-800">{opo.length} no contratadas</span>}
         <ChevronDown size={14} className="transition-transform group-open:rotate-180" />
       </summary>
     <section className="card mt-2 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/5 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/5 px-4 py-4 sm:px-5">
         <div>
           <h2 className="text-sm font-semibold">Último Reporte 2 · marcas en el IMPI</h2>
-          <p className="text-xs text-neutral-500">
+          <p className="break-words text-xs text-neutral-500">
             {a.creado.toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}{a.autor && ` · ${a.autor}`} · {(JSON.parse(a.nombres) as string[]).join(" · ")}
           </p>
         </div>
@@ -60,12 +60,12 @@ export function SeccionAuditoria({ clienteId, a }: { clienteId: string; a: Audit
         </div>
       </div>
 
-      <div className="px-5 py-4">
+      <div className="px-4 py-4 sm:px-5">
         {!lista ? (
           <RelojAuditoria p={p} />
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               {[
                 { t: "Encontradas", n: r.marcas.length, cls: "" },
                 { t: "Ganadas (registradas)", n: cuenta("GANADA"), cls: "text-green-700" },
@@ -83,7 +83,21 @@ export function SeccionAuditoria({ clienteId, a }: { clienteId: string; a: Audit
             {opo.length > 0 && (
               <div className="mt-4">
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-700">Marcas que no nos ha contratado · oportunidad de venta</h3>
-                <div className="overflow-x-auto">
+                <ul className="divide-y divide-black/5 md:hidden">
+                  {opo.slice(0, 12).map((m) => (
+                    <li key={m.expediente} className="space-y-1 py-2.5 text-sm">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 break-words font-medium">{m.denominacion}</p>
+                        <span className="shrink-0 text-xs text-neutral-500">Clase {m.clase ?? "—"}</span>
+                      </div>
+                      <p className="text-[11px] text-neutral-500">Exp. {m.expediente}{m.registro && ` · Reg. ${m.registro}`}</p>
+                      <span className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${TONO[m.tono]}`}>{m.estatus || "—"}</span>
+                      {[m.ddu, m.renovacion].filter((j) => j && (j.tono === "ambar" || j.tono === "rojo")).map((j) => <p key={j!.texto} className="text-[11px] font-medium text-amber-700">{j!.texto}</p>)}
+                      <p className="text-[11px] text-neutral-400">{m.encontradaComo.map((x) => `${x.como === "TITULAR" ? "Titular" : "Apoderado"}: ${x.nombre}`).join(" · ")}</p>
+                    </li>
+                  ))}
+                </ul>
+                <div className="hidden overflow-x-auto md:block">
                   <table className="w-full min-w-[620px] text-sm">
                     <thead><tr className="text-left text-[11px] uppercase tracking-wide text-neutral-500"><th className="py-1.5 pr-3">Marca</th><th className="py-1.5 pr-3">Expediente</th><th className="py-1.5 pr-3">Clase</th><th className="py-1.5 pr-3">Estatus</th><th className="py-1.5">Último movimiento</th></tr></thead>
                     <tbody className="divide-y divide-black/5 align-top">
