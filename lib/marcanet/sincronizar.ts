@@ -69,7 +69,7 @@ async function guardarDatos(db: PrismaClient, exp: Expediente, r: ExpedienteMarc
 }
 
 export async function sincronizarExpediente(db: PrismaClient, exp: Expediente, inhabiles: Inhabiles, hoy = new Date()): Promise<ResultadoExpediente> {
-  const r = await consultarMarcanet(exp.numeroExpediente!);
+  const r = await consultarMarcanet(exp.numeroExpediente!, { tipo: exp.tipo, registro: exp.numeroRegistro, denominacion: exp.denominacion });
   const conocidos = await guardarDatos(db, exp, r);
   const res: ResultadoExpediente = { nuevos: 0, contestados: 0, porRevisar: [] };
 

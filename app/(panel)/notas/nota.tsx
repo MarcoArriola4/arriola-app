@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import { Bell, Check, Pencil, Trash2 } from "lucide-react";
-import { editarRecordatorio, eliminarRecordatorio, marcarRecordatorio, posponerRecordatorio } from "@/app/actions";
+import { crearRecordatorio, editarRecordatorio, eliminarRecordatorio, marcarRecordatorio, posponerRecordatorio } from "@/app/actions";
 
 export type Nota = { id: string; texto: string; recordarEn: string | null; hecho: boolean; creado: string };
 
@@ -50,5 +50,31 @@ export function NotaPersonal({ n }: { n: Nota }) {
       <button onClick={() => setEditando(true)} title="Editar" className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-black"><Pencil size={14} /></button>
       <button onClick={() => { if (confirm("¿Borrar esta nota?")) iniciar(() => eliminarRecordatorio(n.id)); }} title="Borrar" className="rounded p-1 text-neutral-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={14} /></button>
     </article>
+  );
+}
+
+/** Formulario de nota nueva: se guarda sin salir de la pantalla y, si algo falla, avisa ahí mismo (sin pantalla de error). */
+export function NuevaNota() {
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, iniciar] = useTransition();
+  return (
+    <form
+      action={(f) => {
+        setError(null);
+        iniciar(async () => {
+          try {
+            await crearRecordatorio(f);
+          } catch {
+            setError("No se pudo guardar la nota. Revisa tu conexión e inténtalo de nuevo.");
+          }
+        });
+      }}
+      className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-end"
+    >
+      <label className="block"><span className="label">¿Qué no se te debe pasar?</span><textarea name="texto" required rows={2} placeholder="Ej. Mandar el reporte de antecedentes de TACOS EL GÜERO a Juan" className="input" /></label>
+      <label className="block"><span className="label">Recordarme (opcional)</span><input type="datetime-local" name="recordarEn" className="input" /></label>
+      <button disabled={guardando} className="btn-primario md:mb-0.5">{guardando ? "Guardando…" : "Guardar nota"}</button>
+      {error && <p className="text-sm text-red-700 md:col-span-3">{error}</p>}
+    </form>
   );
 }

@@ -4,6 +4,7 @@ import path from "path";
 import {
   AlignmentType, BorderStyle, Document, Footer, HeadingLevel, ImageRun, Packer, PageOrientation, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType,
 } from "docx";
+import { redactarAuditoria } from "./redaccion-auditoria";
 import { categoriaDe, type MarcaAuditada, type ResultadoAuditoria } from "./marcanet/auditoria";
 import type { Juicio } from "./cumplimiento";
 
@@ -26,6 +27,34 @@ const t = (text: string, o: { bold?: boolean; size?: number; color?: string; ita
 const celda = (hijos: Paragraph[], o: { ancho?: number; fondo?: string } = {}) =>
   new TableCell({ children: hijos, width: o.ancho ? { size: o.ancho, type: WidthType.PERCENTAGE } : undefined, shading: o.fondo ? { type: ShadingType.CLEAR, color: "auto", fill: o.fondo } : undefined, margins: { top: 60, bottom: 60, left: 80, right: 80 } });
 const p = (...runs: TextRun[]) => new Paragraph({ children: runs, spacing: { after: 40 } });
+
+/** Texto formal: estatus general, puntos de atención y clases adicionales recomendadas. */
+function redaccionEnWord(r: ResultadoAuditoria): Paragraph[] {
+  const x = redactarAuditoria(r);
+  const parrafo = (texto: string) => new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.JUSTIFIED, children: [t(texto, { size: 20, color: "333333" })] });
+  return [
+    new Paragraph({ spacing: { before: 300, after: 120 }, children: [t("ESTATUS GENERAL Y RECOMENDACIONES", { bold: true, size: 20, color: OSCURO })] }),
+    ...x.parrafos.map(parrafo),
+    ...(x.recomendaciones.length
+      ? [
+          parrafo(x.introRecomendaciones),
+          ...x.recomendaciones.map(
+            (rec) =>
+              new Paragraph({
+                bullet: { level: 0 },
+                spacing: { after: 80 },
+                children: [
+                  t(rec.marca, { bold: true, size: 20 }),
+                  t(` (hoy en clase${rec.clases.length > 1 ? "s" : ""} ${rec.clases.join(", ")}): `, { size: 20, color: "666666" }),
+                  t(rec.sugeridas.map((c) => `clase ${c.clase} – ${c.descripcion}`).join("; "), { size: 20, color: "333333" }),
+                ],
+              })
+          ),
+        ]
+      : []),
+    parrafo(x.cierre),
+  ];
+}
 
 export async function auditoriaEnWord(datos: { cliente: string | null; nombres: string[]; terminado: Date | null; resultado: ResultadoAuditoria }) {
   const { resultado: r } = datos;
@@ -145,6 +174,7 @@ export async function auditoriaEnWord(datos: { cliente: string | null; nombres: 
           ...(datos.cliente ? [new Paragraph({ children: [t(datos.cliente, { bold: true, size: 36 })] })] : []),
           new Paragraph({ spacing: { after: 200 }, children: [t("Búsqueda en el IMPI (MARCanet) por titular y por apoderado de: ", { color: "555555" }), t(datos.nombres.join(" · "), { bold: true })] }),
           resumen,
+          ...redaccionEnWord(r),
           ...(noContratadas.length
             ? [
                 new Paragraph({ spacing: { before: 300, after: 60 }, children: [t(`MARCAS NO CONTRATADAS CON ARRIOLA ABOGADOS · ${noContratadas.length}`, { bold: true, size: 18, color: "5B21B6" })] }),

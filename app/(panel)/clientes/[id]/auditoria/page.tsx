@@ -7,7 +7,7 @@ import { crearAuditoria } from "@/app/actions";
 import { claveNombre } from "@/lib/marcanet/busqueda-nombre";
 import { Encabezado } from "@/components/ui";
 
-export const metadata = { title: "Auditoría + Reporte" };
+export const metadata = { title: "Reporte 2" };
 
 const ESTADO: Record<string, string> = { PENDIENTE: "En espera", BUSCANDO: "Buscando…", DETENIDA: "Detenida", LISTA: "Lista", ERROR: "Con error" };
 
@@ -32,7 +32,7 @@ export default async function NuevaAuditoria({ params, searchParams }: { params:
   return (
     <>
       <Link href={`/clientes/${c.id}`} className="mb-3 inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-black"><ChevronLeft size={15} /> {c.nombre}</Link>
-      <Encabezado titulo="Auditoría + Reporte" subtitulo="Busca en MARCanet todas las marcas de cada nombre, como titular y como apoderado, y arma un reporte con el estatus actual de cada una. No agrega nada a la app." />
+      <Encabezado titulo="Reporte 2" subtitulo="Busca en MARCanet todas las marcas de cada nombre, como titular y como apoderado, y arma un reporte con el estatus actual de cada una. No agrega nada a la app." />
       {error === "nombres" && <p className="mb-4 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700">Elige o escribe al menos un nombre.</p>}
 
       <form action={crearAuditoria} className="card mb-6 max-w-3xl space-y-4 p-5">
@@ -56,12 +56,12 @@ export default async function NuevaAuditoria({ params, searchParams }: { params:
           Se toman los nombres iguales (sin importar acentos, comas o tipo de sociedad) y, si no hay ninguno idéntico, los que solo difieren en un apellido o son cotitulares (se marcan en el reporte). Los parecidos se listan aparte.
           Corre sola en segundo plano: empieza en unos minutos y tarda según cuántas marcas tenga (aprox. 1–2 min por nombre y ~20 s por marca). Puedes cerrar la app.
         </p>
-        <button className="btn-primario"><SearchCheck size={15} /> Hacer auditoría y reporte</button>
+        <button className="btn-primario"><SearchCheck size={15} /> Hacer Reporte 2</button>
       </form>
 
       {previas.length > 0 && (
         <section className="card max-w-3xl">
-          <h2 className="border-b border-black/5 px-5 py-3 text-sm font-semibold">Auditorías anteriores</h2>
+          <h2 className="border-b border-black/5 px-5 py-3 text-sm font-semibold">Reportes 2 anteriores</h2>
           <ul className="divide-y divide-black/5">
             {previas.map((a) => (
               <li key={a.id}>

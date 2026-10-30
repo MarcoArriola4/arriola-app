@@ -258,7 +258,7 @@ async function avanzar(db: PrismaClient, id: string, limite: number): Promise<bo
               oficios: e.oficiosImpi.map((o) => ({ descripcion: o.descripcion, numero: o.numero, fechaOficio: o.fechaOficio, estadoNotificacion: o.estadoNotificacion ?? "", fechaNotificacion: o.fechaNotificacion, tramite: o.tramite ?? "" })),
               promociones: e.promocionesImpi.map((p) => ({ folio: p.folio, anio: p.anio, fechaPresentacion: p.fechaPresentacion, oficioRelacionado: p.oficioRelacionado, descripcion: p.descripcion, tramite: p.tramite ?? "" })),
             }
-          : await consultarMarcanet(m.expediente);
+          : await consultarMarcanet(m.expediente, { tipo: m.tipoSolicitud, registro: m.registro, denominacion: m.denominacion });
       const an = analizarMarca(r, new Date(), { juicioNulidad: e?.juicioNulidad });
       Object.assign(m, { estatus: an.estatus, tono: an.tono, categoria: an.categoria, ddu: an.ddu, renovacion: an.renovacion, contestaciones: an.contestaciones, vigencia: iso(an.vigencia) });
       const u = ultimaActualizacion(r);

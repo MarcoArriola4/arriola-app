@@ -9,8 +9,9 @@ import { categoriaDe, progresoAuditoria, type MarcaAuditada, type ResultadoAudit
 import { Imprimir } from "./cliente";
 import { RelojAuditoria } from "@/components/reloj-auditoria";
 import { oportunidades } from "@/components/seccion-auditoria";
+import { redactarAuditoria } from "@/lib/redaccion-auditoria";
 
-export const metadata = { title: "Auditoría + Reporte" };
+export const metadata = { title: "Reporte 2" };
 
 const TONO: Record<MarcaAuditada["tono"], string> = {
   verde: "bg-green-50 text-green-800",
@@ -42,6 +43,7 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
   const ordenados = CATEGORIAS.map((c) => [c, ordenar(r.marcas.filter((m) => categoriaDe(m) === c.id))] as const).filter(([, ms]) => ms.length);
   const cuentaCat = (id: string) => r.marcas.filter((m) => categoriaDe(m) === id).length;
   const hoy = a.terminado ?? new Date();
+  const texto = lista ? redactarAuditoria(r) : null;
 
   return (
     <>
@@ -84,6 +86,29 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
               </div>
             ))}
           </div>
+
+          {texto && (
+            <section className="mt-6 break-inside-avoid rounded-xl border border-black/[0.07] px-6 py-5">
+              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-700">Estatus general y recomendaciones</h2>
+              <div className="space-y-2.5 text-sm leading-relaxed text-neutral-700">
+                {texto.parrafos.map((t) => <p key={t}>{t}</p>)}
+                {texto.recomendaciones.length > 0 && (
+                  <>
+                    <p>{texto.introRecomendaciones}</p>
+                    <ul className="space-y-1.5">
+                      {texto.recomendaciones.map((x) => (
+                        <li key={x.marca} className="rounded-lg bg-neutral-50 px-3 py-2 print:[print-color-adjust:exact]">
+                          <b className="font-semibold">{x.marca}</b> <span className="text-neutral-500">(hoy en clase{x.clases.length > 1 ? "s" : ""} {x.clases.join(", ")})</span>
+                          <span className="block text-[13px]">Sugerimos: {x.sugeridas.map((c) => `clase ${c.clase} – ${c.descripcion}`).join(" · ")}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <p>{texto.cierre}</p>
+              </div>
+            </section>
+          )}
 
           {lista && oportunidades(r).length > 0 && (
             <section className="mt-6 rounded-xl border border-violet-200 bg-violet-50/50 px-5 py-4 print:[print-color-adjust:exact]">

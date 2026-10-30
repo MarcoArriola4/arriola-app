@@ -140,8 +140,36 @@ function dato(html: HTMLElement, etiqueta: string): string | null {
   return null;
 }
 
-/** Consulta un expediente. Lanza MarcanetError si no existe o si el servicio falla. */
-export async function consultarMarcanet(numeroExpediente: string): Promise<ExpedienteMarcanet> {
+/** Qué expediente se busca cuando el número lo comparten varios (p. ej. una marca antigua y un aviso comercial). */
+export type PistaExpediente = { tipo?: "MARCA" | "AVISO" | "NOMBRE_COMERCIAL" | string | null; registro?: string | null; denominacion?: string | null };
+
+const TIPO_IMPI: Record<string, RegExp> = { MARCA: /REGISTRO DE MARCA/i, AVISO: /AVISO COMERCIAL/i, NOMBRE_COMERCIAL: /NOMBRE COMERCIAL/i };
+const sinAcentos = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+
+/** De la lista «Expedientes encontrados» elige el renglón que corresponde (por registro, tipo y denominación). */
+function elegirDeLista(xml: string, pista: PistaExpediente = {}): string | null {
+  const raiz = parse(xml.replace(/<!\[CDATA\[|\]\]>/g, ""));
+  const tbody = raiz.querySelectorAll("tbody").find((t) => t.id === "frmBsqExp:resultadoExpediente_data");
+  if (!tbody) return null;
+  const opciones = tbody.querySelectorAll("tr").map((tr) => {
+    const link = tr.querySelector("a.ui-commandlink")?.id ?? null;
+    const c = tr.querySelectorAll("td").map((td) => limpiar(td.text.replace(/PrimeFaces\.cw\([^)]*\);?/g, "")));
+    return { link, tipo: c[1] ?? "", registro: c[4] ?? "", denominacion: c[5] ?? "" };
+  }).filter((o) => o.link);
+  if (!opciones.length) return null;
+  const puntos = (o: (typeof opciones)[number]) =>
+    (pista.registro && o.registro === pista.registro ? 8 : 0) +
+    (pista.denominacion && sinAcentos(o.denominacion) === sinAcentos(pista.denominacion) ? 4 : 0) +
+    (pista.tipo && (TIPO_IMPI[pista.tipo]?.test(o.tipo) || sinAcentos(o.tipo) === sinAcentos(pista.tipo)) ? 2 : 0) +
+    (!pista.tipo && /REGISTRO DE MARCA/i.test(o.tipo) ? 1 : 0);
+  return [...opciones].sort((a, b) => puntos(b) - puntos(a))[0].link;
+}
+
+/**
+ * Consulta un expediente. Lanza MarcanetError si no existe o si el servicio falla.
+ * Si el número lo comparten varios expedientes (MARCanet muestra «Expedientes encontrados»), `pista` dice cuál es.
+ */
+export async function consultarMarcanet(numeroExpediente: string, pista?: PistaExpediente): Promise<ExpedienteMarcanet> {
   const s = new Sesion();
   const inicio = await s.pedir(BUSQUEDA);
   const vs = viewState(inicio);
@@ -160,7 +188,26 @@ export async function consultarMarcanet(numeroExpediente: string): Promise<Exped
       "javax.faces.ViewState": vs,
     })
   );
-  const destino = busqueda.match(/<redirect url="([^"]+)"/)?.[1];
+  let destino = busqueda.match(/<redirect url="([^"]+)"/)?.[1];
+  if (!destino) {
+    // Número compartido: se elige el renglón correcto de la lista y MARCanet abre su ficha
+    const link = elegirDeLista(busqueda, pista);
+    if (link) {
+      const eleccion = await s.pedir(
+        BUSQUEDA,
+        new URLSearchParams({
+          "javax.faces.partial.ajax": "true",
+          "javax.faces.source": link,
+          "javax.faces.partial.execute": link,
+          [link]: link,
+          frmBsqExp: "frmBsqExp",
+          "frmBsqExp:expedienteId": numeroExpediente,
+          "javax.faces.ViewState": viewState(busqueda) ?? vs,
+        })
+      );
+      destino = eleccion.match(/<redirect url="([^"]+)"/)?.[1];
+    }
+  }
   if (!destino) throw new MarcanetError("MARCanet no encontró el expediente");
   if (/errorHandler/i.test(destino)) {
     await s.pedir(destino.replace(BASE, "")); // si es el aviso de cuota, aquí se lanza MarcanetCuotaError

@@ -1024,7 +1024,14 @@ export async function fijarSeguimientoCliente(clienteId: string, estado: string 
 // ───────────── Bloc de notas con recordatorio (personal: solo lo ve su usuario) ─────────────
 
 /** "2026-10-22T09:00" capturado en hora de la Ciudad de México → fecha real. */
-const fechaHoraMx = (v: string | null) => (v ? new Date(`${v.length === 10 ? `${v}T09:00` : v}:00-06:00`) : null);
+/** Valor de un campo de fecha/hora (hora de la Ciudad de México) → Date. Acepta "AAAA-MM-DD", "AAAA-MM-DDTHH:MM"
+ *  y con segundos o milésimas (así lo manda Safari en el iPhone). Si no se entiende, la nota se guarda sin recordatorio. */
+const fechaHoraMx = (v: string | null) => {
+  const m = v?.trim().match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{1,2}):(\d{2}))?/);
+  if (!m) return null;
+  const d = new Date(`${m[1]}T${(m[2] ?? "09").padStart(2, "0")}:${m[3] ?? "00"}:00-06:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 
 export async function crearRecordatorio(form: FormData) {
   const s = await requerirSesion();

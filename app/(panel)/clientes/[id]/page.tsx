@@ -14,6 +14,7 @@ import { ControlOficio, SeguimientoNuevo } from "@/components/control-oficio";
 import { tipoDesdeImpi } from "@/lib/marcanet/sincronizar";
 import { NotasMarca } from "@/components/notas-marca";
 import { SeccionAuditoria } from "@/components/seccion-auditoria";
+import { MenuOpciones } from "@/components/menu-opciones";
 import { dondeAparece, textoPlazo } from "@/lib/estado-oficio";
 import { estaVencida } from "@/lib/plazos";
 import { agregarEvento } from "@/app/actions";
@@ -91,13 +92,15 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {tel.length >= 10 && <a href={`https://wa.me/${tel.length === 10 ? "52" + tel : tel}`} target="_blank" rel="noreferrer" className="btn text-green-700"><MessageCircle size={14} /> WhatsApp</a>}
-            {tel.length >= 10 && <a href={`tel:${tel}`} className="btn"><Phone size={14} /> Llamar</a>}
-            {c.email && <a href={`mailto:${c.email}`} className="btn"><Mail size={14} /> Correo</a>}
-            {sesion.rol === "ADMIN" && <HerramientasCliente c={{ id: c.id, nombre: c.nombre }} marcas={c.expedientes.length} />}
-            {sesion.rol === "ADMIN" && <Link href={`/clientes/${c.id}/auditoria`} className="btn"><SearchCheck size={14} /> Auditoría + Reporte</Link>}
-            <Link href={`/clientes/${c.id}/reporte`} className="btn"><FileText size={14} /> Reporte rápido</Link>
-            {puede("altas") && <EditarCliente c={{ id: c.id, nombre: c.nombre, telefono: c.telefono, email: c.email, rfc: c.rfc, notas: c.notas }} />}
+            <MenuOpciones>
+              {tel.length >= 10 && <a href={`https://wa.me/${tel.length === 10 ? "52" + tel : tel}`} target="_blank" rel="noreferrer" className="btn text-green-700"><MessageCircle size={14} /> WhatsApp</a>}
+              {tel.length >= 10 && <a href={`tel:${tel}`} className="btn"><Phone size={14} /> Llamar</a>}
+              {c.email && <a href={`mailto:${c.email}`} className="btn"><Mail size={14} /> Correo</a>}
+              {sesion.rol === "ADMIN" && <HerramientasCliente c={{ id: c.id, nombre: c.nombre }} marcas={c.expedientes.length} />}
+              {sesion.rol === "ADMIN" && <Link href={`/clientes/${c.id}/auditoria`} className="btn"><SearchCheck size={14} /> Reporte 2</Link>}
+              <Link href={`/clientes/${c.id}/reporte`} className="btn"><FileText size={14} /> Reporte rápido</Link>
+              {puede("altas") && <EditarCliente c={{ id: c.id, nombre: c.nombre, telefono: c.telefono, email: c.email, rfc: c.rfc, notas: c.notas }} />}
+            </MenuOpciones>
             {puede("altas") && <Link href={`/admin/alta?cliente=${c.id}`} className="btn-primario"><Plus size={14} /> Agregar servicio</Link>}
           </div>
         </div>

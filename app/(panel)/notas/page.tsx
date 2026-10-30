@@ -1,8 +1,7 @@
 import { db } from "@/lib/db";
 import { requerirSesion } from "@/lib/auth";
 import { Encabezado } from "@/components/ui";
-import { crearRecordatorio } from "@/app/actions";
-import { NotaPersonal } from "./nota";
+import { NotaPersonal, NuevaNota } from "./nota";
 
 export const metadata = { title: "Mis notas" };
 
@@ -19,11 +18,7 @@ export default async function Notas() {
     <>
       <Encabezado titulo="Mis notas" subtitulo="Tu bloc personal: anota lo que te piden y ponle día y hora para que la app te lo recuerde. Solo tú lo ves." />
       <section className="card mb-6 p-5">
-        <form action={crearRecordatorio} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-end">
-          <label className="block"><span className="label">¿Qué no se te debe pasar?</span><textarea name="texto" required rows={2} placeholder="Ej. Mandar el reporte de antecedentes de TACOS EL GÜERO a Juan" className="input" /></label>
-          <label className="block"><span className="label">Recordarme (opcional)</span><input type="datetime-local" name="recordarEn" className="input" /></label>
-          <button className="btn-primario md:mb-0.5">Guardar nota</button>
-        </form>
+        <NuevaNota />
       </section>
 
       {tocan.length > 0 && (

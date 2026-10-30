@@ -1,5 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Copy, Eye, EyeOff, KeyRound, Pencil, RefreshCw, Trash2, Users, X } from "lucide-react";
 import { buscarClientes, eliminarCliente, unirClientes, eliminarExpediente, marcarDesistio, marcarJuicioNulidad, actualizarCliente, actualizarDesdeMarcanet, actualizarExpediente, cambiarEtapa, unirExpedientes, type ResultadoEdicion, crearServicio, editarServicio, eliminarServicio, guardarCredenciales, registrarAbono, verPasswordImpi } from "@/app/actions";
@@ -190,7 +191,8 @@ function L({ t, children }: { t: string; children: React.ReactNode }) {
 }
 
 function Modal({ titulo, cerrar, children }: { titulo: string; cerrar: () => void; children: React.ReactNode }) {
-  return (
+  // Se dibuja sobre toda la página (aunque el botón esté dentro de un menú desplegable)
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-16" onClick={cerrar}>
       <div onClick={(ev) => ev.stopPropagation()} className="w-full max-w-md rounded-2xl bg-white p-5 text-left shadow-xl">
         <div className="mb-4 flex items-center justify-between">
@@ -199,7 +201,8 @@ function Modal({ titulo, cerrar, children }: { titulo: string; cerrar: () => voi
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

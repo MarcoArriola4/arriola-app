@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FileDown, SearchCheck } from "lucide-react";
+import { ChevronDown, FileDown, SearchCheck } from "lucide-react";
 import type { Auditoria } from "@prisma/client";
 import { fmtFecha } from "@/lib/catalogos";
 import { categoriaDe, progresoAuditoria, type MarcaAuditada, type ResultadoAuditoria } from "@/lib/marcanet/auditoria";
@@ -17,20 +17,19 @@ const TONO: Record<MarcaAuditada["tono"], string> = {
 export function oportunidades(r: ResultadoAuditoria) {
   // En proceso primero (se pueden atender ya), luego las registradas (DDU, renovación) y al final las perdidas
   const orden: Record<string, number> = { PROCESO: 0, GANADA: 1, PERDIDA: 2 };
-  return r.marcas.filter((m) => !m.enApp).sort((a, b) => orden[categoriaDe(a)] - orden[categoriaDe(b)] || a.denominacion.localeCompare(b.denominacion, "es"));
+  // Las que el IMPI no dejó consultar van al final
+  return r.marcas.filter((m) => !m.enApp).sort((a, b) => Number(!!a.error) - Number(!!b.error) || orden[categoriaDe(a)] - orden[categoriaDe(b)] || a.denominacion.localeCompare(b.denominacion, "es"));
 }
 
-/** Última auditoría del cliente en su ficha (solo administradores). */
+const ESTADO: Record<string, string> = { PENDIENTE: "en proceso", BUSCANDO: "en proceso", DETENIDA: "detenido", LISTA: "listo", ERROR: "con error" };
+
+/** Último Reporte 2 (auditoría) del cliente en su ficha, como un botón que se abre al picarlo (solo administradores). */
 export function SeccionAuditoria({ clienteId, a }: { clienteId: string; a: Auditoria | null }) {
   if (!a) {
     return (
-      <section className="card mb-6 flex flex-wrap items-center justify-between gap-3 p-5">
-        <div>
-          <h2 className="text-sm font-semibold">Auditoría de marcas en el IMPI</h2>
-          <p className="text-xs text-neutral-500">Busca todas las marcas de este cliente (como titular y como apoderado) y muestra las que no nos ha contratado.</p>
-        </div>
-        <Link href={`/clientes/${clienteId}/auditoria`} className="btn-primario"><SearchCheck size={14} /> Hacer auditoría</Link>
-      </section>
+      <div className="mb-6">
+        <Link href={`/clientes/${clienteId}/auditoria`} className="btn"><SearchCheck size={14} /> Reporte 2 · todavía no se ha hecho</Link>
+      </div>
     );
   }
   const r: ResultadoAuditoria = a.resultado ? JSON.parse(a.resultado) : { busquedas: [], marcas: [] };
@@ -40,10 +39,16 @@ export function SeccionAuditoria({ clienteId, a }: { clienteId: string; a: Audit
   const cuenta = (c: string) => r.marcas.filter((m) => categoriaDe(m) === c).length;
 
   return (
-    <section className="card mb-6 overflow-hidden">
+    <details className="group mb-6">
+      <summary className="btn w-fit cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+        <SearchCheck size={14} /> Reporte 2 · {a.creado.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })} · {ESTADO[a.estado] ?? a.estado}
+        {lista && opo.length > 0 && <span className="rounded bg-violet-100 px-1.5 text-[11px] font-medium text-violet-800">{opo.length} no contratadas</span>}
+        <ChevronDown size={14} className="transition-transform group-open:rotate-180" />
+      </summary>
+    <section className="card mt-2 overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/5 px-5 py-4">
         <div>
-          <h2 className="text-sm font-semibold">Última auditoría de marcas en el IMPI</h2>
+          <h2 className="text-sm font-semibold">Último Reporte 2 · marcas en el IMPI</h2>
           <p className="text-xs text-neutral-500">
             {a.creado.toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}{a.autor && ` · ${a.autor}`} · {(JSON.parse(a.nombres) as string[]).join(" · ")}
           </p>
@@ -51,7 +56,7 @@ export function SeccionAuditoria({ clienteId, a }: { clienteId: string; a: Audit
         <div className="flex flex-wrap gap-2">
           <Link href={`/auditorias/${a.id}`} className="btn">Ver reporte</Link>
           {lista && <a href={`/api/auditorias/${a.id}/word`} className="btn"><FileDown size={14} /> Word</a>}
-          <Link href={`/clientes/${clienteId}/auditoria`} className="btn"><SearchCheck size={14} /> Nueva auditoría</Link>
+          <Link href={`/clientes/${clienteId}/auditoria`} className="btn"><SearchCheck size={14} /> Nuevo Reporte 2</Link>
         </div>
       </div>
 
@@ -101,5 +106,6 @@ export function SeccionAuditoria({ clienteId, a }: { clienteId: string; a: Audit
         )}
       </div>
     </section>
+    </details>
   );
 }
