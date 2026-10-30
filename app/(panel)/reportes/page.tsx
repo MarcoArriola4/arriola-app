@@ -10,7 +10,7 @@ import { estadoBarrido } from "@/lib/marcanet/estado";
 
 export const metadata = { title: "Reportes" };
 
-const MODO: Record<string, string> = { BARRIDO: "Búsqueda completa (cada 7 días)", NOCTURNO: "Revisión diaria", MANUAL: "Botón «Actualizar todas»", ACTIVOS: "Revisión manual de oficios en curso" };
+const MODO: Record<string, string> = { BARRIDO: "Búsqueda completa (cada 7 días)", NOCTURNO: "Revisión automática", MANUAL: "Botón «Actualizar todas»", ACTIVOS: "Revisión de contestaciones vendidas sin presentar" };
 const COSTO_CONTESTACION = 3200;
 
 export default async function Reportes({ searchParams }: { searchParams: Promise<{ vista?: string }> }) {

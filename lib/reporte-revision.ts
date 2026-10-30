@@ -5,7 +5,7 @@ import { expedientesDelBarrido, type Omitida } from "./marcanet/seleccion";
 
 export type Revision = { clave: string; modo: string; inicio: Date; fin: Date | null; revisadas: number; total: number; errores: number; enCurso: boolean };
 
-const MODO: Record<string, string> = { BARRIDO: "Búsqueda completa", NOCTURNO: "Revisión diaria de oficios en curso", ACTIVOS: "Revisión de oficios en curso", MANUAL: "Revisión manual" };
+const MODO: Record<string, string> = { BARRIDO: "Búsqueda completa", NOCTURNO: "Revisión automática", ACTIVOS: "Revisión de contestaciones vendidas sin presentar", MANUAL: "Revisión manual" };
 export const nombreModo = (m: string) => MODO[m] ?? m;
 
 /** Revisiones recientes (los bloques de una misma búsqueda completa se juntan en una). */

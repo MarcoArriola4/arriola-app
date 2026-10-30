@@ -1,5 +1,5 @@
 // Sincroniza los expedientes con MARCanet: guarda oficios, promociones y trámites, y actualiza el tablero de notificaciones.
-import { textoPlazo } from "../estado-oficio";
+import { cobroDeOficio, pasoPorVenta, textoPlazo } from "../estado-oficio";
 import type { Expediente, PrismaClient } from "@prisma/client";
 import { db as dbDefault } from "../db";
 import { cargarInhabiles } from "../inhabiles";
@@ -139,24 +139,31 @@ export async function sincronizarExpediente(db: PrismaClient, exp: Expediente, i
         await db.evento.create({ data: { expedienteId: exp.id, fecha: contestacion.fecha, titulo: `IMPI registra la contestación de ${TIPOS_OFICIO[tipo].toLowerCase()}`, detalle: contestacion.detalle, autor: "MARCanet" } });
       }
       await db.notificacion.update({ where: { id: n.id }, data: cambios });
-      // El cobro de esa contestación también queda como trabajado (mismo estatus en toda la app)
-      if (contestacion) await db.servicio.updateMany({ where: { notificacionId: n.id, estadoTrabajo: { in: ["PENDIENTE", "PRESENTAR", "PAGAR_SISTEMA"] } }, data: { estadoTrabajo: "HECHO" } });
+      if (contestacion) {
+        // La venta de esa contestación (aunque no estuviera ligada) también queda como trabajada (mismo estatus en toda la app)
+        const venta = (await db.servicio.findUnique({ where: { notificacionId: n.id } })) ?? (await cobroDeOficio(db, n));
+        if (venta) await db.servicio.update({ where: { id: venta.id }, data: { notificacionId: n.id, ...(["PENDIENTE", "PRESENTAR", "PAGAR_SISTEMA"].includes(venta.estadoTrabajo ?? "PENDIENTE") && { estadoTrabajo: "HECHO" }) } });
+      }
       continue;
     }
 
-    // Oficio que la app no tenía
+    // Oficio que la app no tenía. Si la contestación de la marca ya se vendió, se da por hecho que es de este oficio.
     if (contestacion) {
       if (diasRestantes(contestacion.fecha, hoy) < -60) continue; // historia vieja: no hace falta tarjeta
-      await db.notificacion.create({
+      // Venta hecha antes de presentar la contestación: es la de este oficio
+      const venta = await cobroDeOficio(db, { expedienteId: exp.id, fechaNotificacion: fNotif }).then((v) => (v && (v.fechaContratacion ?? v.creado).getTime() <= contestacion.fecha.getTime() + 3 * DIA ? v : null));
+      const nueva = await db.notificacion.create({
         data: {
           expedienteId: exp.id, tipo, fechaNotificacion: fNotif, ...plazos, numeroOficio: o.numero, fuente: "MARCANET",
           estado: "CONTESTADA", fechaContestacion: contestacion.fecha, medioDefensa: contestacion.medio,
           notas: `MARCanet: ${o.descripcion} · oficio ${o.numero} · ${contestacion.detalle}`,
         },
       });
+      if (venta) await db.servicio.update({ where: { id: venta.id }, data: { notificacionId: nueva.id, ...(["PENDIENTE", "PRESENTAR", "PAGAR_SISTEMA"].includes(venta.estadoTrabajo ?? "PENDIENTE") && { estadoTrabajo: "HECHO" }) } });
       continue;
     }
     if (diasRestantes(plazos.fechaLimite, hoy) < -15) continue; // vencido hace tiempo y sin contestación: no se crea tarjeta
+    const venta = await cobroDeOficio(db, { expedienteId: exp.id, fechaNotificacion: fNotif });
     // El cliente ya no quiere continuar: se registra el oficio, pero no entra al tablero
     if (exp.desistio) {
       await db.notificacion.create({
@@ -168,12 +175,20 @@ export async function sincronizarExpediente(db: PrismaClient, exp: Expediente, i
       await db.evento.create({ data: { expedienteId: exp.id, fecha: fNotif, titulo: `MARCanet: ${TIPOS_OFICIO[tipo]} (no se atiende: el cliente ya no quiere continuar)`, detalle: `${o.descripcion} · oficio ${o.numero}`, autor: "MARCanet" } });
       continue;
     }
-    await db.notificacion.create({
+    const creada = await db.notificacion.create({
       data: {
         expedienteId: exp.id, tipo, fechaNotificacion: fNotif, ...plazos, numeroOficio: o.numero, fuente: "MARCANET",
         notas: `MARCanet: ${o.descripcion} · oficio ${o.numero} del ${o.fechaOficio?.toISOString().slice(0, 10) ?? "s/f"} · ${o.estadoNotificacion}`,
+        ...(venta && pasoPorVenta(venta)),
       },
     });
+    if (venta) {
+      // Ya vendida: entra directo como avisada / pagada, sin volver a pedir "ya avisé" ni "ya pagó"
+      await db.servicio.update({ where: { id: venta.id }, data: { notificacionId: creada.id } });
+      await db.expediente.update({ where: { id: exp.id }, data: { etapa: tipo === "NEGATIVA" || tipo === "CONFIRMA_ACTO" ? "NEGATIVA" : "CON_OFICIO", ultimoEstatus: `${TIPOS_OFICIO[tipo]} notificado ${fNotif.toISOString().slice(0, 10)} (MARCanet)` } });
+      await db.evento.create({ data: { expedienteId: exp.id, fecha: fNotif, titulo: `Oficio en MARCanet (${TIPOS_OFICIO[tipo]}) ligado a la contestación ya vendida`, detalle: `${o.descripcion} · oficio ${o.numero} · venta del ${(venta.fechaContratacion ?? venta.creado).toISOString().slice(0, 10)} · ${textoPlazo({ tipo, fechaNotificacion: fNotif, ...plazos })}`, autor: "MARCanet" } });
+      continue;
+    }
     await db.expediente.update({ where: { id: exp.id }, data: { etapa: tipo === "NEGATIVA" || tipo === "CONFIRMA_ACTO" ? "NEGATIVA" : "CON_OFICIO", ultimoEstatus: `${TIPOS_OFICIO[tipo]} notificado ${fNotif.toISOString().slice(0, 10)} (MARCanet)` } });
     await db.evento.create({ data: { expedienteId: exp.id, fecha: fNotif, titulo: `Nuevo oficio detectado en MARCanet: ${TIPOS_OFICIO[tipo]}`, detalle: `${o.descripcion} · oficio ${o.numero} · ${textoPlazo({ tipo, fechaNotificacion: fNotif, ...plazos })}`, autor: "MARCanet" } });
     res.nuevos++;

@@ -1,11 +1,12 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Check, Mail, MessageCircle, Phone, Search } from "lucide-react";
 import { MEDIOS_DEFENSA, TIPOS_OFICIO, fmtFecha, mxn } from "@/lib/catalogos";
 import { ControlOficio } from "@/components/control-oficio";
 import { diasRestantes, siguientePlazo } from "@/lib/plazos";
 import { PlazoOficio } from "@/components/ui";
+import { desligarVenta } from "@/app/actions";
 
 export type Tarjeta = {
   id: string;
@@ -31,6 +32,8 @@ export type Tarjeta = {
   cliente: string;
   telefono: string | null;
   email: string | null;
+  /** contestación vendida ligada a este oficio (Contrataciones / Alta) */
+  venta: { fecha: string; pagado: number; costo: number | null } | null;
 };
 
 const COLUMNAS = [
@@ -195,9 +198,29 @@ function TarjetaOficio({ t, diasSeguimiento }: { t: Tarjeta; diasSeguimiento: nu
         </div>
       )}
 
+      {t.venta && t.estado !== "CONTESTADA" && <VentaLigada t={t} />}
+
       <div className="mt-2.5 border-t border-black/5 pt-2.5">
         <ControlOficio o={t} />
       </div>
     </article>
+  );
+}
+
+/** La contestación de esta marca ya se vendió: se da por hecho que es de este oficio, con opción de desligarla si no fue así. */
+function VentaLigada({ t }: { t: Tarjeta }) {
+  const [pendiente, iniciar] = useTransition();
+  const v = t.venta!;
+  const desligar = () => {
+    if (!confirm(`¿La contestación vendida el ${fmtFecha(v.fecha)} NO es de este oficio de "${t.denominacion}"?\n\nSe desliga (la venta sigue en Contrataciones) y el oficio regresa a "Recibida · falta avisar".`)) return;
+    iniciar(() => desligarVenta(t.id));
+  };
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded bg-marca-claro/60 px-2 py-1 text-[11px] text-marca-oscuro">
+      <span>Vendida el {fmtFecha(v.fecha)}{v.costo ? ` · pagado ${mxn.format(v.pagado)} de ${mxn.format(v.costo)}` : ""}</span>
+      <button onClick={desligar} disabled={pendiente} className="ml-auto text-neutral-500 underline hover:text-red-600">
+        {pendiente ? "Guardando…" : "No es este oficio"}
+      </button>
+    </p>
   );
 }

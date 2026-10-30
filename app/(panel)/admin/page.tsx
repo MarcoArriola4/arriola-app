@@ -6,6 +6,7 @@ import { construirResumen } from "@/lib/alertas";
 import { enviarAlertasAhora, guardarConfiguracion } from "@/app/actions";
 import { ActualizarTodas } from "@/components/actualizar-todas";
 import { estadoBarrido } from "@/lib/marcanet/estado";
+import { marcasRevisionSemanal } from "@/lib/marcanet/seleccion";
 import { Encabezado } from "@/components/ui";
 
 export const metadata = { title: "Admin" };
@@ -16,7 +17,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
   // Estado de la búsqueda completa en MARCanet
   const [barrido, activosCount] = await Promise.all([
     estadoBarrido(),
-    db.expediente.count({ where: { numeroExpediente: { not: null }, tipo: { in: ["MARCA", "AVISO", "NOMBRE_COMERCIAL"] }, notificaciones: { some: { estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"] } } } } }),
+    marcasRevisionSemanal(db).then((l) => l.length),
   ]);
   const [syncs, sinConsultar] = await Promise.all([
     db.syncMarcanet.findMany({ orderBy: { inicio: "desc" }, take: 6 }),
@@ -95,13 +96,13 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
             <div>
               <h2 className="text-sm font-semibold">Actualización automática con MARCanet (IMPI)</h2>
               <p className="text-xs text-neutral-500">
-                Cada noche se consultan los expedientes activos y, por turnos, el resto. Se detectan oficios nuevos, su fecha real de notificación y las contestaciones presentadas.
+                Cada 7 días: la búsqueda completa de las marcas activas o próximas a declarar uso o renovar, y la revisión de las contestaciones vendidas hace más de 15 días (últimos 3 meses) que aún no se presentan. Se detectan oficios nuevos, su fecha real de notificación y las contestaciones presentadas.
                 {sinConsultar > 0 && ` ${sinConsultar.toLocaleString("es-MX")} expedientes aún no se han consultado.`}
               </p>
             </div>
             <div className="flex flex-col items-end gap-1">
               <ActualizarTodas modo="activos" barrido={barrido} esAdmin />
-              <span className="text-[11px] text-neutral-400">{activosCount} marcas con oficios en curso · corre sola en segundo plano</span>
+              <span className="text-[11px] text-neutral-400">{activosCount} contestaciones vendidas sin presentar · se revisan solas cada 7 días</span>
             </div>
           </div>
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-neutral-50 p-3 text-sm">
@@ -119,7 +120,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
                   {syncs.map((s) => (
                     <tr key={s.id}>
                       <td className="td whitespace-nowrap">{s.inicio.toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}{!s.fin && (Date.now() - s.inicio.getTime() < 6 * 3600 * 1000 ? <span className="ml-1 text-xs text-amber-600">en curso…</span> : <span className="ml-1 text-xs text-red-600">interrumpida</span>)}</td>
-                      <td className="td text-xs">{s.modo === "NOCTURNO" ? "Diaria" : s.modo === "MANUAL" ? "Manual (todas)" : s.modo === "ACTIVOS" ? "Manual (oficios en curso)" : s.modo === "BARRIDO" ? "Búsqueda completa" : "Un expediente"}</td>
+                      <td className="td text-xs">{s.modo === "NOCTURNO" ? "Automática" : s.modo === "MANUAL" ? "Manual (todas)" : s.modo === "ACTIVOS" ? "Contestaciones vendidas" : s.modo === "MARCAS" ? "Marcas pedidas" : s.modo === "BARRIDO" ? "Búsqueda completa" : "Un expediente"}</td>
                       <td className="td text-right">{s.consultados}/{s.total}</td>
                       <td className="td text-right font-medium">{s.nuevos}</td>
                       <td className="td text-right">{s.contestados}</td>

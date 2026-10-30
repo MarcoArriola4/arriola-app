@@ -17,7 +17,7 @@ import { HORAS_REANUDAR } from "@/lib/marcanet/auditoria";
 import { despertarTrabajador } from "@/lib/despertar";
 import { hayTrabajo } from "@/lib/trabajador";
 import { PERMISOS } from "@/lib/permisos";
-import { PASOS_OFICIO, aplicarPasoOficio, sincronizarDesdeCobro, textoPlazo } from "@/lib/estado-oficio";
+import { PASOS_OFICIO, aplicarPasoOficio, cobroDeOficio, sincronizarDesdeCobro, textoPlazo } from "@/lib/estado-oficio";
 
 const str = (f: FormData, k: string) => {
   const v = String(f.get(k) ?? "").trim();
@@ -59,7 +59,11 @@ export async function crearNotificacion(form: FormData) {
     where: { id: expedienteId },
     data: { etapa: tipo === "NEGATIVA" || tipo === "CONFIRMA_ACTO" ? "NEGATIVA" : "CON_OFICIO", ultimoEstatus: `${TIPOS_OFICIO[tipo]} ${fNotif.toISOString().slice(0, 10)}` },
   });
-  await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId, fecha: fNotif, titulo: `Notificación IMPI: ${TIPOS_OFICIO[tipo]}`, detalle: [textoPlazo(nueva), str(form, "notas")].filter(Boolean).join(" · ") } });
+  const autor = (await requerirSesion()).nombre;
+  await db.evento.create({ data: { autor, expedienteId, fecha: fNotif, titulo: `Notificación IMPI: ${TIPOS_OFICIO[tipo]}`, detalle: [textoPlazo(nueva), str(form, "notas")].filter(Boolean).join(" · ") } });
+  // Si la contestación de la marca ya se vendió, el oficio queda ligado a esa venta (avisado / pagado)
+  const venta = await cobroDeOficio(db, nueva);
+  if (venta) await sincronizarDesdeCobro(db, venta.id, autor);
   refrescar(expedienteId);
 }
 
@@ -125,6 +129,23 @@ export async function editarNotificacion(form: FormData) {
     },
   });
   await db.evento.create({ data: { autor: (await requerirSesion()).nombre, expedienteId: n.expedienteId, fecha: hoyUTC(), titulo: `Se corrigió la notificación (${TIPOS_OFICIO[n.tipo] ?? n.tipo})`, detalle: textoPlazo(n) } });
+  refrescar(n.expedienteId);
+}
+
+/** "No es este oficio": la contestación vendida no corresponde a este oficio; se desliga y el oficio vuelve a "recibida". */
+export async function desligarVenta(notificacionId: string) {
+  const sesion = await requerirPermiso("oficios");
+  const n = await db.notificacion.findUniqueOrThrow({ where: { id: notificacionId }, include: { servicio: true } });
+  if (n.servicio) await db.servicio.update({ where: { id: n.servicio.id }, data: { notificacionId: null } });
+  const regresa = ["AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"].includes(n.estado);
+  await db.notificacion.update({
+    where: { id: notificacionId },
+    data: { sinVenta: true, editadoEnApp: true, ...(regresa && { estado: "RECIBIDA", fechaAvisoCliente: null, fechaPago: null }) },
+  });
+  const venta = n.servicio ? ` del ${(n.servicio.fechaContratacion ?? n.servicio.creado).toISOString().slice(0, 10)}` : "";
+  await db.evento.create({
+    data: { autor: sesion.nombre, expedienteId: n.expedienteId, fecha: hoyUTC(), titulo: `La contestación vendida${venta} no es de este oficio (${TIPOS_OFICIO[n.tipo] ?? n.tipo})`, detalle: regresa ? "El oficio regresó a «recibida · falta avisar»; la venta sigue en Contrataciones sin ligar." : null },
+  });
   refrescar(n.expedienteId);
 }
 
@@ -306,7 +327,7 @@ export async function crearServicio(form: FormData) {
       notas: str(form, "notas"),
     },
   });
-  if (nuevo.tipo === "CONTESTACION") await sincronizarDesdeCobro(db, nuevo.id, (await requerirSesion()).nombre, { soloPago: true });
+  if (nuevo.tipo === "CONTESTACION") await ventaDeContestacion(nuevo.id, (await requerirSesion()).nombre);
   refrescar(expedienteId);
 }
 
@@ -662,10 +683,20 @@ export async function altaServicio(form: FormData) {
   await db.evento.create({
     data: { autor: sesion.nombre, expedienteId, fecha: hoyUTC(), titulo: `Alta de servicio: ${TIPOS_SERVICIO_TXT[tipoServicio] ?? tipoServicio}`, detalle: costo ? `Costo $${costo} · pagado $${pagado}` : null },
   });
-  // Contestación vendida desde Alta: el oficio de esa misma marca queda como pagado
-  if (tipoServicio === "CONTESTACION") await sincronizarDesdeCobro(db, alta.id, sesion.nombre, { soloPago: true });
+  if (tipoServicio === "CONTESTACION") await ventaDeContestacion(alta.id, sesion.nombre);
   refrescar(expedienteId);
   redirect(`/clientes/${clienteId}?marca=${expedienteId}&ok=alta`);
+}
+
+/**
+ * Contestación vendida (Alta o Contrataciones): el oficio en curso de esa marca queda ligado como avisado / pagado
+ * (sin volver a pedir "ya avisé" ni "ya pagó"), y la marca se consulta en MARCanet en ese momento (en segundo plano):
+ * si el oficio aún no estaba en la app, entra ya ligado a la venta.
+ */
+async function ventaDeContestacion(servicioId: string, autor: string) {
+  const s = await db.servicio.findUniqueOrThrow({ where: { id: servicioId }, include: { expediente: { select: { numeroExpediente: true } } } });
+  await sincronizarDesdeCobro(db, servicioId, autor, { soloPago: true });
+  if (/^\d{5,8}$/.test(s.expediente.numeroExpediente ?? "")) await pedirMarcasMarcanet([s.expedienteId]);
 }
 
 const TIPOS_SERVICIO_TXT: Record<string, string> = { REGISTRO: "registro", CONTESTACION: "contestación", DDU: "declaración de uso", RENOVACION: "renovación", OTRO: "otro" };
@@ -1143,7 +1174,7 @@ export async function solicitarBusqueda() {
   return estadoBarrido();
 }
 
-/** Botón "Revisar ahora los oficios en curso": lo atiende la revisión automática en ≤15 min (aunque cierres la app). */
+/** Botón "Revisar ahora las contestaciones vendidas" (la revisión semanal, ya): la atiende la revisión automática (aunque cierres la app). */
 export async function solicitarRevisionActivos() {
   await requerirSesion();
   await db.configuracion.update({ where: { id: "main" }, data: { solicitudActivos: new Date() } });
@@ -1155,10 +1186,14 @@ export async function solicitarRevisionActivos() {
 /** Desde el reporte de un cliente: pide revisar ya en MARCanet esas marcas (lo hace la revisión automática en ≤15 min). */
 export async function solicitarRevisionMarcas(ids: string[]) {
   await requerirSesion();
+  await pedirMarcasMarcanet(ids);
+  revalidatePath("/clientes", "layout");
+}
+
+async function pedirMarcasMarcanet(ids: string[]) {
   const cfg = await db.configuracion.findUnique({ where: { id: "main" } });
   const todas = [...new Set([...(cfg?.solicitudMarcas?.split(",").filter(Boolean) ?? []), ...ids])].slice(0, 300);
   await db.configuracion.update({ where: { id: "main" }, data: { solicitudMarcas: todas.join(","), solicitudMarcasEn: new Date() } });
-  revalidatePath("/clientes", "layout");
   await despertarTrabajador();
 }
 

@@ -1,19 +1,19 @@
-// Trabajo en segundo plano dentro de la app (Vercel): auditorías, revisión de oficios en curso, marcas pedidas
+// Trabajo en segundo plano dentro de la app (Vercel): auditorías, revisión semanal de contestaciones vendidas, marcas pedidas
 // y la búsqueda completa. Cada corrida trabaja ~4 min y, si queda trabajo, se vuelve a llamar sola.
 // Así no depende de que GitHub corra a tiempo (GitHub queda como respaldo).
 import type { PrismaClient } from "@prisma/client";
 import { cargarInhabiles } from "./inhabiles";
 import { DIA } from "./plazos";
-import { TIPOS_SIGNO } from "./catalogos";
 import { avanzarAuditoria } from "./marcanet/auditoria";
 import { MarcanetCuotaError } from "./marcanet/consulta";
-import { expedientesDelBarrido } from "./marcanet/seleccion";
+import { expedientesDelBarrido, marcasRevisionSemanal } from "./marcanet/seleccion";
 import { sincronizarExpediente } from "./marcanet/sincronizar";
 
 export const PRESUPUESTO_MS = 200 * 1000; // la función dura máx. 300 s: se deja margen
 const CANDADO_MS = 6 * 60 * 1000;
 const ESPERA_CUOTA_MS = 11 * 60 * 1000;
-const ACTIVAS = ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"];
+/** La revisión de contestaciones vendidas sin presentar corre cada 7 días (el cron diario entra a la misma hora: margen de 6 h). */
+const CADA_REVISION_SEMANAL_MS = 7 * DIA - 6 * 3600 * 1000;
 
 /** Toma el candado (solo una corrida a la vez). false = ya hay otra trabajando. */
 export async function tomarCandado(db: PrismaClient) {
@@ -36,7 +36,7 @@ export async function hayTrabajo(db: PrismaClient) {
 
 /**
  * Programa lo automático (lo llama el cron diario de Vercel): empieza la búsqueda completa cuando toca (cada 7 días)
- * y pide la revisión diaria de los oficios en curso.
+ * y pide la revisión semanal de las contestaciones vendidas que aún no se presentan.
  */
 export async function programarAutomatico(db: PrismaClient) {
   const cfg = await db.configuracion.upsert({ where: { id: "main" }, update: {}, create: { id: "main" } });
@@ -46,7 +46,7 @@ export async function programarAutomatico(db: PrismaClient) {
   if (!enBarrido && !cfg.barridoPausa && (!cfg.barridoTermino || ahora.getTime() - cfg.barridoTermino.getTime() >= cfg.diasEntreBarridos * DIA)) {
     Object.assign(data, { barridoInicio: ahora, barridoTermino: null });
   }
-  if (!cfg.ultimaRevisionActivos || ahora.getTime() - cfg.ultimaRevisionActivos.getTime() > 20 * 3600 * 1000) data.solicitudActivos = ahora;
+  if (!cfg.ultimaRevisionActivos || ahora.getTime() - cfg.ultimaRevisionActivos.getTime() > CADA_REVISION_SEMANAL_MS) data.solicitudActivos = ahora;
   if (Object.keys(data).length) await db.configuracion.update({ where: { id: "main" }, data });
 }
 
@@ -101,15 +101,11 @@ export async function trabajar(db: PrismaClient, limite = Date.now() + PRESUPUES
       }
     }
 
-    // 2) Oficios en curso (botón o revisión diaria): las que no se han revisado desde que se pidió
+    // 2) Revisión semanal (o pedida con el botón): contestaciones vendidas hace más de 15 días (últimos 3 meses) que aún
+    //    no se presentan; las que no se han revisado desde que se pidió
     if (cfg.solicitudActivos) {
       const desde = cfg.solicitudActivos;
-      const pendientes = (
-        await db.expediente.findMany({
-          where: { numeroExpediente: { not: null }, tipo: { in: TIPOS_SIGNO }, notificaciones: { some: { estado: { in: ACTIVAS } } }, OR: [{ marcanetSync: null }, { marcanetSync: { lt: desde } }] },
-          orderBy: { marcanetSync: { sort: "asc", nulls: "first" } },
-        })
-      ).filter((e) => valido(e.numeroExpediente));
+      const pendientes = (await marcasRevisionSemanal(db)).filter((e) => !e.marcanetSync || e.marcanetSync < desde);
       const faltan = pendientes.length ? await revisarMarcas(db, "ACTIVOS", pendientes, limite) : 0;
       if (faltan > 0) return true;
       await db.configuracion.update({ where: { id: "main" }, data: { solicitudActivos: null, ultimaRevisionActivos: new Date() } });
@@ -120,7 +116,7 @@ export async function trabajar(db: PrismaClient, limite = Date.now() + PRESUPUES
       const desde = cfg.solicitudMarcasEn ?? new Date(0);
       const ids = cfg.solicitudMarcas.split(",").filter(Boolean);
       const pendientes = (await db.expediente.findMany({ where: { id: { in: ids }, OR: [{ marcanetSync: null }, { marcanetSync: { lt: desde } }] } })).filter((e) => valido(e.numeroExpediente));
-      const faltan = pendientes.length ? await revisarMarcas(db, "ACTIVOS", pendientes, limite) : 0;
+      const faltan = pendientes.length ? await revisarMarcas(db, "MARCAS", pendientes, limite) : 0;
       if (faltan > 0) return true;
       await db.configuracion.update({ where: { id: "main" }, data: { solicitudMarcas: null, solicitudMarcasEn: null } });
     }

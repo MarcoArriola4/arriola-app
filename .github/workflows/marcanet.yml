@@ -1,12 +1,12 @@
 # Revisión de expedientes en MARCanet (IMPI).
 # Si hay una búsqueda completa en curso, revisa marcas sin parar (~5 h por bloque) hasta terminar todas;
-# al terminar espera 7 días (revisando a diario solo los oficios en curso) y vuelve a empezar.
-# Desde la app se puede pedir una búsqueda o una revisión de oficios en curso: aquí se toma en ≤15 min.
+# al terminar espera 7 días y vuelve a empezar. Cada 7 días revisa también las contestaciones vendidas que aún no se presentan.
+# Desde la app se puede pedir una búsqueda o esa revisión de contestaciones: aquí se toma en ≤15 min.
 name: MARCanet
 
 on:
   schedule:
-    # Cada 15 minutos revisa si hay algo que hacer (búsqueda en curso, solicitada desde la app o la revisión diaria);
+    # Cada 15 minutos revisa si hay algo que hacer (búsqueda en curso, solicitada desde la app o la revisión semanal);
     # si no, termina en segundos. Los bloques largos (5 h) se encadenan solos hasta terminar.
     - cron: "*/15 * * * *"
   workflow_dispatch: {}

@@ -92,7 +92,11 @@ export async function aplicarPasoOficio(db: PrismaClient, id: string, estado: st
   const act = await db.notificacion.update({ where: { id }, data });
 
   // ── Cobro de la contestación ──
-  if (estado === "EN_TRABAJO" && datos.monto) {
+  // Si la contestación ya se vendió (Contrataciones / Alta), se liga esa venta y no se registra otro pago
+  const vendida = n.servicio ?? (await cobroDeOficio(db, n));
+  if (estado === "EN_TRABAJO" && datos.monto && vendida) {
+    if (!vendida.notificacionId) await db.servicio.update({ where: { id: vendida.id }, data: { notificacionId: id } });
+  } else if (estado === "EN_TRABAJO" && datos.monto) {
     await db.servicio.upsert({
       where: { notificacionId: id },
       update: { pagado: datos.monto, costo: datos.monto, estadoPago: "PAGADO", banco: datos.banco ?? undefined, fechaContratacion: f, editadoEnApp: true },
@@ -103,7 +107,7 @@ export async function aplicarPasoOficio(db: PrismaClient, id: string, estado: st
     });
   }
   if (!desdeCobro) {
-    const cobro = n.servicio ?? (await cobroDeOficio(db, n));
+    const cobro = vendida;
     const trabajo = TRABAJO_POR_PASO[estado];
     if (cobro && trabajo && cobro.estadoTrabajo !== trabajo && !(trabajo === "PENDIENTE" && cobro.estadoTrabajo === "PRESENTAR")) {
       await db.servicio.update({ where: { id: cobro.id }, data: { estadoTrabajo: trabajo, editadoEnApp: true, ...(!cobro.notificacionId && { notificacionId: id }) } });
@@ -144,8 +148,12 @@ export async function aplicarPasoOficio(db: PrismaClient, id: string, estado: st
   return act;
 }
 
-/** Cobro de contestación que corresponde a un oficio (si no está ligado): el más reciente posterior a la notificación. */
-async function cobroDeOficio(db: PrismaClient, n: { id: string; expedienteId: string; fechaNotificacion: Date }) {
+/**
+ * Venta de contestación que corresponde a un oficio (si no está ligada): la más reciente posterior a la notificación.
+ * Si se indicó que la venta no es de ese oficio (sinVenta), no hay.
+ */
+export async function cobroDeOficio(db: PrismaClient, n: { expedienteId: string; fechaNotificacion: Date; sinVenta?: boolean }) {
+  if (n.sinVenta) return null;
   const desde = new Date(n.fechaNotificacion.getTime() - 3 * 864e5);
   return db.servicio.findFirst({
     where: { expedienteId: n.expedienteId, tipo: "CONTESTACION", notificacionId: null, fechaContratacion: { gte: desde } },
@@ -161,13 +169,14 @@ export async function sincronizarDesdeCobro(db: PrismaClient, servicioId: string
   const s = await db.servicio.findUniqueOrThrow({ where: { id: servicioId } });
   // soloPago: se registró un pago (abono, pagado completo, cobro nuevo): el oficio solo avanza a "pagado", nunca regresa
   let paso = soloPago ? null : s.estadoTrabajo ? PASO_POR_TRABAJO[s.estadoTrabajo] : null;
-  if (!paso && s.pagado > 0 && (s.tipo === "CONTESTACION" || s.notificacionId)) paso = "EN_TRABAJO";
+  // Vendida: con pago, "pagado · por trabajar"; sin pago todavía, "cliente avisado · esperando pago"
+  if (!paso && (s.tipo === "CONTESTACION" || s.notificacionId)) paso = s.pagado > 0 ? "EN_TRABAJO" : "AVISADO";
   if (!paso) return null;
   let n = s.notificacionId ? await db.notificacion.findUnique({ where: { id: s.notificacionId } }) : null;
   if (!n && s.tipo === "CONTESTACION") {
     // Oficio en curso de la misma marca, notificado antes del cobro (o sin fecha de cobro: el más reciente)
     const abiertos = await db.notificacion.findMany({
-      where: { expedienteId: s.expedienteId, estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA", "NO_PAGO"] }, servicio: null },
+      where: { expedienteId: s.expedienteId, estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA", "NO_PAGO"] }, servicio: null, sinVenta: false },
       orderBy: { fechaNotificacion: "desc" },
     });
     n = abiertos.find((o) => !s.fechaContratacion || o.fechaNotificacion.getTime() <= s.fechaContratacion.getTime() + 3 * 864e5) ?? null;
@@ -177,6 +186,27 @@ export async function sincronizarDesdeCobro(db: PrismaClient, servicioId: string
   // Por un pago (o un cobro sin estatus de trabajo) el oficio solo avanza si estaba por avisar, avisado o sin pagar
   const porPago = soloPago || !s.estadoTrabajo;
   if (porPago && !["RECIBIDA", "AVISADO", "NO_PAGO"].includes(n.estado)) return n;
-  const fecha = paso === "CONTESTADA" ? fechaEnNota(s.avance) ?? hoyUTC() : null;
-  return aplicarPasoOficio(db, n.id, paso, { fecha }, autor, { desdeCobro: true });
+  if (paso === "AVISADO" && n.estado !== "RECIBIDA") return n;
+  // Aviso / pago por la venta: con la fecha y el costo de la venta, no los de hoy
+  const porVenta = (paso === "AVISADO" || paso === "EN_TRABAJO") && ["RECIBIDA", "AVISADO", "NO_PAGO"].includes(n.estado);
+  const fecha = paso === "CONTESTADA" ? fechaEnNota(s.avance) ?? hoyUTC() : porVenta ? s.fechaContratacion : null;
+  return aplicarPasoOficio(db, n.id, paso, { fecha, monto: porVenta ? s.costo || null : null }, autor, { desdeCobro: true });
+}
+
+/**
+ * Estado con el que nace un oficio que MARCanet detecta en una marca cuya contestación ya se vendió:
+ * se da por hecho que la venta es de ese oficio (se puede desligar si no fue así).
+ */
+export function pasoPorVenta(s: { pagado: number; estadoTrabajo: string | null; costo: number | null; fechaContratacion: Date | null; creado: Date }) {
+  const f = s.fechaContratacion ?? s.creado;
+  const trabajo = s.estadoTrabajo ? PASO_POR_TRABAJO[s.estadoTrabajo] : null;
+  // Sin contestación registrada en el IMPI, "trabajado / hecho" se queda en pagar en sistema o por trabajar
+  const estado = trabajo === "PAGAR_SISTEMA" ? "PAGAR_SISTEMA" : trabajo || s.pagado > 0 ? "EN_TRABAJO" : "AVISADO";
+  return {
+    estado,
+    editadoEnApp: true,
+    fechaAvisoCliente: f,
+    montoCotizado: s.costo || null,
+    ...(estado !== "AVISADO" && { fechaPago: f }),
+  };
 }

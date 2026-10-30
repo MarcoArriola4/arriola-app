@@ -24,7 +24,7 @@ const fecha = (iso: string) => new Date(iso).toLocaleString("es-MX", { dateStyle
  * Botón y reloj de la revisión con MARCanet. Todo corre en la revisión automática (GitHub), no en este navegador:
  * al pedirla sigue sola hasta el final aunque cierres la app o cambies de pestaña, y la app no se traba mientras tanto.
  * - modo "todas": búsqueda completa (con tache para detenerla y opción de continuar donde se quedó).
- * - modo "activos": solo las marcas con oficios en curso.
+ * - modo "activos": revisión de contestaciones vendidas hace más de 15 días que aún no se presentan.
  */
 export function ActualizarTodas({
   barrido: inicial,
@@ -66,20 +66,20 @@ export function ActualizarTodas({
 
   if (!b) return null;
 
-  // ── Solo oficios en curso ──
+  // ── Contestaciones vendidas sin presentar ──
   if (modo === "activos") {
     if (b.activos.enCurso) {
       const { revisadas, total } = b.activos.enCurso;
       const pct = total ? Math.round((revisadas / total) * 100) : 0;
       return (
-        <Caja tono="ambar" icono={<Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />} titulo={`Revisando oficios en curso · ${pct}%`} pct={pct}>
+        <Caja tono="ambar" icono={<Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />} titulo={`Revisando contestaciones vendidas · ${pct}%`} pct={pct}>
           {revisadas} de {total} marcas · sigue aunque cierres la app
         </Caja>
       );
     }
     if (b.activos.solicitada) {
       return (
-        <Caja tono="ambar" icono={<Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />} titulo="Revisión de oficios en curso solicitada">
+        <Caja tono="ambar" icono={<Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />} titulo="Revisión de contestaciones vendidas solicitada">
           Empieza en unos minutos (máx. ~15) y corre sola hasta el final.
         </Caja>
       );
@@ -87,11 +87,11 @@ export function ActualizarTodas({
     return (
       <div className="flex flex-col items-end gap-1">
         <button onClick={() => ejecutar(solicitarRevisionActivos)} disabled={cambiando} className="btn">
-          <RefreshCw size={15} /> Revisar ahora los oficios en curso
+          <RefreshCw size={15} /> Revisar ahora las contestaciones vendidas
         </button>
         {b.activos.ultima && (
           <span className="text-[11px] text-neutral-500">
-            Última: {fecha(b.activos.ultima.fin)} · {b.activos.ultima.consultados} de {b.activos.ultima.total} revisadas · {b.activos.ultima.nuevos} oficios nuevos · {b.activos.ultima.contestados} contestados
+            Última: {fecha(b.activos.ultima.fin)} · {b.activos.ultima.consultados} de {b.activos.ultima.total} revisadas · {b.activos.ultima.contestados} ya presentadas en el IMPI
             {b.activos.ultima.errores > 0 && <span className="text-red-600"> · {b.activos.ultima.errores} con error</span>} · <Link href="/reportes" className="underline">ver reporte</Link>
           </span>
         )}

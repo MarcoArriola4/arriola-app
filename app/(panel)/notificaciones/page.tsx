@@ -3,10 +3,11 @@ import { db } from "@/lib/db";
 import { ACTIVAS } from "@/lib/consultas";
 import { esNuevaDeImpi, estaVencida } from "@/lib/plazos";
 import { Encabezado, PlazoOficio } from "@/components/ui";
-import { avisarCliente } from "@/app/actions";
 import { Prioridades } from "@/components/prioridades";
 import { requerirSesion } from "@/lib/auth";
-import { TIPOS_OFICIO } from "@/lib/catalogos";
+import { TIPOS_OFICIO, fmtFecha } from "@/lib/catalogos";
+import { contratacionesSinPresentar } from "@/lib/marcanet/seleccion";
+import { BotonAvise } from "./boton-avise";
 import { MarcarVistas } from "./vistas";
 import { Tablero, type Tarjeta } from "./tablero";
 import { NuevaNotificacion } from "./nueva";
@@ -19,16 +20,20 @@ export default async function Notificaciones({ searchParams }: { searchParams: P
   const vistasHasta = (await db.usuario.findUnique({ where: { id: sesion.id }, select: { notifVistasHasta: true } }))?.notifVistasHasta ?? null;
   const vista = ver === "no-pago" ? "no-pago" : ver === "vencidas" ? "vencidas" : "tablero";
   const hace30 = new Date(Date.now() - 30 * 864e5);
-  const [todas, cfg, noPago] = await Promise.all([
+  const [todas, cfg, noPago, sinPresentar] = await Promise.all([
     db.notificacion.findMany({
       where: vista === "no-pago"
         ? { estado: "NO_PAGO", tipo: { not: "ALEGATOS" } } // alegatos sin contestar no son riesgo de abandono
         : { OR: [{ estado: { in: ACTIVAS } }, { estado: "CONTESTADA", fechaContestacion: { gte: hace30 } }] },
-      include: { expediente: { include: { cliente: { select: { nombre: true, telefono: true, email: true } } } } },
+      include: {
+        expediente: { include: { cliente: { select: { nombre: true, telefono: true, email: true } } } },
+        servicio: { select: { fechaContratacion: true, creado: true, pagado: true, costo: true } },
+      },
       orderBy: { fechaLimite: "asc" },
     }),
     db.configuracion.findUnique({ where: { id: "main" } }),
     db.notificacion.count({ where: { estado: "NO_PAGO", tipo: { not: "ALEGATOS" } } }),
+    vista === "tablero" ? contratacionesSinPresentar(db) : Promise.resolve([]),
   ]);
   // Tablero: solo lo que aún se puede trabajar y cobrar. Vencidas: activas cuyo plazo final ya pasó.
   const vencidasTodas = todas.filter((n) => ACTIVAS.includes(n.estado) && estaVencida(n));
@@ -45,7 +50,9 @@ export default async function Notificaciones({ searchParams }: { searchParams: P
     pendienteNotificar: n.pendienteNotificar,
     numeroOficio: n.numeroOficio,
     nuevaImpi: esNuevaDeImpi(n),
-    nueva: ACTIVAS.includes(n.estado) && (!vistasHasta || n.creado > vistasHasta) && n.creado > new Date(Date.now() - 30 * 864e5),
+    // Las de contestaciones ya vendidas no son "nuevas": ya se sabe de ellas
+    nueva: ACTIVAS.includes(n.estado) && !n.servicio && (!vistasHasta || n.creado > vistasHasta) && n.creado > new Date(Date.now() - 30 * 864e5),
+    venta: n.servicio ? { fecha: (n.servicio.fechaContratacion ?? n.servicio.creado).toISOString(), pagado: n.servicio.pagado, costo: n.servicio.costo } : null,
     fechaAvisoCliente: n.fechaAvisoCliente?.toISOString() ?? null,
     fechaPago: n.fechaPago?.toISOString() ?? null,
     fechaContestacion: n.fechaContestacion?.toISOString() ?? null,
@@ -102,16 +109,36 @@ export default async function Notificaciones({ searchParams }: { searchParams: P
                   <p className="truncate text-xs text-neutral-500">{t.cliente} · {TIPOS_OFICIO[t.tipo] ?? t.tipo} · notificada {new Date(t.fechaNotificacion).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}</p>
                 </a>
                 <span className="shrink-0 text-xs"><PlazoOficio n={t} /></span>
-                <form action={avisarCliente} className="shrink-0">
-                  <input type="hidden" name="id" value={t.id} />
-                  <button className="rounded-lg border border-violet-300 px-2.5 py-1 text-xs font-medium text-violet-800 hover:bg-violet-100">Ya avisé al cliente</button>
-                </form>
+                <BotonAvise id={t.id} />
               </li>
             ))}
           </ul>
         </section>
       )}
       {vista === "tablero" && <Prioridades seguimiento={cfg?.diasSeguimientoPago ?? 5} />}
+      {vista === "tablero" && sinPresentar.length > 0 && (
+        <details className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-amber-900">
+            Contestaciones vendidas sin presentar ({sinPresentar.length})
+            <span className="ml-2 text-xs font-normal text-amber-800/80">Vendidas hace más de 15 días (últimos 3 meses) · se revisan en MARCanet cada 7 días</span>
+          </summary>
+          <ul className="mt-3 overflow-hidden rounded-xl border border-amber-200 bg-white">
+            {sinPresentar.map((v, i) => {
+              const dias = Math.floor((Date.now() - (v.fechaContratacion ?? v.creado).getTime()) / 864e5);
+              return (
+                <li key={v.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 ${i ? "border-t border-amber-100" : ""}`}>
+                  <Link href={`/expedientes/${v.expedienteId}`} className="min-w-0 flex-1 basis-52 hover:underline">
+                    <p className="truncate text-sm font-medium">{v.expediente.denominacion}</p>
+                    <p className="truncate text-xs text-neutral-500">{v.expediente.cliente.nombre} · Exp. {v.expediente.numeroExpediente} · vendida el {fmtFecha(v.fechaContratacion ?? v.creado)}</p>
+                  </Link>
+                  <span className="shrink-0 text-xs font-medium text-amber-700">Hace {dias} días · sin presentar</span>
+                  <span className="shrink-0 text-[11px] text-neutral-400">{v.expediente.marcanetSync ? `Revisada en MARCanet el ${fmtFecha(v.expediente.marcanetSync)}` : "Aún sin revisar en MARCanet"}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
       {vista === "tablero" && (
         <div className="mb-3 flex items-baseline justify-between border-b border-black/10 pb-2">
           <h2 className="text-base font-semibold">Tablero de oficios</h2>

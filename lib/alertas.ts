@@ -60,14 +60,15 @@ export async function construirResumen() {
     }));
 
   const nuevosImpi: Item[] = notifs
-    .filter((n) => n.fuente === "MARCANET" && Date.now() - n.creado.getTime() < 36 * 3600 * 1000)
+    // Solo los que hay que avisar: los de contestaciones ya vendidas entran directo como avisados / pagados
+    .filter((n) => n.fuente === "MARCANET" && n.estado === "RECIBIDA" && Date.now() - n.creado.getTime() < 36 * 3600 * 1000)
     .map((n) => ({
       titulo: `${n.expediente.denominacion} — ${TIPOS_OFICIO[n.tipo]}`,
       detalle: `${n.expediente.cliente.nombre} · Exp. ${n.expediente.numeroExpediente ?? "s/n"} · oficio ${n.numeroOficio} notificado el ${fmtFecha(n.fechaNotificacion)}`,
       dias: diasRestantes(siguientePlazo(n).fecha),
       url: `${appUrl()}/expedientes/${n.expedienteId}`,
     }));
-  const ultimaSync = await db.syncMarcanet.findFirst({ where: { modo: "NOCTURNO", fin: { not: null } }, orderBy: { inicio: "desc" } });
+  const ultimaSync = await db.syncMarcanet.findFirst({ where: { modo: { in: ["NOCTURNO", "ACTIVOS", "BARRIDO"] }, fin: { not: null } }, orderBy: { inicio: "desc" } });
 
   const secciones = [
     { titulo: "Nuevos oficios detectados hoy en MARCanet (IMPI)", color: "#7c3aed", items: nuevosImpi },

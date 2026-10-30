@@ -1,31 +1,20 @@
 // Ciclo de revisión con MARCanet (lo ejecuta GitHub Actions cada 6 horas):
 //  1. Búsqueda completa: revisa TODAS las marcas sin parar (en bloques de ~5.5 h) hasta terminar.
-//  2. Al terminar, espera `diasEntreBarridos` (7) días; mientras, revisa una vez al día las marcas con oficios en curso y las nuevas.
+//  2. Al terminar, espera `diasEntreBarridos` (7) días. Cada 7 días revisa las contestaciones vendidas (Contrataciones) hace más de
+//     15 días, de los últimos 3 meses, que aún no se presentan (para saber si ya se ingresó la respuesta).
 //  3. Pasados los días, empieza otra búsqueda completa.
 // Uso: npm run marcanet:ciclo -- --horas=5.5
 import { db } from "../lib/db";
 import { DIA } from "../lib/plazos";
-import { ACTIVAS } from "../lib/consultas";
 import { TIPOS_SIGNO } from "../lib/catalogos";
 import { sincronizarMarcanet } from "../lib/marcanet/sincronizar";
-import { expedientesDelBarrido } from "../lib/marcanet/seleccion";
+import { expedientesDelBarrido, marcasRevisionSemanal } from "../lib/marcanet/seleccion";
 import { procesarAuditoria } from "../lib/marcanet/auditoria";
 
 const horas = Number(process.argv.find((a) => a.startsWith("--horas="))?.split("=")[1] ?? 5);
 const log = (m: string) => console.log(`[${new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" })}] ${m}`);
 
-/** Marcas con oficios en curso (y, si se pide, las que nunca se han consultado). */
-async function marcasConOficiosEnCurso(conNuevas = false) {
-  const lista = await db.expediente.findMany({
-    where: {
-      numeroExpediente: { not: null },
-      tipo: { in: TIPOS_SIGNO },
-      OR: [{ notificaciones: { some: { estado: { in: ACTIVAS } } } }, ...(conNuevas ? [{ marcanetSync: null }] : [])],
-    },
-    orderBy: { marcanetSync: { sort: "asc", nulls: "first" } },
-  });
-  return lista.filter((e) => /^\d{5,8}$/.test(e.numeroExpediente ?? ""));
-}
+const CADA_REVISION_SEMANAL_MS = 7 * DIA - 6 * 3600 * 1000;
 
 async function main() {
   let cfg = await db.configuracion.upsert({ where: { id: "main" }, update: {}, create: { id: "main" } });
@@ -69,12 +58,13 @@ async function cicloConCandado(cfgInicial: Awaited<ReturnType<typeof db.configur
     }
   }
 
-  // 1) Revisión de oficios en curso pedida desde la app (botón "Revisar ahora los oficios en curso")
+  // 1) Revisión de contestaciones vendidas sin presentar, pedida desde la app (botón) o por la revisión semanal de Vercel
   if (cfg.solicitudActivos) {
     await db.configuracion.update({ where: { id: "main" }, data: { solicitudActivos: null } });
-    const activos = await marcasConOficiosEnCurso();
-    log(`Revisión de oficios en curso pedida desde la app: ${activos.length} marcas`);
+    const activos = await marcasRevisionSemanal(db);
+    log(`Revisión de contestaciones vendidas sin presentar: ${activos.length} marcas`);
     const r = await sincronizarMarcanet({ modo: "ACTIVOS", expedientes: activos, horasMax: Math.min(horas, 2) });
+    await db.configuracion.update({ where: { id: "main" }, data: { ultimaRevisionActivos: new Date() } });
     log(`Listo: ${r.consultados} revisadas, ${r.nuevos} oficios nuevos, ${r.contestados} contestados, ${r.errores} errores.`);
     cfg = await db.configuracion.findUniqueOrThrow({ where: { id: "main" } });
   }
@@ -85,7 +75,7 @@ async function cicloConCandado(cfgInicial: Awaited<ReturnType<typeof db.configur
     await db.configuracion.update({ where: { id: "main" }, data: { solicitudMarcas: null } });
     const marcas = (await db.expediente.findMany({ where: { id: { in: ids }, numeroExpediente: { not: null } } })).filter((e) => /^\d{5,8}$/.test(e.numeroExpediente ?? ""));
     log(`Marcas pedidas desde la app: ${marcas.length}`);
-    const r = await sincronizarMarcanet({ modo: "ACTIVOS", expedientes: marcas, horasMax: Math.min(horas, 2) });
+    const r = await sincronizarMarcanet({ modo: "MARCAS", expedientes: marcas, horasMax: Math.min(horas, 2) });
     log(`Listo: ${r.consultados} revisadas, ${r.nuevos} oficios nuevos, ${r.errores} errores.`);
     cfg = await db.configuracion.findUniqueOrThrow({ where: { id: "main" } });
   }
@@ -114,7 +104,7 @@ async function cicloConCandado(cfgInicial: Awaited<ReturnType<typeof db.configur
   }
 
   if (cfg.barridoInicio && !cfg.barridoTermino && cfg.barridoPausa) {
-    log("Búsqueda completa detenida por el administrador (se continúa desde la app). Solo revisión diaria de oficios en curso.");
+    log("Búsqueda completa detenida por el administrador (se continúa desde la app). Solo revisión semanal de contestaciones vendidas.");
   } else if (cfg.barridoInicio && !cfg.barridoTermino) {
     const inicio = cfg.barridoInicio;
     // Todas las marcas (prioridad: oficios en curso, activas, resto) que aún no se revisan en esta búsqueda
@@ -142,19 +132,20 @@ async function cicloConCandado(cfgInicial: Awaited<ReturnType<typeof db.configur
     return;
   }
 
-  // Entre búsquedas completas: oficios en curso, una vez al día
-  if (cfg.ultimaRevisionActivos && ahora.getTime() - cfg.ultimaRevisionActivos.getTime() < 20 * 3600 * 1000) {
+  // Entre búsquedas completas: contestaciones vendidas sin presentar, cada 7 días
+  if (cfg.ultimaRevisionActivos && ahora.getTime() - cfg.ultimaRevisionActivos.getTime() < CADA_REVISION_SEMANAL_MS) {
     const proxima = cfg.barridoTermino ? new Date(cfg.barridoTermino.getTime() + cfg.diasEntreBarridos * DIA).toLocaleDateString("es-MX") : "al reanudarla";
     log(`En espera. Próxima búsqueda completa: ${proxima}. Nada que hacer ahora.`);
     return;
   }
-  // Oficios en curso + marcas nuevas que nunca se han consultado (las que se dan de alta durante el mes)
-  const activos = await marcasConOficiosEnCurso(true);
-  log(`Revisión diaria: ${activos.length} marcas (oficios en curso y marcas nuevas)`);
+  // Solo contestaciones vendidas hace más de 15 días (últimos 3 meses) y aún sin presentar; las marcas nuevas entran
+  // en la búsqueda completa, no aquí
+  const activos = await marcasRevisionSemanal(db);
+  log(`Revisión semanal: ${activos.length} marcas (contestaciones vendidas sin presentar)`);
   const r = await sincronizarMarcanet({ modo: "NOCTURNO", expedientes: activos, horasMax: Math.min(horas, 2) });
-  // Si MARCanet no respondió, se reintenta en ~1 hora en lugar de esperar al día siguiente
+  // Si MARCanet no respondió, se reintenta en ~1 hora en lugar de esperar a la semana siguiente
   const fallo = r.consultados === 0 && r.errores > 0;
-  await db.configuracion.update({ where: { id: "main" }, data: { ultimaRevisionActivos: fallo ? new Date(Date.now() - 19 * 3600 * 1000) : new Date() } });
+  await db.configuracion.update({ where: { id: "main" }, data: { ultimaRevisionActivos: fallo ? new Date(Date.now() - CADA_REVISION_SEMANAL_MS + 3600 * 1000) : new Date() } });
   log(`Listo: ${r.consultados} revisadas, ${r.nuevos} oficios nuevos, ${r.contestados} contestados.`);
 }
 

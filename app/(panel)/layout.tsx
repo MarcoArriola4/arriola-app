@@ -17,7 +17,8 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   // Numerito de Notificaciones: oficios en curso que llegaron después de la última vez que este usuario abrió Notificaciones
   const vistas = (await db.usuario.findUnique({ where: { id: sesion.id }, select: { notifVistasHasta: true } }))?.notifVistasHasta;
   const urgentes = await db.notificacion.count({
-    where: { estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"] }, creado: { gt: vistas ?? new Date(Date.now() - 30 * 864e5) } },
+    // Los de contestaciones ya vendidas no cuentan: ya se sabe de ellos
+    where: { estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"] }, servicio: { is: null }, creado: { gt: vistas ?? new Date(Date.now() - 30 * 864e5) } },
   });
 
   return (

@@ -145,6 +145,7 @@ model Notificacion {
   fechaContestacion  DateTime?
   medioDefensa       String?    // negativas: REVISION | NULIDAD
   notas              String?
+  sinVenta           Boolean    @default(false) // true = se indicó que la venta de contestación de la marca no es de este oficio (no se liga sola)
   servicio           Servicio?
   creado             DateTime   @default(now())
 

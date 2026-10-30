@@ -10,7 +10,7 @@ export async function GET(req: Request) {
   if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
     return new Response("No autorizado", { status: 401 });
   }
-  // Además programa lo automático (búsqueda completa cada 7 días y revisión diaria de oficios) y lo arranca
+  // Además programa lo automático (búsqueda completa cada 7 días y revisión semanal de contestaciones vendidas) y lo arranca
   await programarAutomatico(db);
   const resumen = await enviarResumen();
   await despertarTrabajador(new URL(req.url).origin);

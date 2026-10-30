@@ -12,6 +12,7 @@ import type { Expediente, PrismaClient } from "@prisma/client";
 import { DIA, sumarMeses } from "../plazos";
 import { REFORMA_DDU, vigenciaDe } from "../cumplimiento";
 import { expedientesParaHoy } from "./sincronizar";
+import { TIPOS_SIGNO } from "../catalogos";
 
 const UN_MES = 30 * DIA;
 const ACTIVAS = ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"];
@@ -89,4 +90,30 @@ export async function expedientesDelBarrido(db: PrismaClient, hoy = new Date()) 
   const lista: Expediente[] = todas.filter((e) => !fuera.has(e.id));
   const cuenta = (m: MotivoOmitida) => omitidas.filter((o) => o.motivo === m).length;
   return { lista, omitidasDetalle: omitidas, omitidas: { registradas: cuenta("REGISTRADA"), abandonadas: cuenta("ABANDONADA") + cuenta("NEGADA") } };
+}
+
+/**
+ * Revisión semanal: contestaciones vendidas (tabla de Contrataciones) en los últimos 3 meses, con más de 15 días
+ * de vendidas y que aún no se presentan. Sirve para saber si ya se ingresó la respuesta en el IMPI o todavía no.
+ * Las ventas recientes (menos de 15 días) no entran: todavía se están trabajando.
+ */
+export async function contratacionesSinPresentar(db: PrismaClient, hoy = new Date()) {
+  const ventas = await db.servicio.findMany({
+    where: {
+      tipo: "CONTESTACION",
+      fechaContratacion: { gte: new Date(hoy.getTime() - 92 * DIA), lte: new Date(hoy.getTime() - 15 * DIA) },
+      OR: [{ estadoTrabajo: null }, { estadoTrabajo: { notIn: ["HECHO", "CLIENTE"] } }],
+      AND: [{ OR: [{ notificacionId: null }, { notificacion: { estado: { notIn: ["CONTESTADA", "CERRADA"] } } }] }],
+      expediente: { numeroExpediente: { not: null }, tipo: { in: TIPOS_SIGNO }, desistio: null },
+    },
+    include: { expediente: { include: { cliente: { select: { nombre: true } } } } },
+    orderBy: { fechaContratacion: "asc" },
+  });
+  return ventas.filter((v) => /^\d{5,8}$/.test(v.expediente.numeroExpediente ?? ""));
+}
+
+/** Marcas (sin repetir) de la revisión semanal. */
+export async function marcasRevisionSemanal(db: PrismaClient, hoy = new Date()) {
+  const vistas = new Set<string>();
+  return (await contratacionesSinPresentar(db, hoy)).map((v) => v.expediente).filter((e) => !vistas.has(e.id) && vistas.add(e.id));
 }
