@@ -1168,7 +1168,22 @@ export async function seguimientoOficioImpi(oficioImpiId: string, tipo: string) 
 /** Botón "Actualizar todas": pide la búsqueda completa a la revisión automática (corre sola hasta el final, aunque cierres la app). */
 export async function solicitarBusqueda() {
   await requerirSesion();
-  await db.configuracion.update({ where: { id: "main" }, data: { solicitudBusqueda: new Date() } });
+  // Botón normal: marcas activas y las próximas a declaración de uso o renovación (si continúa una detenida, sigue igual)
+  const cfg = await db.configuracion.findUnique({ where: { id: "main" } });
+  const continua = cfg?.barridoInicio && !cfg.barridoTermino;
+  await db.configuracion.update({ where: { id: "main" }, data: { solicitudBusqueda: new Date(), ...(!continua && { barridoTotal: false }) } });
+  revalidatePath("/", "layout");
+  await despertarTrabajador();
+  return estadoBarrido();
+}
+
+/** Botón de Admin: actualización TOTAL (todas las marcas, sin omitir ninguna) para el reporte general. */
+export async function solicitarActualizacionTotal() {
+  await requerirAdmin();
+  const cfg = await db.configuracion.findUnique({ where: { id: "main" } });
+  // Si hay una búsqueda normal en curso, se convierte en total (lo ya revisado cuenta)
+  const enCurso = cfg?.barridoInicio && !cfg.barridoTermino;
+  await db.configuracion.update({ where: { id: "main" }, data: { barridoTotal: true, ...(enCurso && !cfg?.barridoPausa ? {} : { solicitudBusqueda: new Date() }) } });
   revalidatePath("/", "layout");
   await despertarTrabajador();
   return estadoBarrido();

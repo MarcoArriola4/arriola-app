@@ -107,7 +107,7 @@ export function ActualizarTodas({
       <Caja
         tono="ambar"
         icono={<Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />}
-        titulo={`Búsqueda completa en curso · ${pct}%`}
+        titulo={`${b.esTotal ? "Actualización total (todas las marcas)" : "Actualizando marcas activas"} en curso · ${pct}%`}
         pct={pct}
         accion={
           esAdmin && (
@@ -131,7 +131,7 @@ export function ActualizarTodas({
 
   if (b.solicitada) {
     return (
-      <Caja tono="ambar" icono={<Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />} titulo="Búsqueda completa solicitada">
+      <Caja tono="ambar" icono={<Hourglass size={20} className="animate-reloj shrink-0 text-amber-600" />} titulo={b.esTotal ? "Actualización total solicitada" : "Actualización de marcas activas solicitada"}>
         {b.pausada ? "Continúa desde donde se quedó" : "Empieza"} en unos minutos (máx. ~15) y corre sola hasta el final, aunque cierres la app.
       </Caja>
     );
@@ -161,13 +161,13 @@ export function ActualizarTodas({
         {inicial?.activo || inicial?.solicitada ? (
           <span className="inline-flex items-center gap-2 rounded-lg bg-marca-claro px-3 py-1.5 text-sm font-semibold text-marca-oscuro"><CheckCircle2 size={16} /> Listo · búsqueda completa terminada</span>
         ) : null}
-        <button onClick={() => { if (confirm("¿Empezar una búsqueda completa con MARCanet?\n\nCorre sola en segundo plano hasta el final (varias horas), aunque cierres la app.")) ejecutar(solicitarBusqueda); }} disabled={cambiando} className="btn-primario">
-          <RefreshCw size={15} /> Actualizar todas desde MARCanet
+        <button onClick={() => { if (confirm("¿Actualizar las marcas activas con MARCanet?\n\nIncluye las marcas en trámite, con oficio o en juicio y las registradas próximas a su declaración de uso o renovación (no las demás registradas ni las abandonadas). Corre sola en segundo plano, aunque cierres la app.")) ejecutar(solicitarBusqueda); }} disabled={cambiando} className="btn-primario">
+          <RefreshCw size={15} /> Actualizar marcas activas
         </button>
       </div>
       {b.termino && (
         <p className="text-xs text-neutral-500">
-          Última búsqueda completa: <b className="font-medium text-neutral-700">terminó el {fecha(b.termino)}</b>
+          Última actualización: <b className="font-medium text-neutral-700">terminó el {fecha(b.termino)}</b>
           {" · "}{b.revisadas.toLocaleString("es-MX")} de {b.total.toLocaleString("es-MX")} revisadas
           {b.errores > 0 ? <span className="text-red-600"> · {b.errores} con error</span> : " · sin errores"}
           {b.faltaron > 0 && <span className="text-amber-700"> · {b.faltaron} sin revisar</span>}

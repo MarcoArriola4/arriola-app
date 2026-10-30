@@ -94,8 +94,9 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
 
         <section className="card p-5 lg:col-span-2">
           <h2 className="text-sm font-semibold">Reporte general de marcas</h2>
-          <p className="mb-3 mt-0.5 text-xs text-neutral-500">Actualiza todas las marcas en MARCanet y arma un reporte: marcas ganadas con su declaración de uso y renovación, negadas y abandonadas con su motivo, oficios en curso y lo que espera o ya recibió respuesta del IMPI.</p>
-          <BotonReporteGeneral enCurso={barrido.activo || barrido.solicitada} />
+          <p className="mb-3 mt-0.5 text-xs text-neutral-500">Actualiza TODAS las marcas en MARCanet (sin omitir ninguna) y arma un reporte: marcas ganadas con su declaración de uso y renovación, negadas y abandonadas con su motivo, oficios en curso y lo que espera o ya recibió respuesta del IMPI.</p>
+          <BotonReporteGeneral enCurso={barrido.esTotal && (barrido.activo || barrido.solicitada || barrido.pausada)} />
+          <p className="mt-2 text-[11px] text-neutral-400">Es distinto del botón «Actualizar marcas activas» de abajo, que solo revisa las activas y las próximas a declaración de uso o renovación.</p>
         </section>
 
         <section className="card p-5 lg:col-span-2">
@@ -115,7 +116,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-neutral-50 p-3 text-sm">
             <ActualizarTodas barrido={barrido} esAdmin />
             <p className="basis-full text-xs text-neutral-500">
-              La búsqueda completa revisa {barrido.total.toLocaleString("es-MX")} marcas: se omiten {barrido.omitidas.registradas.toLocaleString("es-MX")} registradas sin novedades
+              «Actualizar marcas activas» revisa {barrido.total.toLocaleString("es-MX")} marcas: se omiten {barrido.omitidas.registradas.toLocaleString("es-MX")} registradas sin novedades
               (se revisan si les agregas algo o cerca de los 3 y 10 años) y {barrido.omitidas.abandonadas.toLocaleString("es-MX")} abandonadas hace más de un mes.
             </p>
           </div>

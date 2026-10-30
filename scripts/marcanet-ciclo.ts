@@ -99,7 +99,7 @@ async function cicloConCandado(cfgInicial: Awaited<ReturnType<typeof db.configur
   const enBarrido = cfg.barridoInicio && !cfg.barridoTermino;
   const toca = !cfg.barridoTermino || ahora.getTime() - cfg.barridoTermino.getTime() >= cfg.diasEntreBarridos * DIA;
   if (!enBarrido && toca && !cfg.barridoPausa) {
-    cfg = await db.configuracion.update({ where: { id: "main" }, data: { barridoInicio: ahora, barridoTermino: null } });
+    cfg = await db.configuracion.update({ where: { id: "main" }, data: { barridoInicio: ahora, barridoTermino: null, barridoTotal: false } });
     log("Empieza una búsqueda completa de todas las marcas");
   }
 
@@ -109,7 +109,7 @@ async function cicloConCandado(cfgInicial: Awaited<ReturnType<typeof db.configur
     const inicio = cfg.barridoInicio;
     // Todas las marcas (prioridad: oficios en curso, activas, resto) que aún no se revisan en esta búsqueda
     // (registradas sin novedades y abandonadas hace más de un mes no entran: ver lib/marcanet/seleccion.ts)
-    const { lista, omitidas } = await expedientesDelBarrido(db);
+    const { lista, omitidas } = await expedientesDelBarrido(db, new Date(), cfg.barridoTotal);
     const pendientes = lista.filter((e) => !e.marcanetSync || e.marcanetSync < inicio);
     log(`Se omiten ${omitidas.registradas} registradas sin novedades y ${omitidas.abandonadas} abandonadas hace más de un mes`);
     log(`Búsqueda completa: faltan ${pendientes.length} marcas`);
@@ -121,9 +121,9 @@ async function cicloConCandado(cfgInicial: Awaited<ReturnType<typeof db.configur
       where: { numeroExpediente: { not: null }, tipo: { in: TIPOS_SIGNO }, OR: [{ marcanetSync: null }, { marcanetSync: { lt: inicio } }] },
     });
     // Los números que no son del IMPI (s/n, MX/…) no cuentan; con menos de 10 pendientes (errores sueltos) se da por terminada
-    const realesQuedan = (await expedientesDelBarrido(db)).lista.filter((e) => !e.marcanetSync || e.marcanetSync < inicio).length;
+    const realesQuedan = (await expedientesDelBarrido(db, new Date(), cfg.barridoTotal)).lista.filter((e) => !e.marcanetSync || e.marcanetSync < inicio).length;
     if (realesQuedan < 10) {
-      await db.configuracion.update({ where: { id: "main" }, data: { barridoTermino: new Date() } });
+      await db.configuracion.update({ where: { id: "main" }, data: { barridoTermino: new Date(), barridoTotal: false } });
       // Queda escrito en el último bloque para el reporte
       const ultimo = await db.syncMarcanet.findFirst({ where: { modo: "BARRIDO", barrido: inicio }, orderBy: { inicio: "desc" } });
       if (ultimo) await db.syncMarcanet.update({ where: { id: ultimo.id }, data: { mensaje: [`Búsqueda completa TERMINADA · ${realesQuedan} sin revisar`, ultimo.mensaje].filter(Boolean).join(" — ") } });

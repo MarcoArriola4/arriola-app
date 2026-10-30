@@ -44,7 +44,7 @@ export async function programarAutomatico(db: PrismaClient) {
   const data: Record<string, unknown> = {};
   const enBarrido = cfg.barridoInicio && !cfg.barridoTermino;
   if (!enBarrido && !cfg.barridoPausa && (!cfg.barridoTermino || ahora.getTime() - cfg.barridoTermino.getTime() >= cfg.diasEntreBarridos * DIA)) {
-    Object.assign(data, { barridoInicio: ahora, barridoTermino: null });
+    Object.assign(data, { barridoInicio: ahora, barridoTermino: null, barridoTotal: false });
   }
   if (!cfg.ultimaRevisionActivos || ahora.getTime() - cfg.ultimaRevisionActivos.getTime() > CADA_REVISION_SEMANAL_MS) data.solicitudActivos = ahora;
   if (Object.keys(data).length) await db.configuracion.update({ where: { id: "main" }, data });
@@ -133,10 +133,10 @@ export async function trabajar(db: PrismaClient, limite = Date.now() + PRESUPUES
     }
     if (cfg.barridoInicio && !cfg.barridoTermino && !cfg.barridoPausa) {
       const inicio = cfg.barridoInicio;
-      const pendientes = (await expedientesDelBarrido(db)).lista.filter((e) => !e.marcanetSync || e.marcanetSync < inicio);
+      const pendientes = (await expedientesDelBarrido(db, new Date(), cfg.barridoTotal)).lista.filter((e) => !e.marcanetSync || e.marcanetSync < inicio);
       const faltan = pendientes.length ? await revisarMarcas(db, "BARRIDO", pendientes, limite, inicio) : 0;
       if (faltan >= 10) return true;
-      await db.configuracion.update({ where: { id: "main" }, data: { barridoTermino: new Date() } });
+      await db.configuracion.update({ where: { id: "main" }, data: { barridoTermino: new Date(), barridoTotal: false } });
       const ultimo = await db.syncMarcanet.findFirst({ where: { modo: "BARRIDO", barrido: inicio }, orderBy: { inicio: "desc" } });
       if (ultimo) await db.syncMarcanet.update({ where: { id: ultimo.id }, data: { mensaje: `Búsqueda completa TERMINADA · ${faltan} sin revisar` } });
     }

@@ -29,9 +29,13 @@ export function periodosRegistrada(concesion: Date) {
   return periodos;
 }
 
-/** Marcas de la búsqueda completa (en orden de prioridad) y las que se omiten por regla, con su próxima revisión. */
-export async function expedientesDelBarrido(db: PrismaClient, hoy = new Date()) {
+/**
+ * Marcas de la búsqueda completa (en orden de prioridad) y las que se omiten por regla, con su próxima revisión.
+ * `total` (actualización total desde Admin): todas las marcas, sin omitir ninguna.
+ */
+export async function expedientesDelBarrido(db: PrismaClient, hoy = new Date(), total = false) {
   const todas = await expedientesParaHoy(db, 100000);
+  if (total) return { lista: todas as Expediente[], omitidasDetalle: [] as Omitida[], omitidas: { registradas: 0, abandonadas: 0 } };
   const ids = todas.map((e) => e.id);
   const especiales = await db.expediente.findMany({
     where: { id: { in: ids }, OR: [{ etapa: { in: ["CONCEDIDA", "ABANDONADA", "NEGATIVA"] } }, { numeroRegistro: { not: null } }, { desistio: { not: null } }] },

@@ -4,6 +4,8 @@ import { expedientesDelBarrido } from "./seleccion";
 
 export type EstadoBarrido = {
   activo: boolean;
+  /** actualización total (botón de Admin): todas las marcas, sin omitir ninguna */
+  esTotal: boolean;
   /** el admin la detuvo con el tache (se continúa a mano o se reanuda) */
   pausada: boolean;
   pausadaEn: string | null;
@@ -34,7 +36,8 @@ export type EstadoBarrido = {
 export async function estadoBarrido(): Promise<EstadoBarrido> {
   const cfg = await db.configuracion.findUnique({ where: { id: "main" } });
   const ahora = new Date();
-  const { lista: todas, omitidas } = await expedientesDelBarrido(db);
+  const esTotal = !!cfg?.barridoTotal && !cfg?.barridoTermino;
+  const { lista: todas, omitidas } = await expedientesDelBarrido(db, ahora, esTotal);
   const inicio = cfg?.barridoInicio ?? null;
   const pausada = !!inicio && !cfg?.barridoTermino && !!cfg?.barridoPausa;
   const activo = !!inicio && !cfg?.barridoTermino && !pausada;
@@ -55,6 +58,7 @@ export async function estadoBarrido(): Promise<EstadoBarrido> {
   ]);
   return {
     activo,
+    esTotal,
     solicitada: !!cfg?.solicitudBusqueda,
     activos: {
       solicitada: !!cfg?.solicitudActivos,

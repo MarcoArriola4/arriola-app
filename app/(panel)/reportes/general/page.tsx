@@ -23,9 +23,9 @@ export default async function ReporteGeneral() {
         <Imprimir />
       </div>
 
-      {(b.activo || b.solicitada) && (
+      {b.esTotal && (b.activo || b.solicitada) && (
         <p className="mx-auto mb-4 max-w-6xl rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 print:hidden">
-          {b.solicitada && !b.activo ? "La actualización de todas las marcas empieza en unos minutos." : `Actualizando todas las marcas en MARCanet · ${avance}% (${b.revisadas.toLocaleString("es-MX")} de ${b.total.toLocaleString("es-MX")}).`}{" "}
+          {b.solicitada && !b.activo ? "La actualización de todas las marcas empieza en unos minutos." : `Actualización total en MARCanet · ${avance}% (${b.revisadas.toLocaleString("es-MX")} de ${b.total.toLocaleString("es-MX")}).`}{" "}
           El reporte ya muestra lo revisado hasta ahora; vuelve a abrirlo al terminar para verlo completo.
         </p>
       )}
