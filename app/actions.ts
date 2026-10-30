@@ -1166,7 +1166,7 @@ export async function solicitarRevisionMarcas(ids: string[]) {
 
 /** Pide la auditoría: cada nombre se busca como titular y como apoderado (la hace la revisión automática). */
 export async function crearAuditoria(form: FormData) {
-  const sesion = await requerirAdmin(); // solo administradores
+  const sesion = await requerirPermiso("reporte2"); // administradores y usuarios con permiso
   const clienteId = str(form, "clienteId");
   const extra = (str(form, "otros") ?? "").split(/\n/).map((t) => t.replace(/\s+/g, " ").trim()).filter((t) => t.length >= 3);
   const elegidos = form.getAll("nombres").map((v) => String(v).replace(/\s+/g, " ").trim()).filter(Boolean);
@@ -1184,7 +1184,7 @@ export async function crearAuditoria(form: FormData) {
 
 /** La ✕: detiene la auditoría en curso. Lo hecho queda guardado y se puede reanudar donde se quedó durante 12 h. */
 export async function detenerAuditoria(id: string) {
-  const sesion = await requerirAdmin();
+  const sesion = await requerirPermiso("reporte2");
   await db.auditoria.updateMany({ where: { id, estado: { in: ["PENDIENTE", "BUSCANDO"] } }, data: { estado: "DETENIDA", detenida: new Date(), avance: `Detenida por ${sesion.nombre}` } });
   revalidatePath(`/auditorias/${id}`);
 }
@@ -1194,7 +1194,7 @@ export async function detenerAuditoria(id: string) {
  * (o tuvo error) empieza de cero; si ya había terminado, se hace una nueva con los mismos nombres. Devuelve su id.
  */
 export async function reactivarAuditoria(id: string) {
-  const sesion = await requerirAdmin();
+  const sesion = await requerirPermiso("reporte2");
   return reactivar(id, sesion.nombre);
 }
 

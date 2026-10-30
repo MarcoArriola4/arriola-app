@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, SearchCheck } from "lucide-react";
 import { db } from "@/lib/db";
-import { requerirAdmin } from "@/lib/auth";
+import { requerirPermisoPagina } from "@/lib/auth";
 import { crearAuditoria } from "@/app/actions";
 import { claveNombre } from "@/lib/marcanet/busqueda-nombre";
 import { Encabezado } from "@/components/ui";
@@ -12,7 +12,7 @@ export const metadata = { title: "Reporte 2" };
 const ESTADO: Record<string, string> = { PENDIENTE: "En espera", BUSCANDO: "Buscando…", DETENIDA: "Detenida", LISTA: "Lista", ERROR: "Con error" };
 
 export default async function NuevaAuditoria({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
-  const [{ id }, { error }] = await Promise.all([params, searchParams, requerirAdmin()]);
+  const [{ id }, { error }] = await Promise.all([params, searchParams, requerirPermisoPagina("reporte2")]);
   const c = await db.cliente.findUnique({ where: { id }, include: { expedientes: { select: { titular: true } } } });
   if (!c) notFound();
   const previas = await db.auditoria.findMany({ where: { clienteId: id }, orderBy: { creado: "desc" }, take: 10 });

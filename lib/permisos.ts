@@ -8,6 +8,7 @@ export const PERMISOS: Record<string, { txt: string; ayuda: string }> = {
   ver_pagos: { txt: "Ver Pagos", ayuda: "Ver el apartado de cobranza por mes y banco" },
   exportar: { txt: "Exportar Excel", ayuda: "Descargar el Excel de Pagos (sin contraseñas del IMPI)" },
   eliminar: { txt: "Eliminar", ayuda: "Borrar marcas, cobros y notificaciones" },
+  reporte2: { txt: "Reporte 2 (auditoría)", ayuda: "Hacer, ver, detener y descargar el Reporte 2: búsqueda de todas las marcas del cliente en el IMPI" },
 };
 
 export type Permiso = keyof typeof PERMISOS;

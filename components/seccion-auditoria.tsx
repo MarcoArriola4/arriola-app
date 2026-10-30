@@ -23,7 +23,7 @@ export function oportunidades(r: ResultadoAuditoria) {
 
 const ESTADO: Record<string, string> = { PENDIENTE: "en proceso", BUSCANDO: "en proceso", DETENIDA: "detenido", LISTA: "listo", ERROR: "con error" };
 
-/** Último Reporte 2 (auditoría) del cliente en su ficha, como un botón que se abre al picarlo (solo administradores). */
+/** Último Reporte 2 (auditoría) del cliente en su ficha, como un botón que se abre al picarlo (administradores y usuarios con el permiso «Reporte 2»). */
 export function SeccionAuditoria({ clienteId, a }: { clienteId: string; a: Auditoria | null }) {
   if (!a) {
     return (

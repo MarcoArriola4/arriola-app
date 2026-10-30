@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, FileDown } from "lucide-react";
 import { db } from "@/lib/db";
-import { requerirAdmin } from "@/lib/auth";
+import { requerirPermisoPagina } from "@/lib/auth";
 import { fmtFecha } from "@/lib/catalogos";
 import { categoriaDe, progresoAuditoria, type MarcaAuditada, type ResultadoAuditoria } from "@/lib/marcanet/auditoria";
 import { Imprimir } from "./cliente";
@@ -29,7 +29,7 @@ const CATEGORIAS = [
 ];
 
 export default async function Auditoria({ params }: { params: Promise<{ id: string }> }) {
-  const [{ id }] = await Promise.all([params, requerirAdmin()]);
+  const [{ id }] = await Promise.all([params, requerirPermisoPagina("reporte2")]);
   const a = await db.auditoria.findUnique({ where: { id } });
   if (!a) notFound();
   const cliente = a.clienteId ? await db.cliente.findUnique({ where: { id: a.clienteId }, select: { id: true, nombre: true } }) : null;
