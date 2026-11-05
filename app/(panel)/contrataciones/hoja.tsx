@@ -64,6 +64,8 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
   const [pago, setPago] = useState("");
   const [soloPendientes, setSoloPendientes] = useState(false);
   const [verVendedores, setVerVendedores] = useState(false);
+  const [verDinero, setVerDinero] = useState(false);
+  const [verDeudores, setVerDeudores] = useState(false);
   const [limite, setLimite] = useState(POR_PAGINA);
 
   // Vendedores normalizados: "Marco", "MARCO" y "MarCO" son la misma persona; una venta compartida cuenta para cada uno
@@ -109,6 +111,19 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
     [visibles]
   );
 
+  // Clientes que deben (de lo que se ve), con cuántas contrataciones deben y cuánto
+  const clientesDeben = useMemo(() => {
+    const m = new Map<string, { id: string; nombre: string; n: number; debe: number }>();
+    for (const f of visibles) {
+      if (f.saldo <= 0) continue;
+      const c = m.get(f.clienteId) ?? { id: f.clienteId, nombre: f.cliente, n: 0, debe: 0 };
+      c.n++;
+      c.debe += f.saldo;
+      m.set(f.clienteId, c);
+    }
+    return [...m.values()].sort((a, b) => b.debe - a.debe);
+  }, [visibles]);
+
   const conteoTrabajo = useMemo(() => {
     const c: Record<string, number> = {};
     for (const f of filas) c[f.estadoTrabajo ?? "SIN"] = (c[f.estadoTrabajo ?? "SIN"] ?? 0) + 1;
@@ -119,16 +134,53 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
     <>
       <datalist id="vendedores">{sugerencias.map((s) => <option key={s} value={s} />)}</datalist>
 
-      {/* Resumen */}
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+      {/* Resumen: contrataciones y cuántos deben (el dinero va en su bandeja, cerrada) */}
+      <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-3">
         <Tarjeta label="Contrataciones" valor={tot.n.toLocaleString("es-MX")} />
-        <Tarjeta label="Vendido" valor={mxn.format(tot.vendido)} />
-        <Tarjeta label="Cobrado" valor={mxn.format(tot.cobrado)} nota={`${tot.pagoCompleto} pagados completos`} tono="text-marca-oscuro" />
-        <button onClick={() => setPago(pago === "debe" ? "" : "debe")} className="text-left">
-          <Tarjeta label="Por cobrar" valor={mxn.format(tot.porCobrar)} nota={`${tot.deudores} deben · clic para verlos`} tono={tot.porCobrar ? "text-red-600" : ""} activo={pago === "debe"} />
+        <button onClick={() => setVerDeudores(!verDeudores)} className="text-left">
+          <Tarjeta label="Nos deben" valor={`${clientesDeben.length} ${clientesDeben.length === 1 ? "cliente" : "clientes"}`} nota={verDeudores ? "Clic para ocultar" : `${tot.deudores} contrataciones con saldo · clic para ver quiénes`} tono={clientesDeben.length ? "text-red-600" : ""} activo={verDeudores} />
         </button>
         <Tarjeta label="Por trabajar / presentar / pagar" valor={tot.porTrabajar} tono={tot.porTrabajar ? "text-violet-700" : ""} />
       </div>
+
+      {verDeudores && (
+        <section className="card mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/5 px-4 py-3">
+            <span className="text-sm font-semibold">Quiénes nos deben ({clientesDeben.length})</span>
+            <span className="flex items-center gap-3 text-xs">
+              <button onClick={() => setPago(pago === "debe" ? "" : "debe")} className="text-neutral-500 underline hover:text-black">{pago === "debe" ? "Ver todas las contrataciones" : "Ver solo sus contrataciones en la tabla"}</button>
+              <Link href="/pagos?estado=pendientes" className="text-neutral-500 underline hover:text-black">Dar seguimiento</Link>
+            </span>
+          </div>
+          {clientesDeben.length === 0 ? <p className="px-4 py-6 text-center text-sm text-neutral-500">Nadie debe en lo que se está viendo.</p> : (
+            <ul className="max-h-80 divide-y divide-black/5 overflow-y-auto">
+              {clientesDeben.map((c) => (
+                <li key={c.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                  <Link href={`/clientes/${c.id}`} className="min-w-0 truncate hover:underline">{c.nombre}</Link>
+                  <span className="shrink-0 text-xs text-neutral-500">{c.n} {c.n === 1 ? "contratación" : "contrataciones"}{verDinero && <b className="ml-2 font-semibold text-red-600">{mxn.format(c.debe)}</b>}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {/* Dinero: oculto hasta que se despliega */}
+      <section className="card mb-4">
+        <button onClick={() => setVerDinero(!verDinero)} className="flex w-full items-center justify-between px-4 py-3 text-left">
+          <span className="text-sm font-semibold">Dinero · vendido, cobrado y por cobrar</span>
+          <span className="text-xs text-neutral-500">{verDinero ? "Ocultar" : "Clic para ver"}</span>
+        </button>
+        {verDinero && (
+          <div className="grid grid-cols-1 gap-3 border-t border-black/5 p-3 sm:grid-cols-3">
+            <Tarjeta label="Vendido" valor={mxn.format(tot.vendido)} />
+            <Tarjeta label="Cobrado" valor={mxn.format(tot.cobrado)} nota={`${tot.pagoCompleto} pagados completos`} tono="text-marca-oscuro" />
+            <button onClick={() => setPago(pago === "debe" ? "" : "debe")} className="text-left">
+              <Tarjeta label="Por cobrar" valor={mxn.format(tot.porCobrar)} nota={`${tot.deudores} deben · clic para filtrarlos`} tono={tot.porCobrar ? "text-red-600" : ""} activo={pago === "debe"} />
+            </button>
+          </div>
+        )}
+      </section>
 
       {/* Ventas por vendedor */}
       <section className="card mb-4">
@@ -185,7 +237,7 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
       </Grupo>
       <Grupo titulo="Pago">
         {FILTROS_PAGO.map((p) => <Chip key={p.id} activo={pago === p.id} onClick={() => setPago(pago === p.id ? "" : p.id)}>{p.txt}</Chip>)}
-        {pago === "debe" && <span className="text-xs font-medium text-red-600">{tot.deudores} deben {mxn.format(tot.porCobrar)}</span>}
+        {pago === "debe" && <span className="text-xs font-medium text-red-600">{tot.deudores} deben{verDinero && ` ${mxn.format(tot.porCobrar)}`}</span>}
       </Grupo>
       <Grupo titulo="Vendió">
         <Chip activo={!vendedor} onClick={() => setVendedor(null)}>Todos</Chip>
@@ -212,10 +264,14 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
               <tfoot className="sticky bottom-0 bg-neutral-100 text-xs font-semibold">
                 <tr>
                   <td className="px-3 py-2.5" colSpan={6}>{tot.n.toLocaleString("es-MX")} contrataciones</td>
-                  <td className="px-3 py-2.5 text-right">{mxn.format(tot.vendido)}</td>
+                  <td className="px-3 py-2.5 text-right">{verDinero ? mxn.format(tot.vendido) : ""}</td>
                   <td className="px-3 py-2.5">
-                    <span className="text-marca-oscuro">{mxn.format(tot.cobrado)}</span>
-                    {tot.porCobrar > 0 && <span className="ml-2 text-red-600">deben {mxn.format(tot.porCobrar)}</span>}
+                    {verDinero ? (
+                      <>
+                        <span className="text-marca-oscuro">{mxn.format(tot.cobrado)}</span>
+                        {tot.porCobrar > 0 && <span className="ml-2 text-red-600">deben {mxn.format(tot.porCobrar)}</span>}
+                      </>
+                    ) : tot.deudores > 0 && <span className="text-red-600">{tot.deudores} con saldo</span>}
                   </td>
                   <td className="px-3 py-2.5" colSpan={2}>{tot.porTrabajar} por trabajar / presentar / pagar en sistema</td>
                 </tr>
