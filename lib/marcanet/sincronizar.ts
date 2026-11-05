@@ -235,6 +235,9 @@ export async function expedientesParaHoy(db: PrismaClient, rotacion = 150) {
 
 const ESPERA_CUOTA_MS = 11 * 60 * 1000; // MARCanet pide esperar 10 minutos
 
+/** MARCanet no respondió (servidor caído o sin conexión): la marca no cuenta como revisada, queda pendiente. */
+export const esFallaDeConexion = (msg: string) => /fetch failed|timed? ?out|ECONN|ENOTFOUND|EAI_AGAIN|aborted|socket|network/i.test(msg);
+
 /** Corre la sincronización y deja registro en SyncMarcanet. `horasMax` corta la corrida (la nocturna dura de 1 a 6 a.m. aprox.). */
 export async function sincronizarMarcanet(opciones: { modo: string; expedientes?: Expediente[]; db?: PrismaClient; horasMax?: number; barrido?: Date; alAvanzar?: (i: number, total: number) => void }) {
   const limite = Date.now() + (opciones.horasMax ?? 5) * 3600 * 1000;
@@ -293,7 +296,8 @@ export async function sincronizarMarcanet(opciones: { modo: string; expedientes?
       t.errores++;
       consecutivos++;
       const msg = e instanceof Error ? e.message : String(e);
-      await db.expediente.update({ where: { id: exp.id }, data: { marcanetError: msg, marcanetSync: new Date() } });
+      // Sin conexión con MARCanet no se marca como revisada: se vuelve a intentar en la siguiente corrida
+      if (!esFallaDeConexion(msg)) await db.expediente.update({ where: { id: exp.id }, data: { marcanetError: msg, marcanetSync: new Date() } });
       if (/captcha/i.test(msg) || consecutivos >= 10) {
         mensaje = `Se detuvo: ${msg}${consecutivos >= 10 ? " (10 errores seguidos; MARCanet podría estar caído)" : ""}`;
         break;

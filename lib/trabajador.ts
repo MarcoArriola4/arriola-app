@@ -7,11 +7,13 @@ import { DIA } from "./plazos";
 import { avanzarAuditoria } from "./marcanet/auditoria";
 import { MarcanetCuotaError } from "./marcanet/consulta";
 import { expedientesDelBarrido, marcasRevisionSemanal } from "./marcanet/seleccion";
-import { sincronizarExpediente } from "./marcanet/sincronizar";
+import { esFallaDeConexion, sincronizarExpediente } from "./marcanet/sincronizar";
 
 export const PRESUPUESTO_MS = 200 * 1000; // la función dura máx. 300 s: se deja margen
 const CANDADO_MS = 6 * 60 * 1000;
 const ESPERA_CUOTA_MS = 11 * 60 * 1000;
+/** Si MARCanet no responde (servidor del IMPI caído), se espera esto y se reintenta solo, sin perder lo avanzado. */
+const ESPERA_CAIDA_MS = 15 * 60 * 1000;
 /** La revisión de contestaciones vendidas sin presentar corre cada 7 días (el cron diario entra a la misma hora: margen de 6 h). */
 const CADA_REVISION_SEMANAL_MS = 7 * DIA - 6 * 3600 * 1000;
 
@@ -57,6 +59,7 @@ async function revisarMarcas(db: PrismaClient, modo: string, pendientes: Awaited
   const t = { consultados: 0, errores: 0, nuevos: 0, contestados: 0 };
   let mensaje: string | null = null;
   let i = 0;
+  let sinConexion = 0;
   try {
     for (; i < pendientes.length && Date.now() < limite; i++) {
       const exp = pendientes[i];
@@ -65,10 +68,22 @@ async function revisarMarcas(db: PrismaClient, modo: string, pendientes: Awaited
         t.consultados++;
         t.nuevos += r.nuevos;
         t.contestados += r.contestados;
+        sinConexion = 0;
       } catch (e) {
         if (e instanceof MarcanetCuotaError) throw e;
+        const msg = e instanceof Error ? e.message : String(e);
         t.errores++;
-        await db.expediente.update({ where: { id: exp.id }, data: { marcanetError: e instanceof Error ? e.message : String(e), marcanetSync: new Date() } });
+        if (esFallaDeConexion(msg)) {
+          // No cuenta como revisada (queda pendiente). Si MARCanet sigue sin responder, se pausa y se reintenta solo
+          if (++sinConexion >= 3) {
+            await db.configuracion.update({ where: { id: "main" }, data: { esperaCuotaHasta: new Date(Date.now() + ESPERA_CAIDA_MS) } });
+            mensaje = "MARCanet (IMPI) no responde; se reintenta sola en 15 min sin perder lo avanzado";
+            break;
+          }
+          continue;
+        }
+        sinConexion = 0;
+        await db.expediente.update({ where: { id: exp.id }, data: { marcanetError: msg, marcanetSync: new Date() } });
       }
     }
   } catch (e) {
