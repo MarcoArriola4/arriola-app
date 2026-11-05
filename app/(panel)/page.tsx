@@ -149,7 +149,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
             <p className={`mt-1 text-3xl font-semibold tracking-tight ${totalDeuda ? "text-red-600" : "text-neutral-300"}`}>{mxn.format(totalDeuda)}</p>
             <p className="mt-0.5 text-xs text-neutral-500">
               {deudores.length} {deudores.length === 1 ? "cliente activo" : "clientes activos"} con saldo
-              {inactivos.length > 0 && <> · +{mxn.format(totalInactivos)} de {inactivos.length} que ya no contestan</>}
+              {inactivos.length > 0 && <> · +{mxn.format(totalInactivos)} apartados de {inactivos.length}</>}
             </p>
           </Link>
         )}

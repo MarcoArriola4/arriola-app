@@ -62,6 +62,12 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
   const inhabiles = await cargarInhabiles();
   const servicios = c.expedientes.flatMap((e) => e.servicios);
   const pagado = servicios.reduce((a, s) => a + s.pagado, 0);
+  const contratado = servicios.reduce((a, s) => a + (s.costo ?? 0), 0);
+  const porTipo = Object.entries(servicios.reduce<Record<string, number>>((a, s) => ((a[s.tipo] = (a[s.tipo] ?? 0) + 1), a), {}))
+    .sort((a, b) => b[1] - a[1])
+    .map(([t, k]) => `${k} ${(TIPOS_SERVICIO[t] ?? t).toLowerCase()}`)
+    .join(" · ");
+  const ultima = servicios.map((s) => s.fechaContratacion ?? s.creado).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
   const debe = servicios.reduce((a, s) => a + Math.max(0, (s.costo ?? 0) - s.pagado), 0);
   const oficiosActivos = c.expedientes.flatMap((e) => e.notificaciones).filter((n) => ACTIVAS.includes(n.estado)).length;
   const tel = c.telefono?.split(/[/,]/)[0].replace(/\D/g, "") ?? "";
@@ -109,11 +115,12 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
         {c.notas && <p className="mt-3 whitespace-pre-line rounded-lg bg-neutral-50 px-3 py-2 text-sm text-neutral-600">{c.notas}</p>}
       </section>
 
+      {/* Arriba: cuántas contrataciones lleva (para promociones); el dinero va hasta abajo */}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Metrica label="Contrataciones" valor={servicios.length} nota={porTipo || undefined} />
         <Metrica label="Marcas" valor={n} />
         <Metrica label="Oficios en curso" valor={oficiosActivos} tono={oficiosActivos ? "ambar" : undefined} />
-        <Metrica label="Total pagado" valor={mxn.format(pagado)} tono="verde" />
-        <Metrica label="Saldo pendiente" valor={mxn.format(debe)} tono={debe > 0 ? "rojo" : undefined} />
+        <Metrica label="Última contratación" valor={ultima ? fmtFecha(ultima) : "—"} />
       </div>
 
       {puede("reporte2") && <SeccionAuditoria clienteId={c.id} a={auditoria} />}
@@ -139,6 +146,14 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
 
         {/* Detalle de la marca elegida */}
         {sel ? <DetalleMarca e={sel} permisos={sesion.permisos} inhabiles={inhabiles} /> : <div className="card"><Vacio>Este cliente aún no tiene marcas.</Vacio></div>}
+      </div>
+
+      {/* Hasta abajo: el dinero del cliente */}
+      <h2 className="mb-2 mt-8 px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">Pagos del cliente</h2>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <Metrica label="Total contratado" valor={mxn.format(contratado)} />
+        <Metrica label="Total pagado" valor={mxn.format(pagado)} tono="verde" />
+        <Metrica label="Saldo pendiente" valor={mxn.format(debe)} tono={debe > 0 ? "rojo" : undefined} />
       </div>
     </>
   );
@@ -239,6 +254,7 @@ function DetalleMarca({ e, permisos }: { e: Exp; permisos: Set<string>; inhabile
               {TIPOS_EXPEDIENTE[e.tipo]} · Expediente <b className="font-medium text-neutral-800">{e.numeroExpediente ?? "sin número"}</b>
               {e.numeroRegistro && <> · Registro <b className="font-medium text-neutral-800">{e.numeroRegistro}</b></>}
             </p>
+            {e.servicios.length > 0 && <p className="mt-1 text-xs font-medium text-neutral-700">{e.servicios.length} {e.servicios.length === 1 ? "contratación" : "contrataciones"} de esta marca</p>}
             {e.ultimaActImpi && e.ultimaActImpiFecha ? (
               <p className={`mt-2 inline-flex flex-wrap items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs ${e.ultimaActImpiDe === "IMPI" ? "bg-violet-50 text-violet-800" : "bg-sky-50 text-sky-800"}`}>
                 <b className="font-semibold">Última actualización IMPI · {fmtFecha(e.ultimaActImpiFecha)}:</b>
@@ -393,6 +409,43 @@ function DetalleMarca({ e, permisos }: { e: Exp; permisos: Set<string>; inhabile
         )}
       </section>}
 
+      {/* Historial */}
+      <section className="card">
+        <h3 className="border-b border-black/5 px-4 py-3 text-sm font-semibold">Historial</h3>
+        <form action={agregarEvento} className="flex flex-wrap gap-2 border-b border-black/5 px-4 py-3">
+          <input type="hidden" name="expedienteId" value={e.id} />
+          <input type="date" name="fecha" defaultValue={new Date().toLocaleDateString("en-CA")} className="input w-auto" />
+          <input name="titulo" required placeholder="Agregar nota: se llamó al cliente, se envió escrito…" className="input min-w-0 flex-1" />
+          <button className="btn">Agregar</button>
+        </form>
+        {e.eventos.length === 0 ? <Vacio>Sin movimientos.</Vacio> : (
+          <ol className="px-4 py-3">
+            {[...e.eventos].sort((a, b) => b.fecha.getTime() - a.fecha.getTime()).map((ev) => (
+              <li key={ev.id} className="relative border-l border-black/10 pb-4 pl-5 last:pb-1">
+                <span className={`absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${ev.importado ? "bg-neutral-300" : "bg-marca"}`} />
+                <p className="text-xs text-neutral-400">{fmtFecha(ev.fecha)}{ev.autor && ` · ${ev.autor}`}</p>
+                <p className="text-sm">{ev.titulo}</p>
+                {ev.detalle && <p className="text-xs text-neutral-500">{ev.detalle}</p>}
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      <EditarExpediente
+        e={{
+          id: e.id, denominacion: e.denominacion, tipo: e.tipo, numeroExpediente: e.numeroExpediente, numeroRegistro: e.numeroRegistro, etapa: e.etapa,
+          fechaPresentacion: e.fechaPresentacion?.toISOString().slice(0, 10) ?? "", fechaConcesion: e.fechaConcesion?.toISOString().slice(0, 10) ?? "", notas: e.notas ?? "",
+        }}
+        etapas={ETAPAS}
+        tipos={TIPOS_EXPEDIENTE}
+      />
+      {e.notas && (
+        <section className="card p-4">
+          <h3 className="mb-2 text-sm font-semibold">Notas de la marca</h3>
+          <p className="whitespace-pre-line text-sm text-neutral-600">{e.notas}</p>
+        </section>
+      )}
       {/* Pagos */}
       <section className="card">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/5 px-4 py-3">
@@ -437,43 +490,6 @@ function DetalleMarca({ e, permisos }: { e: Exp; permisos: Set<string>; inhabile
         )}
       </section>
 
-      {/* Historial */}
-      <section className="card">
-        <h3 className="border-b border-black/5 px-4 py-3 text-sm font-semibold">Historial</h3>
-        <form action={agregarEvento} className="flex flex-wrap gap-2 border-b border-black/5 px-4 py-3">
-          <input type="hidden" name="expedienteId" value={e.id} />
-          <input type="date" name="fecha" defaultValue={new Date().toLocaleDateString("en-CA")} className="input w-auto" />
-          <input name="titulo" required placeholder="Agregar nota: se llamó al cliente, se envió escrito…" className="input min-w-0 flex-1" />
-          <button className="btn">Agregar</button>
-        </form>
-        {e.eventos.length === 0 ? <Vacio>Sin movimientos.</Vacio> : (
-          <ol className="px-4 py-3">
-            {[...e.eventos].sort((a, b) => b.fecha.getTime() - a.fecha.getTime()).map((ev) => (
-              <li key={ev.id} className="relative border-l border-black/10 pb-4 pl-5 last:pb-1">
-                <span className={`absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${ev.importado ? "bg-neutral-300" : "bg-marca"}`} />
-                <p className="text-xs text-neutral-400">{fmtFecha(ev.fecha)}{ev.autor && ` · ${ev.autor}`}</p>
-                <p className="text-sm">{ev.titulo}</p>
-                {ev.detalle && <p className="text-xs text-neutral-500">{ev.detalle}</p>}
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
-
-      <EditarExpediente
-        e={{
-          id: e.id, denominacion: e.denominacion, tipo: e.tipo, numeroExpediente: e.numeroExpediente, numeroRegistro: e.numeroRegistro, etapa: e.etapa,
-          fechaPresentacion: e.fechaPresentacion?.toISOString().slice(0, 10) ?? "", fechaConcesion: e.fechaConcesion?.toISOString().slice(0, 10) ?? "", notas: e.notas ?? "",
-        }}
-        etapas={ETAPAS}
-        tipos={TIPOS_EXPEDIENTE}
-      />
-      {e.notas && (
-        <section className="card p-4">
-          <h3 className="mb-2 text-sm font-semibold">Notas de la marca</h3>
-          <p className="whitespace-pre-line text-sm text-neutral-600">{e.notas}</p>
-        </section>
-      )}
     </div>
   );
 }

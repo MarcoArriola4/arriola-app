@@ -1049,6 +1049,7 @@ export async function fijarSeguimientoCliente(clienteId: string, estado: string 
       : { seguimiento: null, seguimientoNota: null, seguimientoFecha: null, seguimientoAutor: null },
   });
   revalidatePath("/");
+  revalidatePath("/pagos");
   revalidatePath(`/clientes/${clienteId}`);
 }
 

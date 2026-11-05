@@ -4,18 +4,30 @@ import { db } from "@/lib/db";
 import { requerirPermisoPagina } from "@/lib/auth";
 import { TIPOS_SERVICIO, fmtFecha, mxn } from "@/lib/catalogos";
 import { Encabezado, EstadoPago, Metrica, Origen, Vacio } from "@/components/ui";
+import { Deudores } from "./deudores";
 
 export const metadata = { title: "Pagos" };
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
-export default async function Pagos({ searchParams }: { searchParams: Promise<{ mes?: string; estado?: string }> }) {
-  await requerirPermisoPagina("ver_pagos");
-  const { mes, estado = "" } = await searchParams;
+export default async function Pagos({ searchParams }: { searchParams: Promise<{ mes?: string; estado?: string; seg?: string }> }) {
+  const sesion = await requerirPermisoPagina("ver_pagos");
+  const { mes, estado = "", seg } = await searchParams;
   const ahora = new Date();
   const [y, m] = (mes ?? `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`).split("-").map(Number);
   const desde = new Date(Date.UTC(y, m - 1, 1));
   const hasta = new Date(Date.UTC(y, m, 1));
   const soloPendientes = estado === "pendientes";
+
+  if (estado === "pendientes") {
+    return (
+      <>
+        <Encabezado titulo="Te deben" subtitulo="Todos los clientes con saldo pendiente. Actualiza qué pasó con cada uno para tener en orden lo que sí se va a cobrar.">
+          <Link href="/pagos" className="btn">Ver pagos por mes</Link>
+        </Encabezado>
+        <Deudores filtro={seg} cobros={sesion.permisos.has("cobros")} />
+      </>
+    );
+  }
 
   const where: Prisma.ServicioWhereInput = soloPendientes
     ? { estadoPago: { in: ["PENDIENTE", "PARCIAL"] }, costo: { gt: 0 } }
