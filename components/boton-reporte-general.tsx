@@ -4,12 +4,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { FileBarChart, RefreshCw } from "lucide-react";
 import { solicitarActualizacionTotal } from "@/app/actions";
+import { UltimaVez } from "@/components/actualizar-todas";
 
 /**
  * Admin: actualización TOTAL en MARCanet (todas las marcas, sin omitir ninguna; en segundo plano) y reporte general.
  * Es distinto del botón "Actualizar marcas activas" (solo activas y próximas a declaración de uso o renovación).
  */
-export function BotonReporteGeneral({ enCurso }: { enCurso: boolean }) {
+export function BotonReporteGeneral({ enCurso, ultimaTotal }: { enCurso: boolean; ultimaTotal: string | null }) {
   const router = useRouter();
   const [pidiendo, setPidiendo] = useState(false);
   const actualizar = async () => {
@@ -21,11 +22,14 @@ export function BotonReporteGeneral({ enCurso }: { enCurso: boolean }) {
     router.push("/reportes/general");
   };
   return (
+    <div className="space-y-2">
     <div className="flex flex-wrap items-center gap-2">
       <button onClick={actualizar} disabled={pidiendo} className="btn-primario">
         <RefreshCw size={15} className={pidiendo ? "animate-spin" : ""} /> {enCurso ? "Actualización total en curso · ver reporte" : "Actualizar TODAS las marcas y generar reporte"}
       </button>
       <Link href="/reportes/general" className="btn"><FileBarChart size={15} /> Ver reporte con los datos de hoy</Link>
+    </div>
+    <UltimaVez cuando={ultimaTotal} que="total (todas las marcas)" />
     </div>
   );
 }

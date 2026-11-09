@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { FileDown } from "lucide-react";
 import { db } from "@/lib/db";
 import { requerirAdmin } from "@/lib/auth";
 import { fmtFecha } from "@/lib/catalogos";
@@ -20,7 +21,10 @@ export default async function ReporteGeneral() {
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <Link href="/admin" className="text-sm text-neutral-500 hover:text-black">← Admin</Link>
-        <Imprimir />
+        <div className="flex flex-wrap gap-2">
+          <a href="/api/reportes/general" className="btn"><FileDown size={14} aria-hidden /> Descargar en Word</a>
+          <Imprimir />
+        </div>
       </div>
 
       {b.esTotal && (b.activo || b.solicitada) && (
@@ -35,7 +39,7 @@ export default async function ReporteGeneral() {
           <Image src="/logo.png" alt="Arriola Abogados" width={1040} height={380} className="w-36 sm:w-44" />
           <div className="text-right">
             <p className="text-lg font-semibold">Reporte general de marcas</p>
-            <p className="text-sm text-white/70">{new Date().toLocaleDateString("es-MX", { dateStyle: "long", timeZone: "America/Mexico_City" })}{b.termino && !b.activo ? ` · última actualización completa: ${fmtFecha(b.termino)}` : ""}</p>
+            <p className="text-sm text-white/70">{new Date().toLocaleDateString("es-MX", { dateStyle: "long", timeZone: "America/Mexico_City" })}{` · última actualización total en MARCanet: ${b.ultimaTotal ? fmtFecha(b.ultimaTotal) : "nunca"}`}</p>
           </div>
         </header>
 

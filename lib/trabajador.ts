@@ -151,7 +151,8 @@ export async function trabajar(db: PrismaClient, limite = Date.now() + PRESUPUES
       const pendientes = (await expedientesDelBarrido(db, new Date(), cfg.barridoTotal)).lista.filter((e) => !e.marcanetSync || e.marcanetSync < inicio);
       const faltan = pendientes.length ? await revisarMarcas(db, "BARRIDO", pendientes, limite, inicio) : 0;
       if (faltan >= 10) return true;
-      await db.configuracion.update({ where: { id: "main" }, data: { barridoTermino: new Date(), barridoTotal: false } });
+      const fin = new Date();
+      await db.configuracion.update({ where: { id: "main" }, data: { barridoTermino: fin, barridoTotal: false, ...(cfg.barridoTotal ? { ultimaActualizacionTotal: fin } : { ultimaActualizacionActivas: fin }) } });
       const ultimo = await db.syncMarcanet.findFirst({ where: { modo: "BARRIDO", barrido: inicio }, orderBy: { inicio: "desc" } });
       if (ultimo) await db.syncMarcanet.update({ where: { id: ultimo.id }, data: { mensaje: `Búsqueda completa TERMINADA · ${faltan} sin revisar` } });
     }

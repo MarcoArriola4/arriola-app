@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Printer, RefreshCw } from "lucide-react";
+import { FileDown, Printer, RefreshCw } from "lucide-react";
 import { solicitarRevisionMarcas } from "@/app/actions";
 
 /** Elegir titular, pedir que se actualicen con MARCanet e imprimir / guardar como PDF. */
@@ -25,6 +25,7 @@ export function AccionesReporte({ clienteId, titular, titulares, ids }: { client
       >
         <RefreshCw size={14} /> {pedido ? "Pedido · se actualizan en ~15–30 min" : `Actualizar estas ${ids.length} marcas con MARCanet`}
       </button>
+      <a href={`/api/clientes/${clienteId}/reporte${titular ? `?titular=${encodeURIComponent(titular)}` : ""}`} className="btn"><FileDown size={14} aria-hidden /> Descargar en Word</a>
       <button onClick={() => window.print()} className="btn-primario"><Printer size={14} /> Imprimir / guardar PDF</button>
     </div>
   );

@@ -4,95 +4,23 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { requerirSesion } from "@/lib/auth";
-import { cargarInhabiles } from "@/lib/inhabiles";
-import { ACTIVAS } from "@/lib/consultas";
-import { TIPOS_EXPEDIENTE, TIPOS_OFICIO, esSigno, fmtFecha, normalizarNombre } from "@/lib/catalogos";
-import { diasRestantes, esperandoImpi, fechaLimiteDDU, fechaRenovacion, siguientePlazo } from "@/lib/plazos";
+import { TIPOS_EXPEDIENTE, fmtFecha } from "@/lib/catalogos";
+import { datosReporteCliente } from "@/lib/reporte-cliente";
 import { AccionesReporte } from "./acciones";
 
 export const metadata = { title: "Reporte de marcas" };
 
-// Estatus explicado para el cliente (sin términos internos del despacho)
-const ESTATUS: Record<string, { txt: string; cls: string }> = {
-  POR_PRESENTAR: { txt: "Por presentar", cls: "bg-neutral-100 text-neutral-700" },
-  EN_TRAMITE: { txt: "En trámite ante el IMPI", cls: "bg-sky-50 text-sky-800" },
-  CON_OFICIO: { txt: "Requerimiento del IMPI en atención", cls: "bg-amber-50 text-amber-800" },
-  CONCEDIDA: { txt: "Registrada", cls: "bg-green-50 text-green-800" },
-  NEGATIVA: { txt: "Negativa del IMPI", cls: "bg-red-50 text-red-700" },
-  CONFIRMA_ACTO: { txt: "Negativa confirmada", cls: "bg-red-50 text-red-700" },
-  EN_JUICIO: { txt: "En recurso de revisión / juicio", cls: "bg-violet-50 text-violet-800" },
-  ABANDONADA: { txt: "Abandonada", cls: "bg-neutral-100 text-neutral-500" },
-};
-
-const clave = (t: string) => normalizarNombre(t).replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
-
 export default async function ReporteCliente({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ titular?: string }> }) {
   const [{ id }, { titular }] = await Promise.all([params, searchParams, requerirSesion()]);
-  const c = await db.cliente.findUnique({
-    where: { id },
-    include: {
-      expedientes: {
-        include: {
-          notificaciones: { where: { estado: { in: [...ACTIVAS, "NO_PAGO"] } }, orderBy: { fechaNotificacion: "desc" } },
-          oficiosImpi: { orderBy: { fechaOficio: "desc" }, take: 1 },
-        },
-      },
-    },
-  });
-  if (!c) notFound();
-  const inhabiles = await cargarInhabiles();
-  const hoy = new Date();
-
-  // Agrupadas por titular, ordenadas por titular y luego por marca
-  const todas = c.expedientes.map((e) => ({ ...e, tit: (e.titular ?? c.nombre).replace(/\s+/g, " ").trim() }));
-  const titulares = [...new Map(todas.map((e) => [clave(e.tit), e.tit])).entries()].sort((a, b) => a[1].localeCompare(b[1], "es"));
-  const elegidas = titular ? todas.filter((e) => clave(e.tit) === titular) : todas;
-  const grupos = titulares
-    .filter(([k]) => !titular || k === titular)
-    .map(([k, nombre]) => ({ nombre, marcas: elegidas.filter((e) => clave(e.tit) === k).sort((a, b) => a.denominacion.localeCompare(b.denominacion, "es")) }))
-    .filter((g) => g.marcas.length);
-
-  const filas = (e: (typeof elegidas)[number]) => {
-    const signo = esSigno(e.tipo);
-    const ddu = signo && e.fechaConcesion ? fechaLimiteDDU(e.fechaConcesion, inhabiles) : null;
-    const renov = signo && e.fechaConcesion ? fechaRenovacion(e.fechaConcesion) : null;
-    const oficio = e.notificaciones.find((n) => ACTIVAS.includes(n.estado));
-    const proximos: string[] = [];
-    if (e.desistio) proximos.push("Sin seguimiento (el titular decidió no continuar)");
-    else if (oficio) {
-      if (esperandoImpi(oficio)) proximos.push(`${TIPOS_OFICIO[oficio.tipo]}: en espera de la resolución del IMPI`);
-      else if (oficio.pendienteNotificar) proximos.push(`${TIPOS_OFICIO[oficio.tipo]}: emitido, pendiente de notificación`);
-      else {
-        const p = siguientePlazo(oficio);
-        proximos.push(`${TIPOS_OFICIO[oficio.tipo]}: responder a más tardar el ${fmtFecha(p.fecha)}${p.etiqueta ? ` (${p.etiqueta.toLowerCase()})` : ""}`);
-      }
-    }
-    if (ddu && diasRestantes(ddu, hoy) >= -30 && diasRestantes(ddu, hoy) <= 365) proximos.push(`Declaración de uso: a más tardar el ${fmtFecha(ddu)}`);
-    if (renov && diasRestantes(renov, hoy) <= 365 && diasRestantes(renov, hoy) >= -180) proximos.push(`Renovación: vence el ${fmtFecha(renov)}`);
-    if (!proximos.length && renov && e.etapa === "CONCEDIDA") proximos.push(`Vigente hasta el ${fmtFecha(renov)}`);
-    return { ddu, renov, proximos };
-  };
-
-  const etapa = (e: (typeof elegidas)[number]) => (e.desistio ? "ABANDONADA" : e.etapa);
-  const cuenta = (et: string[]) => elegidas.filter((e) => et.includes(etapa(e))).length;
-  const resumen = [
-    { t: "Marcas", n: elegidas.length },
-    { t: "Registradas", n: cuenta(["CONCEDIDA"]) },
-    { t: "En trámite", n: cuenta(["POR_PRESENTAR", "EN_TRAMITE", "CON_OFICIO"]) },
-    { t: "Negativa / juicio", n: cuenta(["NEGATIVA", "CONFIRMA_ACTO", "EN_JUICIO"]) },
-  ];
-  const consultaMasVieja = elegidas.map((e) => e.marcanetSync).filter(Boolean).sort((a, b) => a!.getTime() - b!.getTime())[0];
+  const d = await datosReporteCliente(db, id, titular);
+  if (!d) notFound();
+  const { cliente: c, hoy, grupos, resumen, consultaMasVieja, consultaMasNueva } = d;
 
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <Link href={`/clientes/${c.id}`} className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-black"><ChevronLeft size={15} /> {c.nombre}</Link>
-        <AccionesReporte
-          clienteId={c.id}
-          titular={titular ?? ""}
-          titulares={titulares.map(([k, n]) => ({ clave: k, nombre: n }))}
-          ids={elegidas.filter((e) => e.numeroExpediente && esSigno(e.tipo)).map((e) => e.id)}
-        />
+        <AccionesReporte clienteId={c.id} titular={titular ?? ""} titulares={d.titulares} ids={d.ids} />
       </div>
 
       <article className="mx-auto max-w-5xl overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5 print:max-w-none print:rounded-none print:shadow-none print:ring-0">
@@ -107,7 +35,8 @@ export default async function ReporteCliente({ params, searchParams }: { params:
         <div className="px-8 py-6">
           <p className="text-xs uppercase tracking-wide text-neutral-500">Cliente</p>
           <h1 className="font-titulo text-[1.9rem] font-semibold leading-tight tracking-tight">{c.nombre}</h1>
-          {titular && <p className="text-sm text-neutral-600">Titular: {grupos[0]?.nombre}</p>}
+          {d.titularNombre && <p className="text-sm text-neutral-600">Titular: {d.titularNombre}</p>}
+          <p className="mt-1 text-xs text-neutral-500">{consultaMasNueva ? `Última actualización en MARCanet: ${fmtFecha(consultaMasNueva)}` : "Aún sin consultar en MARCanet"}</p>
 
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {resumen.map((r) => (
@@ -133,12 +62,11 @@ export default async function ReporteCliente({ params, searchParams }: { params:
                 </thead>
                 <tbody className="divide-y divide-black/5 align-top">
                   {g.marcas.map((e) => {
-                    const f = filas(e);
-                    const est = ESTATUS[etapa(e)] ?? { txt: etapa(e), cls: "" };
-                    const ultimo = e.ultimaActImpi && e.ultimaActImpiFecha ? `${fmtFecha(e.ultimaActImpiFecha)} · ${e.ultimaActImpi}` : e.oficiosImpi[0] ? `${fmtFecha(e.oficiosImpi[0].fechaOficio)} · ${e.oficiosImpi[0].descripcion}` : null;
+                    const est = e.estatus;
+                    const ultimo = e.ultimo;
                     return (
                       <tr key={e.id} className="break-inside-avoid">
-                        <td className="py-2.5 pr-3"><p className="font-semibold">{e.denominacion}</p><p className="text-xs text-neutral-500">{TIPOS_EXPEDIENTE[e.tipo]}</p></td>
+                        <td className="py-2.5 pr-3"><p className="font-semibold">{e.denominacion}</p><p className="text-xs text-neutral-500">{TIPOS_EXPEDIENTE[e.tipo]}</p><p className="text-[11px] text-neutral-400">{e.marcanetSync ? `MARCanet: ${fmtFecha(e.marcanetSync)}` : "Sin consultar en MARCanet"}</p></td>
                         <td className="py-2.5 pr-3 text-xs"><p>Exp. {e.numeroExpediente ?? "—"}</p>{e.numeroRegistro && <p>Reg. {e.numeroRegistro}</p>}</td>
                         <td className="py-2.5 pr-3 text-xs text-neutral-600">
                           {e.fechaPresentacion && <p>Presentada: {fmtFecha(e.fechaPresentacion)}</p>}
@@ -147,7 +75,7 @@ export default async function ReporteCliente({ params, searchParams }: { params:
                         <td className="py-2.5 pr-3"><span className={`inline-block rounded-md px-2 py-0.5 text-xs font-medium print:[print-color-adjust:exact] ${est.cls}`}>{est.txt}</span></td>
                         <td className="py-2.5 text-xs">
                           {ultimo && <p className="text-neutral-600">{ultimo}</p>}
-                          {f.proximos.map((p) => <p key={p} className="font-medium text-neutral-900">→ {p}</p>)}
+                          {e.proximos.map((p) => <p key={p} className="font-medium text-neutral-900">→ {p}</p>)}
                         </td>
                       </tr>
                     );

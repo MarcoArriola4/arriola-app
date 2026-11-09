@@ -89,9 +89,10 @@ export function ActualizarTodas({
         <button onClick={() => ejecutar(solicitarRevisionActivos)} disabled={cambiando} className="btn">
           <RefreshCw size={15} /> Revisar ahora las contestaciones vendidas
         </button>
+        {!b.activos.ultima && <span className="text-[11px] text-neutral-500">Última revisión en MARCanet: nunca</span>}
         {b.activos.ultima && (
           <span className="text-[11px] text-neutral-500">
-            Última: {fecha(b.activos.ultima.fin)} · {b.activos.ultima.consultados} de {b.activos.ultima.total} revisadas · {b.activos.ultima.contestados} ya presentadas en el IMPI
+            Última revisión en MARCanet: <b className="font-medium text-neutral-700">{fecha(b.activos.ultima.fin)}</b> · {b.activos.ultima.consultados} de {b.activos.ultima.total} revisadas · {b.activos.ultima.contestados} ya presentadas en el IMPI
             {b.activos.ultima.errores > 0 && <span className="text-red-600"> · {b.activos.ultima.errores} con error</span>} · <Link href="/reportes" className="underline">ver reporte</Link>
           </span>
         )}
@@ -125,6 +126,7 @@ export function ActualizarTodas({
       >
         {b.revisadas.toLocaleString("es-MX")} de {b.total.toLocaleString("es-MX")} marcas · faltan aprox. <b>{formatoTiempo(restante ?? b.restanteSeg ?? 0)}</b>
         {b.errores > 0 && <span className="text-red-600"> · {b.errores} con error</span>} · sigue aunque cierres la app
+        {" · "}Última {b.esTotal ? "total" : "de activas"} terminada: {(b.esTotal ? b.ultimaTotal : b.ultimaActivas) ? fecha((b.esTotal ? b.ultimaTotal : b.ultimaActivas)!) : "nunca"}
       </Caja>
     );
   }
@@ -150,6 +152,7 @@ export function ActualizarTodas({
         {b.revisadas.toLocaleString("es-MX")} de {b.total.toLocaleString("es-MX")} marcas revisadas
         {b.errores > 0 && <span className="text-red-600"> · {b.errores} con error</span>}
         {b.pausadaEn && ` · detenida el ${fecha(b.pausadaEn)}`}
+        {" · "}Última {b.esTotal ? "total" : "de activas"} terminada: {(b.esTotal ? b.ultimaTotal : b.ultimaActivas) ? fecha((b.esTotal ? b.ultimaTotal : b.ultimaActivas)!) : "nunca"}
         {esAdmin && <button onClick={() => ejecutar(reanudarBusqueda)} disabled={cambiando} className="ml-2 underline">o dejar que siga sola</button>}
       </Caja>
     );
@@ -165,9 +168,10 @@ export function ActualizarTodas({
           <RefreshCw size={15} /> Actualizar marcas activas
         </button>
       </div>
+      <UltimaVez cuando={b.ultimaActivas} que="de marcas activas" />
       {b.termino && (
         <p className="text-xs text-neutral-500">
-          Última actualización: <b className="font-medium text-neutral-700">terminó el {fecha(b.termino)}</b>
+          Última búsqueda terminada: <b className="font-medium text-neutral-700">{fecha(b.termino)}</b>
           {" · "}{b.revisadas.toLocaleString("es-MX")} de {b.total.toLocaleString("es-MX")} revisadas
           {b.errores > 0 ? <span className="text-red-600"> · {b.errores} con error</span> : " · sin errores"}
           {b.faltaron > 0 && <span className="text-amber-700"> · {b.faltaron} sin revisar</span>}
@@ -196,4 +200,22 @@ function Caja({ tono, icono, titulo, pct, accion, children }: { tono: "ambar" | 
       {accion}
     </div>
   );
+}
+
+/** "Última actualización en MARCanet: …" (o "nunca"), junto a cada botón. */
+export function UltimaVez({ cuando, que }: { cuando: string | null; que: string }) {
+  return (
+    <p className="text-xs text-neutral-500">
+      Última actualización {que} en MARCanet:{" "}
+      {cuando ? <b className="font-medium text-neutral-700">{fecha(cuando)} <span className="font-normal text-neutral-400">· hace {hace(cuando)}</span></b> : <b className="font-medium text-neutral-700">nunca</b>}
+    </p>
+  );
+}
+
+function hace(iso: string) {
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (min < 60) return `${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 48) return `${h} h`;
+  return `${Math.round(h / 24)} días`;
 }

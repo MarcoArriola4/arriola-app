@@ -6,6 +6,9 @@ export type EstadoBarrido = {
   activo: boolean;
   /** actualización total (botón de Admin): todas las marcas, sin omitir ninguna */
   esTotal: boolean;
+  /** cuándo terminó la última actualización de marcas activas y la última total (null = nunca) */
+  ultimaActivas: string | null;
+  ultimaTotal: string | null;
   /** el admin la detuvo con el tache (se continúa a mano o se reanuda) */
   pausada: boolean;
   pausadaEn: string | null;
@@ -59,6 +62,8 @@ export async function estadoBarrido(): Promise<EstadoBarrido> {
   return {
     activo,
     esTotal,
+    ultimaActivas: cfg?.ultimaActualizacionActivas?.toISOString() ?? null,
+    ultimaTotal: cfg?.ultimaActualizacionTotal?.toISOString() ?? null,
     solicitada: !!cfg?.solicitudBusqueda,
     activos: {
       solicitada: !!cfg?.solicitudActivos,

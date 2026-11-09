@@ -95,7 +95,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
         <section className="card p-5 lg:col-span-2">
           <h2 className="text-sm font-semibold">Reporte general de marcas</h2>
           <p className="mb-3 mt-0.5 text-xs text-neutral-500">Actualiza TODAS las marcas en MARCanet (sin omitir ninguna) y arma un reporte: marcas ganadas con su declaración de uso y renovación, negadas y abandonadas con su motivo, oficios en curso y lo que espera o ya recibió respuesta del IMPI.</p>
-          <BotonReporteGeneral enCurso={barrido.esTotal && (barrido.activo || barrido.solicitada || barrido.pausada)} />
+          <BotonReporteGeneral enCurso={barrido.esTotal && (barrido.activo || barrido.solicitada || barrido.pausada)} ultimaTotal={barrido.ultimaTotal} />
           <p className="mt-2 text-[11px] text-neutral-400">Es distinto del botón «Actualizar marcas activas» de abajo, que solo revisa las activas y las próximas a declaración de uso o renovación.</p>
         </section>
 

@@ -123,7 +123,8 @@ async function cicloConCandado(cfgInicial: Awaited<ReturnType<typeof db.configur
     // Los números que no son del IMPI (s/n, MX/…) no cuentan; con menos de 10 pendientes (errores sueltos) se da por terminada
     const realesQuedan = (await expedientesDelBarrido(db, new Date(), cfg.barridoTotal)).lista.filter((e) => !e.marcanetSync || e.marcanetSync < inicio).length;
     if (realesQuedan < 10) {
-      await db.configuracion.update({ where: { id: "main" }, data: { barridoTermino: new Date(), barridoTotal: false } });
+      const fin = new Date();
+      await db.configuracion.update({ where: { id: "main" }, data: { barridoTermino: fin, barridoTotal: false, ...(cfg.barridoTotal ? { ultimaActualizacionTotal: fin } : { ultimaActualizacionActivas: fin }) } });
       // Queda escrito en el último bloque para el reporte
       const ultimo = await db.syncMarcanet.findFirst({ where: { modo: "BARRIDO", barrido: inicio }, orderBy: { inicio: "desc" } });
       if (ultimo) await db.syncMarcanet.update({ where: { id: ultimo.id }, data: { mensaje: [`Búsqueda completa TERMINADA · ${realesQuedan} sin revisar`, ultimo.mensaje].filter(Boolean).join(" — ") } });
