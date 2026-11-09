@@ -106,7 +106,7 @@ export default async function ReporteCliente({ params, searchParams }: { params:
 
         <div className="px-8 py-6">
           <p className="text-xs uppercase tracking-wide text-neutral-500">Cliente</p>
-          <h1 className="text-2xl font-semibold tracking-tight">{c.nombre}</h1>
+          <h1 className="font-titulo text-[1.9rem] font-semibold leading-tight tracking-tight">{c.nombre}</h1>
           {titular && <p className="text-sm text-neutral-600">Titular: {grupos[0]?.nombre}</p>}
 
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">

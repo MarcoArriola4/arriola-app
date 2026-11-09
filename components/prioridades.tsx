@@ -38,7 +38,7 @@ export async function Prioridades({ seguimiento }: { seguimiento: number }) {
         <h2 className="text-base font-semibold">Prioridades de hoy</h2>
         <span className="text-xs text-neutral-500">{atencion.length ? `${atencion.length} por atender` : "Todo al día"}</span>
       </div>
-      <div className="mb-4 grid grid-cols-3 divide-x divide-black/[0.06] overflow-hidden rounded-xl border border-black/[0.06] bg-white">
+      <div className="mb-4 grid grid-cols-3 divide-x divide-black/[0.06] overflow-hidden card">
         {indicadores.map((i) => (
           <div key={i.t} className="px-4 py-3">
             <p className={`text-3xl font-semibold tracking-tight ${i.n ? i.cls : "text-neutral-300"}`}>{i.n}</p>
@@ -49,7 +49,7 @@ export async function Prioridades({ seguimiento }: { seguimiento: number }) {
       {visibles.length === 0 ? (
         <p className="flex items-center justify-center gap-2 py-6 text-sm text-marca-oscuro"><CheckCircle2 size={18} /> Sin pendientes urgentes.</p>
       ) : (
-        <ul className="overflow-hidden rounded-xl border border-black/[0.06] bg-white">
+        <ul className="overflow-hidden card">
           {visibles.map((n, i) => {
             const q = n.estado === "AVISADO" && n.fechaAvisoCliente && -diasRestantes(n.fechaAvisoCliente) >= seguimiento
               ? { txt: `Sin pago hace ${-diasRestantes(n.fechaAvisoCliente)} días`, cls: QUE_HACER.AVISADO.cls }

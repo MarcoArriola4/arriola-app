@@ -1,6 +1,5 @@
-import Image from "next/image";
 import Link from "next/link";
-import { KeyRound, LogOut, UserPlus } from "lucide-react";
+import { UserPlus } from "lucide-react";
 import { requerirSesion } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { salir } from "../login/actions";
@@ -23,33 +22,15 @@ export default async function PanelLayout({ children }: { children: React.ReactN
 
   return (
     <div className="min-h-screen md:flex">
-      <aside className="print:hidden bg-carbon text-white md:sticky md:top-0 md:flex md:h-screen md:w-60 md:shrink-0 md:flex-col">
-        <div className="flex items-center justify-between px-4 py-4 md:block md:px-5 md:py-6">
-          <Link href="/"><Image src="/logo.png" alt="Arriola Abogados" width={1040} height={380} className="w-36 md:w-44" priority /></Link>
-          <form action={salir} className="md:hidden">
-            <button className="text-white/60 hover:text-white" aria-label="Salir"><LogOut size={18} /></button>
-          </form>
-        </div>
-        <Nav urgentes={urgentes} esAdmin={esAdmin} permisos={permisos} recordatorios={recordatorios} />
-        <div className="mt-auto hidden border-t border-white/10 px-5 py-4 md:block">
-          <p className="truncate text-sm text-white/90">{sesion.nombre}</p>
-          <p className="truncate text-xs text-white/40">{esAdmin ? "Administrador" : "Usuario"}</p>
-          <div className="mt-2 flex gap-3">
-            <Link href="/cuenta" className="inline-flex items-center gap-1.5 text-xs text-white/50 hover:text-white"><KeyRound size={13} /> Mi cuenta</Link>
-            <form action={salir}>
-              <button className="inline-flex items-center gap-1.5 text-xs text-white/50 hover:text-white"><LogOut size={13} /> Salir</button>
-            </form>
-          </div>
-        </div>
-      </aside>
+      <Nav urgentes={urgentes} esAdmin={esAdmin} permisos={permisos} recordatorios={recordatorios} nombre={sesion.nombre} salir={salir} />
       <div className="min-w-0 flex-1">
-        <header className="print:hidden sticky top-0 z-30 flex items-center gap-3 border-b border-black/5 bg-[#f6f6f3]/90 px-4 py-3 backdrop-blur md:px-8">
+        <header className="sticky top-16 z-30 flex items-center gap-3 border-b border-linea bg-fondo/85 px-4 py-3 backdrop-blur-md print:hidden md:top-0 md:px-8">
           <Buscador />
           {sesion.permisos.has("altas") && (
-            <Link href="/admin/alta" className="btn-primario ml-auto shrink-0 py-2"><UserPlus size={15} /> <span className="hidden sm:inline">Nuevo cliente / servicio</span></Link>
+            <Link href="/admin/alta" className="btn-primario ml-auto min-h-10 shrink-0" aria-label="Nuevo cliente o servicio"><UserPlus size={16} aria-hidden /> <span className="hidden sm:inline">Nuevo cliente / servicio</span></Link>
           )}
         </header>
-        <main className="px-4 py-6 md:px-8 md:py-8 print:p-0">{children}</main>
+        <main className="animate-aparecer mx-auto w-full max-w-[1500px] px-4 py-6 md:px-8 md:py-8 print:p-0">{children}</main>
         <AvisoRecordatorios />
       </div>
     </div>

@@ -57,12 +57,12 @@ export function Buscador() {
           if (e.key === "Escape") setAbierto(false);
         }}
         placeholder="Buscar cliente, marca, expediente, registro o teléfono…"
-        className="w-full rounded-xl border border-black/10 bg-white py-2.5 pl-10 pr-10 text-sm outline-none transition focus:border-marca focus:ring-4 focus:ring-marca/20"
+        className="min-h-10 w-full rounded-xl border border-black/[0.12] bg-white py-2.5 pl-10 pr-10 text-sm shadow-tarjeta outline-none transition duration-150 placeholder:text-neutral-400 hover:border-black/20 focus:border-marca-oscuro focus:ring-4 focus:ring-marca/20"
       />
       <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-black/10 px-1.5 text-[11px] text-neutral-400 sm:block">/</kbd>
 
       {abierto && q.trim().length >= 2 && (
-        <div className="absolute z-40 mt-2 max-h-[70vh] w-full overflow-y-auto rounded-xl border border-black/10 bg-white p-1.5 shadow-xl">
+        <div className="animate-aparecer absolute z-40 mt-2 max-h-[70vh] w-full overflow-y-auto rounded-xl border border-linea bg-white p-1.5 shadow-flotante">
           {cargando && res.length === 0 && <p className="px-3 py-4 text-sm text-neutral-400">Buscando…</p>}
           {!cargando && res.length === 0 && <p className="px-3 py-4 text-sm text-neutral-400">Sin resultados para “{q}”.</p>}
           {res.map((r, i) => (

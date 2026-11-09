@@ -9,10 +9,10 @@ export default function ErrorPanel({ error, reset }: { error: Error & { digest?:
     console.error(error);
   }, [error]);
   return (
-    <div className="mx-auto mt-16 max-w-md rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center">
-      <AlertTriangle className="mx-auto mb-3 text-amber-600" size={28} />
-      <h1 className="text-lg font-semibold text-amber-900">Algo no salió bien</h1>
-      <p className="mt-1 text-sm text-amber-800">No se guardó ningún cambio a medias. Vuelve a intentarlo; si se repite, avísanos con este código: <b>{error.digest ?? "sin código"}</b>.</p>
+    <div className="card mx-auto mt-16 max-w-md p-8 text-center">
+      <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 text-amber-600"><AlertTriangle size={24} aria-hidden /></span>
+      <h1 className="font-titulo text-2xl font-semibold text-carbon">Algo no salió bien</h1>
+      <p className="mt-2 text-sm text-neutral-600">No se guardó ningún cambio a medias. Vuelve a intentarlo; si se repite, avísanos con este código: <b>{error.digest ?? "sin código"}</b>.</p>
       <div className="mt-4 flex justify-center gap-2">
         <button onClick={reset} className="btn-primario"><RotateCcw size={14} /> Reintentar</button>
         <Link href="/" className="btn">Ir al inicio</Link>

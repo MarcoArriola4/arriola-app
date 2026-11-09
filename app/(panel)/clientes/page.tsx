@@ -37,21 +37,27 @@ export default async function Clientes({ searchParams }: { searchParams: Promise
         <VistaClientesMarcas activa="clientes" />
         <ActualizarTodas barrido={await estadoBarrido()} esAdmin={sesion.rol === "ADMIN"} />
       </Encabezado>
-      <form className="mb-4 flex gap-2">
-        <input name="q" defaultValue={q} placeholder="Buscar por nombre, teléfono, correo o marca" className="input max-w-md" />
-        <button className="btn">Buscar</button>
+      <form className="mb-4 flex gap-2" role="search">
+        <label className="sr-only" htmlFor="q-clientes">Buscar clientes</label>
+        <input id="q-clientes" name="q" defaultValue={q} placeholder="Buscar por nombre, teléfono, correo o marca" className="input min-h-10 max-w-md" />
+        <button className="btn min-h-10">Buscar</button>
       </form>
       <div className="card overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
-          <thead className="border-b border-black/5 bg-neutral-50/60"><tr><th className="th">Cliente</th><th className="th">Teléfono</th><th className="th">Correo</th><th className="th text-right">Marcas</th><th className="th text-right">Concedidas</th></tr></thead>
+          <thead className="border-b border-linea"><tr><th className="th">Cliente</th><th className="th">Teléfono</th><th className="th">Correo</th><th className="th text-right">Marcas</th><th className="th text-right">Concedidas</th></tr></thead>
           <tbody className="divide-y divide-black/5">
             {clientes.map((c) => (
-              <tr key={c.id} className="hover:bg-neutral-50">
-                <td className="td"><Link href={`/clientes/${c.id}`} className="font-medium hover:underline">{c.nombre}</Link></td>
+              <tr key={c.id}>
+                <td className="td">
+                  <Link href={`/clientes/${c.id}`} className="group flex items-center gap-3">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-carbon font-titulo text-sm font-semibold text-marca" aria-hidden>{c.nombre.trim().charAt(0)}</span>
+                    <span className="font-medium group-hover:underline">{c.nombre}</span>
+                  </Link>
+                </td>
                 <td className="td whitespace-nowrap text-neutral-600">{c.telefono ?? "—"}</td>
                 <td className="td max-w-[220px] truncate text-neutral-600">{c.email ?? "—"}</td>
-                <td className="td text-right">{c.expedientes.length}</td>
-                <td className="td text-right text-marca-oscuro">{c.expedientes.filter((e) => e.etapa === "CONCEDIDA").length}</td>
+                <td className="td cifra text-right font-medium">{c.expedientes.length}</td>
+                <td className="td cifra text-right font-medium text-marca-oscuro">{c.expedientes.filter((e) => e.etapa === "CONCEDIDA").length}</td>
               </tr>
             ))}
           </tbody>

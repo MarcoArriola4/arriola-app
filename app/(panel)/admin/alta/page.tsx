@@ -19,7 +19,7 @@ export default async function Alta({ searchParams }: { searchParams: Promise<{ c
   return (
     <>
       <Link href={c ? `/clientes/${c.id}` : "/admin"} className="mb-3 inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-black"><ChevronLeft size={15} /> {c ? c.nombre : "Admin"}</Link>
-      <h1 className="text-2xl font-semibold tracking-tight">Alta de cliente o servicio</h1>
+      <h1 className="font-titulo text-[2rem] font-semibold leading-tight tracking-tight">Alta de cliente o servicio</h1>
       <p className="mb-6 mt-0.5 text-sm text-neutral-500">Tres pasos: quién es el cliente, qué servicio contrató y cuánto pagó.</p>
       <FormAlta cliente={c} servicioInicial={servicio} vendedores={vendedores} />
     </>

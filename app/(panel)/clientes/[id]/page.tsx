@@ -87,9 +87,9 @@ export default async function PerfilCliente({ params, searchParams }: { params: 
       <section className="card mb-4 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 items-center gap-4">
-            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-carbon text-xl font-semibold text-marca">{c.nombre.trim().charAt(0)}</span>
+            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-carbon font-titulo text-2xl font-semibold text-marca" aria-hidden>{c.nombre.trim().charAt(0)}</span>
             <div className="min-w-0">
-              <h1 className="text-2xl font-semibold tracking-tight">{c.nombre}</h1>
+              <h1 className="font-titulo text-[1.9rem] font-semibold leading-tight tracking-tight">{c.nombre}</h1>
               <p className="mt-0.5 text-sm text-neutral-500">
                 {[c.telefono, c.email, c.rfc && `RFC ${c.rfc}`].filter(Boolean).join(" · ") || "Sin datos de contacto"}
               </p>
@@ -246,7 +246,7 @@ function DetalleMarca({ e, permisos }: { e: Exp; permisos: Set<string>; inhabile
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-semibold tracking-tight">{e.denominacion}</h2>
+              <h2 className="font-titulo text-[1.6rem] font-semibold leading-tight tracking-tight">{e.denominacion}</h2>
               {e.desistio ? <Etapa etapa={e.etapa} desistio /> : puede("marcas") ? <CambiarEtapa expedienteId={e.id} etapa={e.etapa} etapas={ETAPAS} /> : <Etapa etapa={e.etapa} />}
             </div>
             {e.titular && <p className="mt-0.5 text-xs text-neutral-500">Titular: {e.titular}</p>}

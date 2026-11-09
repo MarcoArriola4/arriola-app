@@ -118,13 +118,13 @@ export function Tablero({ tarjetas, diasSeguimiento, modoLista }: { tarjetas: Ta
               siguientePlazo(a).fecha.getTime() - siguientePlazo(b).fecha.getTime()
             );
           return (
-            <section key={c.id} className={`rounded-xl p-2 ${c.id === "PAGAR_SISTEMA" ? "bg-yellow-200/70" : "bg-neutral-200/50"}`}>
+            <section key={c.id} className={`rounded-2xl border p-2 ${c.id === "PAGAR_SISTEMA" ? "border-yellow-300/70 bg-yellow-100/80" : "border-linea bg-black/[0.025]"}`}>
               <header className="flex items-baseline justify-between px-2 pb-2 pt-1">
                 <div>
                   <h2 className="text-sm font-semibold">{c.titulo}</h2>
                   <p className="text-[11px] text-neutral-500">{c.ayuda}</p>
                 </div>
-                <span className="rounded-full bg-white px-2 text-xs font-medium text-neutral-600">{items.length}</span>
+                <span className="cifra rounded-full bg-white px-2 text-xs font-semibold text-neutral-700 shadow-tarjeta">{items.length}</span>
               </header>
               <div className="space-y-2">
                 {items.map((t) => <TarjetaOficio key={t.id} t={t} diasSeguimiento={diasSeguimiento} />)}
@@ -146,8 +146,8 @@ function TarjetaOficio({ t, diasSeguimiento }: { t: Tarjeta; diasSeguimiento: nu
   return (
     <article
       id={`oficio-${t.id}`}
-      className={`scroll-mt-24 rounded-lg border p-3 shadow-[0_1px_0_rgba(0,0,0,0.03)] target:ring-4 target:ring-violet-400 ${
-        t.nueva ? "border-violet-500 bg-violet-50 ring-2 ring-violet-400" : t.nuevaImpi ? "border-violet-300 bg-violet-50 ring-1 ring-violet-200" : "border-black/[0.06] bg-white"
+      className={`scroll-mt-32 rounded-xl border p-3 shadow-tarjeta transition duration-150 hover:shadow-flotante target:ring-4 target:ring-violet-400 ${
+        t.nueva ? "border-violet-500 bg-violet-50 ring-2 ring-violet-400" : t.nuevaImpi ? "border-violet-300 bg-violet-50 ring-1 ring-violet-200" : "border-linea bg-white"
       }`}
     >
       {(t.nueva || t.nuevaImpi) && (

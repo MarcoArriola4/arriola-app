@@ -40,7 +40,7 @@ export default async function Vencimientos({ searchParams }: { searchParams: Pro
       </div>
       <div className="card overflow-x-auto">
         <table className="w-full min-w-[680px] text-sm">
-          <thead className="border-b border-black/5 bg-neutral-50/60"><tr><th className="th">Marca</th><th className="th">Cliente</th><th className="th">Trámite</th><th className="th">Fecha límite</th><th className="th"></th></tr></thead>
+          <thead className="border-b border-linea"><tr><th className="th">Marca</th><th className="th">Cliente</th><th className="th">Trámite</th><th className="th">Fecha límite</th><th className="th"></th></tr></thead>
           <tbody className="divide-y divide-black/5">
             {lista.map((v) => {
               const tel = v.telefono?.split(/[/,]/)[0].replace(/\D/g, "") ?? "";

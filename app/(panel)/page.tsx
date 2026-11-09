@@ -107,7 +107,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
 
       <header className="mb-8">
         <p className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-400 first-letter:uppercase">{hoy}</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-carbon">{saludo}, {sesion.nombre.split(" ")[0]}</h1>
+        <h1 className="mt-1 font-titulo text-4xl font-semibold tracking-tight text-carbon">{saludo}, {sesion.nombre.split(" ")[0]}</h1>
         <p className="mt-1.5 text-[15px] text-neutral-500">
           {venceProximo
             ? `${venceProximo} ${venceProximo === 1 ? "trabajo contratado vence" : "trabajos contratados vencen"} en los próximos 15 días.`
@@ -126,25 +126,25 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
       )}
 
       {/* Resumen del mes */}
-      <h2 className="mb-3 px-1 text-sm font-semibold uppercase tracking-[0.12em] text-neutral-500 first-letter:uppercase">Resumen de {nombreMes}</h2>
+      <h2 className="mb-3 px-1 rotulo text-xs first-letter:uppercase">Resumen de {nombreMes}</h2>
       <div className="mb-8 grid gap-3 sm:grid-cols-3">
-        <Link href="/contrataciones" className="rounded-2xl border border-black/[0.06] bg-white px-5 py-4 transition hover:border-black/15">
+        <Link href="/contrataciones" className="card group block px-5 py-4 transition duration-150 hover:-translate-y-0.5 hover:border-black/15 hover:shadow-flotante">
           <p className="text-xs text-neutral-500">Ventas del mes</p>
-          <p className="mt-1 text-3xl font-semibold tracking-tight">{delMes.length}</p>
+          <p className="cifra mt-1 text-3xl font-semibold tracking-tight">{delMes.length}</p>
           <p className="mt-0.5 text-xs text-neutral-500">
             {verPagos && <>{mxn.format(vendido)} vendido · </>}
             {delMes.length >= delMesAnterior ? "▲" : "▼"} {delMesAnterior} el mes pasado
           </p>
         </Link>
         {verPagos && (
-          <Link href="/contrataciones" className="rounded-2xl border border-black/[0.06] bg-white px-5 py-4 transition hover:border-black/15">
+          <Link href="/contrataciones" className="card group block px-5 py-4 transition duration-150 hover:-translate-y-0.5 hover:border-black/15 hover:shadow-flotante">
             <p className="text-xs text-neutral-500">Cobrado este mes</p>
-            <p className="mt-1 text-3xl font-semibold tracking-tight text-marca-oscuro">{mxn.format(cobrado)}</p>
+            <p className="cifra mt-1 text-3xl font-semibold tracking-tight text-marca-oscuro">{mxn.format(cobrado)}</p>
             <p className="mt-0.5 text-xs text-neutral-500">{vendido ? `${Math.round((cobrado / vendido) * 100)}% de lo vendido` : "Sin ventas aún"}</p>
           </Link>
         )}
         {verPagos && (
-          <Link href="/pagos?estado=pendientes" className="rounded-2xl border border-black/[0.06] bg-white px-5 py-4 transition hover:border-black/15">
+          <Link href="/pagos?estado=pendientes" className="card group block px-5 py-4 transition duration-150 hover:-translate-y-0.5 hover:border-black/15 hover:shadow-flotante">
             <p className="text-xs text-neutral-500">Te deben (últimos 12 meses)</p>
             <p className={`mt-1 text-3xl font-semibold tracking-tight ${totalDeuda ? "text-red-600" : "text-neutral-300"}`}>{mxn.format(totalDeuda)}</p>
             <p className="mt-0.5 text-xs text-neutral-500">
@@ -159,14 +159,14 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
         {/* Trabajos contratados por presentar */}
         <section>
           <div className="mb-3 flex items-baseline justify-between px-1">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-neutral-500">Contratado y sin presentar</h2>
+            <h2 className="rotulo text-xs">Contratado y sin presentar</h2>
             <Link href="/contrataciones?vista=todo" className="text-sm text-neutral-500 hover:text-black">Ver todo →</Link>
           </div>
           {lista.length === 0 ? (
-            <div className="flex items-center justify-center gap-2 rounded-2xl border border-black/[0.06] bg-white px-4 py-12 text-sm text-marca-oscuro"><CheckCircle2 size={18} /> Todo lo contratado ya se presentó.</div>
+            <div className="flex items-center justify-center gap-2 card px-4 py-12 text-sm text-marca-oscuro"><CheckCircle2 size={18} /> Todo lo contratado ya se presentó.</div>
           ) : (
             <>
-              <ul className="overflow-hidden rounded-2xl border border-black/[0.06] bg-white">
+              <ul className="card overflow-hidden">
                 {lista.slice(0, 8).map((s, i) => <FilaTrabajo key={s.id} s={s} primero={i === 0} />)}
               </ul>
               {lista.length > 8 && (
@@ -175,7 +175,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
                     <span className="group-open:hidden">Ver los {lista.length - 8} trabajos restantes ↓</span>
                     <span className="hidden group-open:inline">Ocultar ↑</span>
                   </summary>
-                  <ul className="mt-2 overflow-hidden rounded-2xl border border-black/[0.06] bg-white">
+                  <ul className="mt-2 card overflow-hidden">
                     {lista.slice(8).map((s, i) => <FilaTrabajo key={s.id} s={s} primero={i === 0} />)}
                   </ul>
                 </details>
@@ -187,13 +187,13 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
         {/* Quién debe */}
         {verPagos && todosDeudores.length > 0 && (
           <section>
-            <h2 className="mb-3 px-1 text-sm font-semibold uppercase tracking-[0.12em] text-neutral-500">Quién debe</h2>
+            <h2 className="mb-3 px-1 rotulo text-xs">Quién debe</h2>
             {deudores.length > 0 ? (
-              <ul className="divide-y divide-black/[0.05] overflow-hidden rounded-2xl border border-black/[0.06] bg-white">
+              <ul className="divide-y divide-black/[0.05] card overflow-hidden">
                 {deudores.slice(0, 6).map((d) => <li key={d.id}><FilaDeudor d={d} /></li>)}
               </ul>
             ) : (
-              <p className="rounded-2xl border border-black/[0.06] bg-white px-4 py-6 text-center text-sm text-neutral-500">Ningún cliente activo debe.</p>
+              <p className="card px-4 py-6 text-center text-sm text-neutral-500">Ningún cliente activo debe.</p>
             )}
             {deudores.length > 6 && (
               <details className="group mt-2">
@@ -201,7 +201,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
                   <span className="group-open:hidden">+{deudores.length - 6} clientes más ↓</span>
                   <span className="hidden group-open:inline">Ocultar ↑</span>
                 </summary>
-                <ul className="mt-2 divide-y divide-black/[0.05] overflow-hidden rounded-2xl border border-black/[0.06] bg-white">
+                <ul className="mt-2 divide-y divide-black/[0.05] card overflow-hidden">
                   {deudores.slice(6).map((d) => <li key={d.id}><FilaDeudor d={d} /></li>)}
                 </ul>
               </details>
@@ -211,7 +211,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
                 <summary className="cursor-pointer list-none px-1 text-xs font-medium text-neutral-500 hover:text-black">
                   Dejaron de contestar o ya no quieren: {inactivos.length} · {mxn.format(totalInactivos)} <span className="group-open:hidden">↓</span><span className="hidden group-open:inline">↑</span>
                 </summary>
-                <ul className="mt-2 divide-y divide-black/[0.05] overflow-hidden rounded-2xl border border-black/[0.06] bg-white/70">
+                <ul className="mt-2 divide-y divide-black/[0.05] card overflow-hidden/70">
                   {inactivos.map((d) => <li key={d.id}><FilaDeudor d={d} /></li>)}
                 </ul>
               </details>

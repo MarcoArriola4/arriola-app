@@ -77,7 +77,7 @@ export default async function Expedientes({ searchParams }: { searchParams: Prom
 
       <div className="card overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
-          <thead className="border-b border-black/5 bg-neutral-50/60">
+          <thead className="border-b border-linea">
             <tr><th className="th">Marca</th><th className="th">Cliente</th><th className="th">Expediente</th><th className="th">Etapa</th><th className="th">Última actualización IMPI</th></tr>
           </thead>
           <tbody className="divide-y divide-black/5">

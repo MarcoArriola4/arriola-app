@@ -53,14 +53,14 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
             <span className="block text-sm text-white/60">Registro de marca, aviso, patente, contestación, DDU, renovación…</span>
           </span>
         </Link>
-        <Link href="/notificaciones?nueva=1" className="group flex items-center gap-4 rounded-xl border border-black/[0.07] bg-white p-5 transition hover:border-black/20">
+        <Link href="/notificaciones?nueva=1" className="group flex items-center gap-4 card p-5 transition hover:border-black/20">
           <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-100 text-amber-700"><Bell size={22} /></span>
           <span>
             <span className="block text-base font-semibold">Registrar notificación del IMPI</span>
             <span className="block text-sm text-neutral-500">Llegó un oficio: calcula el plazo y lo pone en el tablero</span>
           </span>
         </Link>
-        <Link href="/admin/inhabiles" className="group flex items-center gap-4 rounded-xl border border-black/[0.07] bg-white p-5 transition hover:border-black/20">
+        <Link href="/admin/inhabiles" className="group flex items-center gap-4 card p-5 transition hover:border-black/20">
           <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-neutral-100 text-neutral-700"><CalendarX size={22} /></span>
           <span>
             <span className="block text-base font-semibold">Días inhábiles del IMPI</span>

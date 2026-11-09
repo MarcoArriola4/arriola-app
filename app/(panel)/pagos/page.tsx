@@ -90,10 +90,10 @@ export default async function Pagos({ searchParams }: { searchParams: Promise<{ 
 
       <div className="card overflow-x-auto">
         <table className="w-full min-w-[720px] text-sm">
-          <thead className="border-b border-black/5 bg-neutral-50/60"><tr><th className="th">Fecha</th><th className="th">Marca / cliente</th><th className="th">Servicio</th><th className="th text-right">Costo</th><th className="th text-right">Pagado</th><th className="th">Estado</th></tr></thead>
+          <thead className="border-b border-linea"><tr><th className="th">Fecha</th><th className="th">Marca / cliente</th><th className="th">Servicio</th><th className="th text-right">Costo</th><th className="th text-right">Pagado</th><th className="th">Estado</th></tr></thead>
           <tbody className="divide-y divide-black/5">
             {servicios.map((s) => (
-              <tr key={s.id} className="hover:bg-neutral-50">
+              <tr key={s.id}>
                 <td className="td whitespace-nowrap text-neutral-600">{fmtFecha(s.fechaContratacion)}</td>
                 <td className="td">
                   <Link href={`/expedientes/${s.expedienteId}`} className="font-medium hover:underline">{s.expediente.denominacion}</Link>
