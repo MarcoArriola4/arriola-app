@@ -60,6 +60,7 @@ export async function revisionEnWord(d: DatosRevision) {
           sub(`Marcas abandonadas (${n.abandonadas.length})`), marcas(n.abandonadas),
           sub(`Oficios nuevos (${n.oficios.length})`), marcas(n.oficios),
           sub(`Contestaciones registradas ante el IMPI (${n.contestadas.length})`), marcas(n.contestadas),
+          sub(`Marcas concedidas hace -90 días · avisar al cliente y vender el título (${d.concedidas90.length})`), marcas(d.concedidas90, "Concedida"),
           ...titulo(++k, "Marcas que no se revisaron y por qué", "Las registradas se revisan solo en sus periodos: declaración de uso (desde 1 semana antes del 3er aniversario de la concesión y hasta 3 meses después) y renovación (desde 6 meses antes de su vigencia y hasta 6 meses después). Las abandonadas o negadas ya no se revisan."),
           sub(`Registradas · próxima revisión programada (${d.noRevisadas.registradas.length})`),
           tabla(["Marca", "Cliente", "Expediente", "Se vuelve a revisar", "Por"], d.noRevisadas.registradas.map((o) => [o.denominacion, o.cliente, o.numeroExpediente ?? "—", o.proximaRevision ? fecha(o.proximaRevision) : "—", o.porque ?? "Sin periodos pendientes"])),

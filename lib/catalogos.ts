@@ -36,8 +36,13 @@ export const TIPOS_SERVICIO: Record<string, string> = {
   CONTESTACION: "Contestación",
   DDU: "Declaración de uso",
   RENOVACION: "Renovación",
+  TITULO: "Título de concesión",
   OTRO: "Otro",
 };
+
+/** Títulos de concesión: cada 6 vendidos cuentan como 1 venta para la vendedora. Precio sugerido $999. */
+export const TITULOS_POR_VENTA = 6;
+export const PRECIO_TITULO = 999;
 
 export const TIPOS_OFICIO: Record<string, string> = {
   ANTERIORIDAD: "Anterioridad",

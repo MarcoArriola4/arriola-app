@@ -67,6 +67,10 @@ model Expediente {
   juicioNulidad      DateTime?      // se presentó juicio de nulidad contra la negativa (no aparece en MARCanet: se registra a mano)
   fechaPresentacion  DateTime?
   fechaConcesion     DateTime?
+  // Marca recién concedida (aviso de los últimos 90 días): ¿ya se le notificó el título al cliente? ¿ya se vendió?
+  tituloNotificado   DateTime?
+  tituloVendido      DateTime?
+  tituloNota         String?
   ultimoEstatus      String?
   marcanetSync       DateTime?  // última consulta a MARCanet
   // Última actualización en MARCanet (lo más reciente de "Solicitud de registro" y "Recurso de revisión")

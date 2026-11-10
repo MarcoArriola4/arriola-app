@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Award, BookOpen, Building2, PenTool, Wrench, CalendarCheck, Lightbulb, Megaphone, MessageSquareReply, MoreHorizontal, RefreshCw, Store } from "lucide-react";
+import { Award, BookOpen, Building2, PenTool, Wrench, CalendarCheck, Lightbulb, Megaphone, MessageSquareReply, MoreHorizontal, RefreshCw, ScrollText, Store } from "lucide-react";
 import { altaServicio, buscarClientes, marcasDeCliente } from "@/app/actions";
 import { BANCOS } from "@/lib/catalogos";
 
@@ -20,6 +20,7 @@ const SERVICIOS = [
   { id: "CONTESTACION", label: "Contestación de oficio", icon: MessageSquareReply, nuevo: false },
   { id: "DDU", label: "Declaración de uso", icon: CalendarCheck, nuevo: false },
   { id: "RENOVACION", label: "Renovación", icon: RefreshCw, nuevo: false },
+  { id: "TITULO", label: "Título de concesión", icon: ScrollText, nuevo: false },
   { id: "OTRO", label: "Otro servicio", icon: MoreHorizontal, nuevo: false },
 ];
 
@@ -31,6 +32,7 @@ const COSTO_SUGERIDO: Record<string, string> = {
   EMPRESA: "26000",
   DDU: "3200",
   RENOVACION: "7400",
+  TITULO: "999",
 };
 
 export function FormAlta({ cliente, servicioInicial, vendedores = [] }: { cliente: Cliente | null; servicioInicial?: string; vendedores?: string[] }) {

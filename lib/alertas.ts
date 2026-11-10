@@ -2,8 +2,9 @@ import { db } from "./db";
 import { notificacionesActivas, vencimientos } from "./consultas";
 import { diasRestantes, estaVencida, siguientePlazo } from "./plazos";
 import { TIPOS_OFICIO, fmtFecha } from "./catalogos";
+import { concesionesRecientes } from "./concesiones";
 
-type Item = { titulo: string; detalle: string; dias: number; url: string };
+type Item = { titulo: string; detalle: string; dias: number; url: string; etiqueta?: string };
 
 const appUrl = () => process.env.APP_URL ?? "http://localhost:3000";
 
@@ -70,8 +71,20 @@ export async function construirResumen() {
     }));
   const ultimaSync = await db.syncMarcanet.findFirst({ where: { modo: { in: ["NOCTURNO", "ACTIVOS", "BARRIDO"] }, fin: { not: null } }, orderBy: { inicio: "desc" } });
 
+  // Marcas que se acaban de conceder (últimos 90 días) y aún no se le notifican al cliente: avisar y vender el título
+  const concedidas: Item[] = (await concesionesRecientes(db))
+    .filter((c) => !c.tituloNotificado && !c.vendido)
+    .map((c) => ({
+      titulo: `${c.denominacion} — concedida`,
+      detalle: `${c.cliente.nombre} · Exp. ${c.numeroExpediente ?? "s/n"}${c.numeroRegistro ? ` · Reg. ${c.numeroRegistro}` : ""} · concedida el ${fmtFecha(c.fechaConcesion)}`,
+      dias: 99,
+      etiqueta: "por notificar",
+      url: `${appUrl()}/notificaciones`,
+    }));
+
   const secciones = [
     { titulo: "Nuevos oficios detectados hoy en MARCanet (IMPI)", color: "#7c3aed", items: nuevosImpi },
+    { titulo: "Marcas concedidas (últimos 90 días) por notificar al cliente", color: "#6f8732", items: concedidas },
     { titulo: "Urgente: oficios con 7 días o menos", color: "#dc2626", items: urgentes },
     { titulo: "Recordatorios de plazos", color: "#6f8732", items: avisos },
     { titulo: "Seguimiento: clientes por avisar o sin pagar", color: "#d97706", items: sinPago },
@@ -100,7 +113,7 @@ export async function construirResumen() {
           (i) => `<a href="${i.url}" style="display:block;text-decoration:none;color:inherit;padding:8px 0;border-bottom:1px solid #f3f3f3">
             <div style="font-size:14px;font-weight:bold">${i.titulo}</div>
             <div style="font-size:12px;color:#737373">${i.detalle}</div>
-            <div style="font-size:12px;font-weight:bold;color:${i.dias <= 7 ? "#dc2626" : "#525252"}">${diasTxt(i.dias)}</div></a>`
+            <div style="font-size:12px;font-weight:bold;color:${i.etiqueta ? "#6f8732" : i.dias <= 7 ? "#dc2626" : "#525252"}">${i.etiqueta ?? diasTxt(i.dias)}</div></a>`
         )
         .join("")}`
       )

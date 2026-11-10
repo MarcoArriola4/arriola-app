@@ -71,6 +71,7 @@ export default async function ReporteRevision({ searchParams }: { searchParams: 
             <TablaMarcas titulo="Marcas abandonadas" lista={nov.abandonadas} vacio="Ningún abandono nuevo." />
             <TablaMarcas titulo="Oficios nuevos" lista={nov.oficios} vacio="Ningún oficio nuevo." />
             <TablaMarcas titulo="Contestaciones registradas ante el IMPI" lista={nov.contestadas} vacio="Ninguna contestación nueva." />
+            <TablaMarcas titulo="Marcas concedidas hace -90 días (avisar al cliente y vender el título)" lista={d.concedidas90} vacio="Ninguna marca concedida en los últimos 90 días." fechaTitulo="Concedida" />
           </Seccion>
 
           {/* 3. No revisadas */}

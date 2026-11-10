@@ -71,6 +71,7 @@ export default async function Contrataciones({ searchParams }: { searchParams: P
       tipoExpediente: TIPOS_EXPEDIENTE[s.expediente.tipo] ?? s.expediente.tipo,
       etapa: s.expediente.etapa,
       servicio: TIPOS_SERVICIO[s.tipo] ?? s.tipo,
+      tipoServicio: s.tipo,
       vendio: s.vendedor ?? s.origenVenta,
       costo: s.costo,
       pagado: s.pagado,

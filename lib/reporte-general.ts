@@ -7,6 +7,7 @@ import { DIA, sumarMeses, siguientePlazo, estaVencida } from "./plazos";
 import { ventanaDDU, vigenciaDe } from "./cumplimiento";
 import { PASOS_OFICIO } from "./estado-oficio";
 import { tipoDesdeImpi } from "./marcanet/sincronizar";
+import { concesionesRecientes } from "./concesiones";
 
 type Base = { id: string; clienteId: string; denominacion: string; numeroExpediente: string | null; cliente: string };
 
@@ -132,7 +133,14 @@ export async function datosReporteGeneral(db: PrismaClient, hoy = new Date()) {
   const proximas = ganadas.filter((g) => g.proximo && g.proximo.fecha <= en12);
   const contar = (lista: Perdida[]) => Object.entries(lista.reduce<Record<string, number>>((a, p) => ((a[p.motivo] = (a[p.motivo] ?? 0) + 1), a), {})).sort((a, b) => b[1] - a[1]);
 
+  // Marcas concedidas hace -90 días: avisar al cliente y venderle el título de concesión
+  const recientes = (await concesionesRecientes(db, hoy)).map((c) => ({
+    id: c.id, clienteId: c.clienteId, denominacion: c.denominacion, numeroExpediente: c.numeroExpediente, cliente: c.cliente.nombre,
+    registro: c.numeroRegistro, concesion: c.fechaConcesion!, notificado: c.tituloNotificado, vendido: c.vendido, nota: c.tituloNota,
+  }));
+
   return {
+    recientes,
     total: marcas.length,
     enTramite,
     ganadas,
@@ -162,6 +170,11 @@ export function conclusiones(r: ReporteGeneral): string[] {
   out.push(
     `De las ${r.total.toLocaleString("es-MX")} marcas que llevamos, ${r.ganadas.length.toLocaleString("es-MX")} están registradas (${pct(r.ganadas.length, r.total)}), ${r.enTramite.toLocaleString("es-MX")} siguen en trámite y ${(r.negadas.length + r.abandonadas.length).toLocaleString("es-MX")} se perdieron por negativa o abandono.`
   );
+  if (r.recientes.length) {
+    const sinAviso = r.recientes.filter((c) => !c.notificado && !c.vendido).length;
+    const vendidos = r.recientes.filter((c) => c.vendido).length;
+    out.push(`En los últimos 90 días se concedieron ${r.recientes.length} marcas: ${sinAviso} aún no se le notifican al cliente y ${vendidos} ya compraron su título de concesión. Avisar pronto es la mejor oportunidad para vender el título.`);
+  }
   const prox = r.proximas[0];
   out.push(
     r.proximas.length

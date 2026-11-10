@@ -44,8 +44,9 @@ export default async function ReporteGeneral() {
         </header>
 
         <div className="space-y-10 px-4 py-6 sm:px-8">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-3">
             <Cifra t="Marcas en total" n={r.total} />
+            <Cifra t="Concedidas hace -90 días" n={r.recientes.length} tono="text-green-700" />
             <Cifra t="Ganadas (registradas)" n={r.ganadas.length} tono="text-green-700" />
             <Cifra t="En trámite" n={r.enTramite} />
             <Cifra t="Oficios en curso" n={r.oficios.length} tono="text-amber-600" />
@@ -55,7 +56,24 @@ export default async function ReporteGeneral() {
             <Cifra t="Abandonadas" n={r.abandonadas.length} tono="text-red-600" />
           </div>
 
-          <Seccion n={1} titulo="Marcas ganadas: declaración de uso y renovación" ayuda="Declaración de uso: en los 3 meses siguientes al 3er aniversario de la concesión (concedidas desde el 10/08/2018). Renovación: cada 10 años desde la concesión, con 6 meses de gracia.">
+          <Seccion n={1} titulo="Marcas concedidas hace -90 días" ayuda="Las que se acaban de ganar: avisar al cliente y ofrecerle el título de concesión. Se marcan como notificadas o vendidas en Notificaciones.">
+            {r.recientes.length === 0 ? <p className="text-xs text-neutral-400">Ninguna marca concedida en los últimos 90 días.</p> : (
+              <Tabla cabeza={["Marca", "Cliente", "Registro", "Concedida", "Notificado", "Título"]}>
+                {r.recientes.map((c) => (
+                  <tr key={c.id}>
+                    <TdMarca m={c} />
+                    <td className="px-3 py-1.5 text-neutral-600">{c.cliente}</td>
+                    <td className="px-3 py-1.5">{c.registro ?? "—"}</td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">{fmtFecha(c.concesion)}</td>
+                    <td className={`px-3 py-1.5 whitespace-nowrap ${c.notificado ? "text-green-700" : "font-medium text-amber-700"}`}>{c.notificado ? `Sí · ${fmtFecha(c.notificado)}` : "Por notificar"}</td>
+                    <td className={`px-3 py-1.5 whitespace-nowrap ${c.vendido ? "text-green-700" : "text-neutral-500"}`}>{c.vendido ? `Vendido · ${fmtFecha(c.vendido)}` : "Sin vender"}{c.nota && <span className="block text-[11px] text-neutral-400">{c.nota}</span>}</td>
+                  </tr>
+                ))}
+              </Tabla>
+            )}
+          </Seccion>
+
+          <Seccion n={2} titulo="Marcas ganadas: declaración de uso y renovación" ayuda="Declaración de uso: en los 3 meses siguientes al 3er aniversario de la concesión (concedidas desde el 10/08/2018). Renovación: cada 10 años desde la concesión, con 6 meses de gracia.">
             <h3 className="mb-2 text-sm font-semibold">Les toca en los próximos 12 meses ({r.proximas.length})</h3>
             <TablaGanadas lista={r.proximas} vacio="Ninguna en los próximos 12 meses." />
             {r.vencidas.length > 0 && (
@@ -70,17 +88,17 @@ export default async function ReporteGeneral() {
             </details>
           </Seccion>
 
-          <Seccion n={2} titulo="Marcas negadas y por qué" ayuda="El motivo se toma del oficio que el IMPI emitió antes de la negativa (anterioridad, impedimento o requisitos).">
+          <Seccion n={3} titulo="Marcas negadas y por qué" ayuda="El motivo se toma del oficio que el IMPI emitió antes de la negativa (anterioridad, impedimento o requisitos).">
             <Motivos lista={r.motivosNegadas} />
             <TablaPerdidas lista={r.negadas} />
           </Seccion>
 
-          <Seccion n={3} titulo="Marcas abandonadas y por qué" ayuda="Abandonadas por no contestar un oficio a tiempo o porque el cliente ya no quiso continuar.">
+          <Seccion n={4} titulo="Marcas abandonadas y por qué" ayuda="Abandonadas por no contestar un oficio a tiempo o porque el cliente ya no quiso continuar.">
             <Motivos lista={r.motivosAbandonadas} />
             <TablaPerdidas lista={r.abandonadas} />
           </Seccion>
 
-          <Seccion n={4} titulo="Oficios en curso" ayuda="Oficios en plazo y el paso en el que van (avisar al cliente, esperar su pago, trabajar o presentar).">
+          <Seccion n={5} titulo="Oficios en curso" ayuda="Oficios en plazo y el paso en el que van (avisar al cliente, esperar su pago, trabajar o presentar).">
             {r.oficios.length === 0 ? <p className="text-xs text-neutral-400">Sin oficios en curso.</p> : (
               <Tabla cabeza={["Marca", "Cliente", "Oficio", "Notificado", "Paso", "Vence"]}>
                 {r.oficios.map((o, i) => (
@@ -97,11 +115,11 @@ export default async function ReporteGeneral() {
             )}
           </Seccion>
 
-          <Seccion n={5} titulo="En espera de respuesta del IMPI" ayuda="Lo último en MARCanet es algo que presentamos nosotros: falta que el IMPI responda.">
+          <Seccion n={6} titulo="En espera de respuesta del IMPI" ayuda="Lo último en MARCanet es algo que presentamos nosotros: falta que el IMPI responda.">
             <TablaMovimientos lista={r.enEspera} vacio="Ninguna marca en espera." />
           </Seccion>
 
-          <Seccion n={6} titulo="El IMPI ya nos contestó (últimos 3 meses)" ayuda="Marcas en trámite cuya última actualización en MARCanet es una respuesta del IMPI.">
+          <Seccion n={7} titulo="El IMPI ya nos contestó (últimos 3 meses)" ayuda="Marcas en trámite cuya última actualización en MARCanet es una respuesta del IMPI.">
             <TablaMovimientos lista={r.contestaron} vacio="Sin respuestas del IMPI en los últimos 3 meses." />
           </Seccion>
 

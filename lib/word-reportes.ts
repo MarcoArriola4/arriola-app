@@ -126,9 +126,12 @@ export async function reporteGeneralEnWord(r: ReporteGeneral, ultimaActualizacio
   const children: (Paragraph | Table)[] = [
     await encabezado("Reporte general de marcas", new Date().toLocaleDateString("es-MX", { dateStyle: "long", timeZone: "America/Mexico_City" })),
     new Paragraph({ spacing: { before: 200, after: 120 }, children: [t(ultimaActualizacion ? `Última actualización total en MARCanet: ${fecha(ultimaActualizacion)}` : "Última actualización total en MARCanet: nunca (datos de la app al día de hoy)", { size: 16, color: "777777" })] }),
-    cifras([["Marcas en total", r.total], ["Ganadas", r.ganadas.length], ["En trámite", r.enTramite], ["Oficios en curso", r.oficios.length]]),
+    cifras([["Marcas en total", r.total], ["Concedidas hace -90 días", r.recientes.length], ["Ganadas", r.ganadas.length], ["En trámite", r.enTramite], ["Oficios en curso", r.oficios.length]]),
     new Paragraph({ spacing: { after: 80 }, children: [] }),
     cifras([["DDU · próx. 12 meses", r.ddu12], ["Renovaciones · próx. 12 meses", r.renov12], ["Negadas", r.negadas.length], ["Abandonadas", r.abandonadas.length]]),
+
+    ...titulo(++k, "Marcas concedidas hace -90 días", "Las que se acaban de ganar: avisar al cliente y ofrecerle el título de concesión."),
+    tabla(["Marca", "Cliente", "Registro", "Concedida", "Notificado", "Título"], r.recientes.map((c) => [[c.denominacion, `Exp. ${c.numeroExpediente ?? "s/n"}`], c.cliente, c.registro ?? "—", fecha(c.concesion), c.notificado ? `Sí · ${fecha(c.notificado)}` : "Por notificar", c.vendido ? `Vendido · ${fecha(c.vendido)}` : "Sin vender"])),
 
     ...titulo(++k, "Marcas ganadas: declaración de uso y renovación", "Declaración de uso: en los 3 meses siguientes al 3er aniversario de la concesión (concedidas desde el 10/08/2018). Renovación: cada 10 años desde la concesión, con 6 meses de gracia."),
     sub(`Les toca en los próximos 12 meses (${r.proximas.length})`), ganadas(r.proximas),

@@ -5,7 +5,9 @@ import { esNuevaDeImpi, estaVencida } from "@/lib/plazos";
 import { Encabezado, PlazoOficio } from "@/components/ui";
 import { Prioridades } from "@/components/prioridades";
 import { requerirSesion } from "@/lib/auth";
-import { TIPOS_OFICIO, fmtFecha } from "@/lib/catalogos";
+import { TIPOS_OFICIO, claveVendedor, fmtFecha, nombrePropio } from "@/lib/catalogos";
+import { concesionesRecientes } from "@/lib/concesiones";
+import { ConcesionesRecientes } from "@/components/concesiones-recientes";
 import { contratacionesSinPresentar } from "@/lib/marcanet/seleccion";
 import { BotonAvise } from "./boton-avise";
 import { MarcarVistas } from "./vistas";
@@ -20,7 +22,7 @@ export default async function Notificaciones({ searchParams }: { searchParams: P
   const vistasHasta = (await db.usuario.findUnique({ where: { id: sesion.id }, select: { notifVistasHasta: true } }))?.notifVistasHasta ?? null;
   const vista = ver === "no-pago" ? "no-pago" : ver === "vencidas" ? "vencidas" : "tablero";
   const hace30 = new Date(Date.now() - 30 * 864e5);
-  const [todas, cfg, noPago, sinPresentar] = await Promise.all([
+  const [todas, cfg, noPago, sinPresentar, concedidas, usados] = await Promise.all([
     db.notificacion.findMany({
       where: vista === "no-pago"
         ? { estado: "NO_PAGO", tipo: { not: "ALEGATOS" } } // alegatos sin contestar no son riesgo de abandono
@@ -34,7 +36,10 @@ export default async function Notificaciones({ searchParams }: { searchParams: P
     db.configuracion.findUnique({ where: { id: "main" } }),
     db.notificacion.count({ where: { estado: "NO_PAGO", tipo: { not: "ALEGATOS" } } }),
     vista === "tablero" ? contratacionesSinPresentar(db) : Promise.resolve([]),
+    vista === "tablero" ? concesionesRecientes(db) : Promise.resolve([]),
+    db.servicio.groupBy({ by: ["vendedor"], where: { vendedor: { not: null } }, _count: true, orderBy: { _count: { vendedor: "desc" } }, take: 40 }),
   ]);
+  const vendedores = [...new Set(usados.map((u) => nombrePropio(claveVendedor(u.vendedor!))))];
   // Tablero: solo lo que aún se puede trabajar y cobrar. Vencidas: activas cuyo plazo final ya pasó.
   const vencidasTodas = todas.filter((n) => ACTIVAS.includes(n.estado) && estaVencida(n));
   const notifs = vista === "vencidas" ? vencidasTodas : vista === "no-pago" ? todas : todas.filter((n) => !(ACTIVAS.includes(n.estado) && estaVencida(n)));
@@ -91,6 +96,17 @@ export default async function Notificaciones({ searchParams }: { searchParams: P
         <NuevaNotificacion abiertoInicial={nueva === "1"} />
       </Encabezado>
       {vista === "tablero" && <MarcarVistas />}
+      {vista === "tablero" && concedidas.length > 0 && (
+        <ConcesionesRecientes
+          cobros={sesion.permisos.has("cobros")}
+          vendedores={vendedores}
+          filas={concedidas.map((c) => ({
+            id: c.id, clienteId: c.clienteId, denominacion: c.denominacion, numeroExpediente: c.numeroExpediente, numeroRegistro: c.numeroRegistro,
+            fechaConcesion: c.fechaConcesion!.toISOString(), notificado: c.tituloNotificado?.toISOString() ?? null, vendido: c.vendido?.toISOString() ?? null,
+            nota: c.tituloNota, cliente: c.cliente.nombre, telefono: c.cliente.telefono,
+          }))}
+        />
+      )}
       {vista === "tablero" && porAtender.length > 0 && (
         <section className="mb-6 rounded-2xl border-2 border-violet-300 bg-violet-50/70 p-4">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">

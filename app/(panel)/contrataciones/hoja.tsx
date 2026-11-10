@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { Check, Pencil, Search, Users } from "lucide-react";
 import { cambiarEstadoTrabajo, cambiarNotaEstado, cambiarVendedor, marcarPagadoCompleto, marcarParcialidad, renombrarVendedor } from "@/app/actions";
-import { ESTADOS_TRABAJO, nombrePropio, personasVenta } from "@/lib/catalogos";
+import { ESTADOS_TRABAJO, TITULOS_POR_VENTA, nombrePropio, personasVenta } from "@/lib/catalogos";
 
 export type FilaContratacion = {
   numero: number; // consecutivo: #1 = la primera contratación del mes (o de la historia)
@@ -18,6 +18,7 @@ export type FilaContratacion = {
   tipoExpediente: string;
   etapa: string;
   servicio: string;
+  tipoServicio: string;
   vendio: string | null;
   costo: number | null;
   pagado: number;
@@ -70,12 +71,15 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
 
   // Vendedores normalizados: "Marco", "MARCO" y "MarCO" son la misma persona; una venta compartida cuenta para cada uno
   const ventasPorVendedor = useMemo(() => {
-    const m = new Map<string, { nombres: Map<string, number>; n: number; vendido: number; cobrado: number; debe: number }>();
+    // Regla: los títulos de concesión cuentan 1 venta por cada 6 (TITULOS_POR_VENTA); lo demás, 1 venta cada uno
+    const m = new Map<string, { nombres: Map<string, number>; n: number; otras: number; titulos: number; vendido: number; cobrado: number; debe: number }>();
     for (const f of filas) {
       const personas = f.vendio ? personasVenta(f.vendio) : [SIN_VENDEDOR];
       for (const p of personas) {
-        const v = m.get(p) ?? { nombres: new Map(), n: 0, vendido: 0, cobrado: 0, debe: 0 };
-        v.n++;
+        const v = m.get(p) ?? { nombres: new Map(), n: 0, otras: 0, titulos: 0, vendido: 0, cobrado: 0, debe: 0 };
+        if (f.tipoServicio === "TITULO") v.titulos++;
+        else v.otras++;
+        v.n = v.otras + Math.floor(v.titulos / TITULOS_POR_VENTA);
         v.vendido += f.costo ?? 0;
         v.cobrado += f.pagado;
         v.debe += f.saldo;
@@ -200,7 +204,10 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
                     <td className="px-4 py-2">
                       <button onClick={() => setVendedor(vendedor === v.clave ? null : v.clave)} className={`font-medium hover:underline ${vendedor === v.clave ? "text-marca-oscuro" : ""}`}>{v.nombre}</button>
                     </td>
-                    <td className="px-4 py-2 text-right font-semibold">{v.n}</td>
+                    <td className="px-4 py-2 text-right">
+                      <span className="font-semibold">{v.n}</span>
+                      {v.titulos > 0 && <span className="block text-[11px] font-normal text-neutral-500" title={`Cada ${TITULOS_POR_VENTA} títulos de concesión cuentan como 1 venta`}>{v.titulos} {v.titulos === 1 ? "título" : "títulos"} = {Math.floor(v.titulos / TITULOS_POR_VENTA)} {Math.floor(v.titulos / TITULOS_POR_VENTA) === 1 ? "venta" : "ventas"}{v.titulos % TITULOS_POR_VENTA ? ` (+${v.titulos % TITULOS_POR_VENTA})` : ""}</span>}
+                    </td>
                     <td className="px-4 py-2 text-right">{mxn.format(v.vendido)}</td>
                     <td className="px-4 py-2 text-right text-marca-oscuro">{mxn.format(v.cobrado)}</td>
                     <td className={`px-4 py-2 text-right ${v.debe ? "text-red-600" : "text-neutral-400"}`}>{mxn.format(v.debe)}</td>
@@ -209,7 +216,7 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
                 ))}
               </tbody>
             </table>
-            <p className="px-4 py-2 text-[11px] text-neutral-400">Mayúsculas, minúsculas y acentos no importan: “MARCO”, “Marco” y “márco” cuentan como la misma persona. Una venta compartida (“Gabriel - Tanya”) cuenta para cada uno.</p>
+            <p className="px-4 py-2 text-[11px] text-neutral-400">Mayúsculas, minúsculas y acentos no importan: “MARCO”, “Marco” y “márco” cuentan como la misma persona. Una venta compartida (“Gabriel - Tanya”) cuenta para cada uno. Títulos de concesión: cada {TITULOS_POR_VENTA} cuentan como 1 venta.</p>
           </div>
         )}
       </section>

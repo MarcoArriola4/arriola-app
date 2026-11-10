@@ -24,7 +24,7 @@ export function tipoDesdeImpi(descripcion: string): string | null {
 const esConcesion = (d: string) => /CONCESI[OÓ]N|T[IÍ]TULO DE REGISTRO|SE OTORGA/i.test(d);
 const VENTANA_LIGA = 20 * DIA; // tolerancia para ligar una tarjeta del Excel con el oficio real
 
-export type ResultadoExpediente = { nuevos: number; contestados: number; porRevisar: string[] };
+export type ResultadoExpediente = { nuevos: number; contestados: number; porRevisar: string[]; concedida?: boolean };
 
 const INTERNO = /ARCHIVO FON[EÉ]TICO|EXAMEN FIGURATIVO/i;
 
@@ -91,6 +91,13 @@ export async function sincronizarExpediente(db: PrismaClient, exp: Expediente, i
       ...(abandonada && !exp.etapaManual && exp.etapa !== "ABANDONADA" && { etapa: "ABANDONADA" }),
     },
   });
+
+  // Recién concedida: queda en el historial y aparece en Notificaciones › Marcas concedidas (últimos 90 días)
+  if (concedida && exp.etapa !== "CONCEDIDA") {
+    res.concedida = true;
+    const reg = r.numeroRegistro ?? exp.numeroRegistro;
+    await db.evento.create({ data: { expedienteId: exp.id, fecha: r.fechaConcesion ?? new Date(), titulo: "El IMPI concedió la marca", detalle: [reg && `Registro ${reg}`, "Notificar al cliente y ofrecer el título de concesión"].filter(Boolean).join(" · "), autor: "MARCanet" } });
+  }
 
   // Oficios notificados → tablero
   for (const o of r.oficios) {

@@ -7,7 +7,7 @@ import { requerirAdmin, requerirPermiso, requerirSesion } from "@/lib/auth";
 import { cifrar, descifrar } from "@/lib/crypto";
 import { plazosDeOficio } from "@/lib/plazos";
 import { cargarInhabiles, recalcularPlazos } from "@/lib/inhabiles";
-import { ESTADOS_TRABAJO, ETAPAS, SEGUIMIENTOS_DEUDA, TIPOS_SIGNO, claveVendedor, normalizarNombre, TIPOS_OFICIO } from "@/lib/catalogos";
+import { ESTADOS_TRABAJO, ETAPAS, PRECIO_TITULO, SEGUIMIENTOS_DEUDA, TIPOS_SIGNO, claveVendedor, normalizarNombre, TIPOS_OFICIO } from "@/lib/catalogos";
 import { enviarResumen } from "@/lib/alertas";
 import { sincronizarExpediente, sincronizarMarcanet } from "@/lib/marcanet/sincronizar";
 import { expedientesDelBarrido } from "@/lib/marcanet/seleccion";
@@ -328,6 +328,7 @@ export async function crearServicio(form: FormData) {
     },
   });
   if (nuevo.tipo === "CONTESTACION") await ventaDeContestacion(nuevo.id, (await requerirSesion()).nombre);
+  if (nuevo.tipo === "TITULO") await db.expediente.updateMany({ where: { id: expedienteId, tituloVendido: null }, data: { tituloVendido: nuevo.fechaContratacion ?? hoyUTC() } });
   refrescar(expedienteId);
 }
 
@@ -684,6 +685,7 @@ export async function altaServicio(form: FormData) {
     data: { autor: sesion.nombre, expedienteId, fecha: hoyUTC(), titulo: `Alta de servicio: ${TIPOS_SERVICIO_TXT[tipoServicio] ?? tipoServicio}`, detalle: costo ? `Costo $${costo} · pagado $${pagado}` : null },
   });
   if (tipoServicio === "CONTESTACION") await ventaDeContestacion(alta.id, sesion.nombre);
+  if (tipoServicio === "TITULO") await db.expediente.updateMany({ where: { id: expedienteId, tituloVendido: null }, data: { tituloVendido: alta.fechaContratacion ?? hoyUTC() } });
   refrescar(expedienteId);
   return { url: `/clientes/${clienteId}?marca=${expedienteId}&ok=alta` };
 }
@@ -699,7 +701,53 @@ async function ventaDeContestacion(servicioId: string, autor: string) {
   if (/^\d{5,8}$/.test(s.expediente.numeroExpediente ?? "")) await pedirMarcasMarcanet([s.expedienteId]);
 }
 
-const TIPOS_SERVICIO_TXT: Record<string, string> = { REGISTRO: "registro", CONTESTACION: "contestación", DDU: "declaración de uso", RENOVACION: "renovación", OTRO: "otro" };
+const TIPOS_SERVICIO_TXT: Record<string, string> = { REGISTRO: "registro", CONTESTACION: "contestación", DDU: "declaración de uso", RENOVACION: "renovación", TITULO: "título de concesión", OTRO: "otro" };
+
+// ───────────── Marcas recién concedidas: título de concesión ─────────────
+
+/** "Ya notifiqué el título al cliente" (o deshacerlo). */
+export async function marcarTituloNotificado(expedienteId: string, hecho: boolean) {
+  const sesion = await requerirSesion();
+  await db.expediente.update({ where: { id: expedienteId }, data: { tituloNotificado: hecho ? new Date() : null } });
+  await db.evento.create({ data: { autor: sesion.nombre, expedienteId, fecha: hoyUTC(), titulo: hecho ? "Se notificó al cliente la concesión de la marca (título)" : "Se quitó la marca de «título notificado»" } });
+  refrescar(expedienteId);
+}
+
+/** Nota del seguimiento del título ("le interesa, llamar el lunes"). */
+export async function guardarNotaTitulo(expedienteId: string, nota: string) {
+  await requerirSesion();
+  await db.expediente.update({ where: { id: expedienteId }, data: { tituloNota: nota.replace(/\s+/g, " ").trim() || null } });
+  refrescar(expedienteId);
+}
+
+/** "Ya se vendió el título": registra la venta (Contrataciones) y deja la marca como vendida y notificada. */
+export async function venderTitulo(form: FormData) {
+  const sesion = await requerirPermiso("cobros");
+  const expedienteId = str(form, "expedienteId")!;
+  const costo = num(form, "costo") ?? PRECIO_TITULO;
+  const pagado = num(form, "pagado") ?? 0;
+  const f = fecha(form, "fechaContratacion") ?? hoyUTC();
+  await db.servicio.create({
+    data: {
+      expedienteId, tipo: "TITULO", fechaContratacion: f, costo, pagado,
+      estadoPago: pagado <= 0 ? "PENDIENTE" : pagado < costo ? "PARCIAL" : "PAGADO",
+      banco: str(form, "banco"), vendedor: str(form, "vendedor"), editadoEnApp: true,
+    },
+  });
+  const e = await db.expediente.findUniqueOrThrow({ where: { id: expedienteId }, select: { tituloNotificado: true } });
+  await db.expediente.update({ where: { id: expedienteId }, data: { tituloVendido: f, ...(!e.tituloNotificado && { tituloNotificado: f }) } });
+  await db.evento.create({ data: { autor: sesion.nombre, expedienteId, fecha: f, titulo: "Se vendió el título de concesión", detalle: `$${costo} · pagado $${pagado}${str(form, "vendedor") ? ` · vendió ${str(form, "vendedor")}` : ""}` } });
+  refrescar(expedienteId);
+  revalidatePath("/contrataciones");
+}
+
+/** Quitar "vendido" (la venta registrada se queda en Contrataciones; se borra desde ahí si fue un error). */
+export async function quitarTituloVendido(expedienteId: string) {
+  const sesion = await requerirSesion();
+  await db.expediente.update({ where: { id: expedienteId }, data: { tituloVendido: null } });
+  await db.evento.create({ data: { autor: sesion.nombre, expedienteId, fecha: hoyUTC(), titulo: "Se quitó la marca de «título vendido»" } });
+  refrescar(expedienteId);
+}
 
 export async function marcasDeCliente(clienteId: string) {
   await requerirSesion();
@@ -748,6 +796,8 @@ export async function actualizarDesdeMarcanet(expedienteId: string) {
     refrescar(expedienteId);
     if (r.mensaje && /cuota/i.test(r.mensaje)) return { ok: false, mensaje: "MARCanet pidió esperar unos 10 minutos (límite de consultas del IMPI). Intenta más tarde." };
     if (r.errores) return { ok: false, mensaje: (await db.expediente.findUnique({ where: { id: expedienteId } }))?.marcanetError ?? "No se pudo consultar MARCanet." };
+    const exp2 = await db.expediente.findUnique({ where: { id: expedienteId }, select: { etapa: true } });
+    if (exp.etapa !== "CONCEDIDA" && exp2?.etapa === "CONCEDIDA") return { ok: true, mensaje: "¡Marca concedida! Ya aparece en Notificaciones › Marcas concedidas para avisar al cliente." };
     return { ok: true, mensaje: r.nuevos ? `${r.nuevos} oficio(s) nuevo(s) detectado(s).` : r.contestados ? "Se registró la contestación ante el IMPI." : "Actualizado; sin cambios nuevos." };
   } catch (e) {
     return { ok: false, mensaje: e instanceof Error ? e.message : "No se pudo consultar MARCanet." };

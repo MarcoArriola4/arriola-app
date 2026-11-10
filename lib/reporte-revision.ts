@@ -2,6 +2,8 @@
 // qué cambió en el IMPI y los pendientes de los últimos 3 meses.
 import type { PrismaClient } from "@prisma/client";
 import { expedientesDelBarrido, type Omitida } from "./marcanet/seleccion";
+import { concesionesRecientes } from "./concesiones";
+import { fmtFecha } from "./catalogos";
 
 export type Revision = { clave: string; modo: string; inicio: Date; fin: Date | null; revisadas: number; total: number; errores: number; enCurso: boolean };
 
@@ -38,6 +40,8 @@ export type DatosRevision = {
   novedades: { ganadas: MarcaBreve[]; negadas: MarcaBreve[]; abandonadas: MarcaBreve[]; oficios: MarcaBreve[]; contestadas: MarcaBreve[] };
   noRevisadas: { perdidas: (Omitida & { cliente: string })[]; registradas: (Omitida & { cliente: string })[] };
   conError: MarcaBreve[];
+  /** marcas concedidas hace -90 días (para avisar al cliente y vender el título) */
+  concedidas90: MarcaBreve[];
   tresMeses: {
     desde: Date;
     ingresadas: MarcaBreve[];
@@ -110,8 +114,14 @@ export async function datosRevision(db: PrismaClient, revision: Revision): Promi
     db.notificacion.count({ where: { estado: "AVISADO", fechaNotificacion: { gte: desde3 } } }),
   ]);
 
+  const concedidas90: MarcaBreve[] = (await concesionesRecientes(db)).map((c) => ({
+    id: c.id, clienteId: c.clienteId, denominacion: c.denominacion, numeroExpediente: c.numeroExpediente, cliente: c.cliente.nombre, fecha: c.fechaConcesion,
+    detalle: [c.tituloNotificado ? `Notificado ${fmtFecha(c.tituloNotificado)}` : "Por notificar", c.vendido ? `título vendido ${fmtFecha(c.vendido)}` : "título sin vender"].join(" · "),
+  }));
+
   return {
     revision,
+    concedidas90,
     novedades: { ganadas, negadas, abandonadas, oficios: otros, contestadas },
     noRevisadas: { perdidas, registradas },
     conError,
