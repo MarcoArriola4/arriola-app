@@ -346,7 +346,8 @@ export async function importarExcel(db: PrismaClient, archivo: string | Buffer, 
         const reg = t.match(/(?:registro|reg\.?)\s*(?:no\.?|num\.?|#)?\s*(\d{6,8})/i);
         if (reg) numeroRegistro = reg[1];
         const fc = fechaEnTexto(t);
-        if (fc && /concesi|\bcon\b/i.test(t)) fechaConcesion = fc;
+        // "Concesión 12/03/2024" o "concedida…" (no basta la palabra "con": "Escrito con errores 08/09/2026" no es una concesión)
+        if (fc && /concesi|concedid/i.test(t)) fechaConcesion = fc;
         if (fc && /vigencia/i.test(t)) fechaConcesion = sumarMeses(fc, -120);
       }
       if (!fechaPresentacion && f === primera) {

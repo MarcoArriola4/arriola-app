@@ -184,6 +184,9 @@ model Configuracion {
   barridoTotal       Boolean   @default(false) // true = actualización total (botón de Admin): todas las marcas, sin omitir ninguna
   ultimaActualizacionActivas DateTime? // cuándo terminó la última actualización de marcas activas (botón normal o automática)
   ultimaActualizacionTotal   DateTime? // cuándo terminó la última actualización total (botón de Admin)
+  // Títulos de concesión: cuántos títulos vendidos cuentan como 1 venta (general y por vendedora, JSON {"MONTSE": 5})
+  titulosPorVenta         Int     @default(6)
+  titulosPorVentaVendedor String?
   solicitudBusqueda  DateTime? // se pidió desde la app correr la búsqueda completa (GitHub la toma en ≤15 min)
   solicitudActivos   DateTime? // se pidió revisar ya los oficios en curso
   solicitudMarcas    String?   // ids de marcas a revisar ya (p. ej. desde el reporte de un cliente), separados por coma

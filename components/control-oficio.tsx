@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import { Undo2 } from "lucide-react";
-import { seguimientoOficioImpi, avisarCliente, fijarPasoOficio, marcarContestada, marcarNoPago, marcarPagarSistema, regresarNotificacion, registrarPagoNotificacion } from "@/app/actions";
+import { marcarOficioComoTitulo, seguimientoOficioImpi, avisarCliente, fijarPasoOficio, marcarContestada, marcarNoPago, marcarPagarSistema, regresarNotificacion, registrarPagoNotificacion } from "@/app/actions";
 import { BANCOS, MEDIOS_DEFENSA, TIPOS_OFICIO } from "@/lib/catalogos";
 import { PASOS_OFICIO } from "@/lib/estado-oficio";
 import { siguientePlazo } from "@/lib/plazos";
@@ -194,14 +194,19 @@ function Botones({ enviando, texto, cancelar }: { enviando: boolean; texto: stri
 /** Oficio de MARCanet sin tarjeta: elegir qué tipo es y empezar a darle seguimiento (avisé, pagó, trabajado…). */
 export function SeguimientoNuevo({ oficioImpiId, tipoSugerido }: { oficioImpiId: string; tipoSugerido: string | null }) {
   const [tipo, setTipo] = useState(tipoSugerido ?? "");
+  const guardar = () =>
+    tipo === "TITULO"
+      ? confirm("¿Este oficio es el título de concesión?\n\nLa marca quedará como Concedida y aparecerá en Notificaciones › Marcas concedidas para avisar al cliente y venderle el título.") && iniciar(() => marcarOficioComoTitulo(oficioImpiId))
+      : iniciar(() => seguimientoOficioImpi(oficioImpiId, tipo));
   const [pendiente, iniciar] = useTransition();
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="input w-auto py-1 text-xs">
         <option value="">¿Qué oficio es?</option>
+        <option value="TITULO">Título (concesión)</option>
         {Object.entries(TIPOS_OFICIO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
       </select>
-      <button disabled={!tipo || pendiente} onClick={() => iniciar(() => seguimientoOficioImpi(oficioImpiId, tipo))} className="btn-primario px-2.5 py-1 text-xs">
+      <button disabled={!tipo || pendiente} onClick={guardar} className="btn-primario px-2.5 py-1 text-xs">
         {pendiente ? "Guardando…" : "Dar seguimiento"}
       </button>
     </div>

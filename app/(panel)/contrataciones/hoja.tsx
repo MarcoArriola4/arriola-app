@@ -2,8 +2,8 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { Check, Pencil, Search, Users } from "lucide-react";
-import { cambiarEstadoTrabajo, cambiarNotaEstado, cambiarVendedor, marcarPagadoCompleto, marcarParcialidad, renombrarVendedor } from "@/app/actions";
-import { ESTADOS_TRABAJO, TITULOS_POR_VENTA, nombrePropio, personasVenta } from "@/lib/catalogos";
+import { cambiarEstadoTrabajo, cambiarNotaEstado, cambiarVendedor, guardarReglaTitulos, marcarPagadoCompleto, marcarParcialidad, renombrarVendedor } from "@/app/actions";
+import { ESTADOS_TRABAJO, nombrePropio, personasVenta } from "@/lib/catalogos";
 
 export type FilaContratacion = {
   numero: number; // consecutivo: #1 = la primera contratación del mes (o de la historia)
@@ -58,7 +58,14 @@ const FILTROS_PAGO = [
 const POR_PAGINA = 300;
 const SIN_VENDEDOR = "SIN REGISTRAR";
 
-export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin, admin = esAdmin }: { filas: FilaContratacion[]; esAdmin: boolean; historial: boolean; cobros?: boolean; admin?: boolean }) {
+export type ReglaTitulos = { general: number; porVendedor: Record<string, number> };
+
+export function HojaContrataciones({
+  filas, esAdmin, historial, cobros = esAdmin, admin = esAdmin, reglaTitulos = { general: 6, porVendedor: {} },
+}: { filas: FilaContratacion[]; esAdmin: boolean; historial: boolean; cobros?: boolean; admin?: boolean; reglaTitulos?: ReglaTitulos }) {
+  // Dos hojas: la central (todas las contrataciones menos títulos) y la de títulos de concesión
+  const [hoja, setHoja] = useState<"contrataciones" | "titulos">("contrataciones");
+  const titulosPorVenta = (clave: string) => reglaTitulos.porVendedor[clave] ?? reglaTitulos.general;
   const [q, setQ] = useState("");
   const [vendedor, setVendedor] = useState<string | null>(null);
   const [trabajo, setTrabajo] = useState<string | null>(null);
@@ -71,7 +78,8 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
 
   // Vendedores normalizados: "Marco", "MARCO" y "MarCO" son la misma persona; una venta compartida cuenta para cada uno
   const ventasPorVendedor = useMemo(() => {
-    // Regla: los títulos de concesión cuentan 1 venta por cada 6 (TITULOS_POR_VENTA); lo demás, 1 venta cada uno
+    // Regla: los títulos de concesión cuentan 1 venta por cada N (configurable, general o por vendedora); lo demás, 1 venta
+    // cada uno. Se cuenta con las dos hojas (contrataciones y títulos).
     const m = new Map<string, { nombres: Map<string, number>; n: number; otras: number; titulos: number; vendido: number; cobrado: number; debe: number }>();
     for (const f of filas) {
       const personas = f.vendio ? personasVenta(f.vendio) : [SIN_VENDEDOR];
@@ -79,7 +87,7 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
         const v = m.get(p) ?? { nombres: new Map(), n: 0, otras: 0, titulos: 0, vendido: 0, cobrado: 0, debe: 0 };
         if (f.tipoServicio === "TITULO") v.titulos++;
         else v.otras++;
-        v.n = v.otras + Math.floor(v.titulos / TITULOS_POR_VENTA);
+        v.n = v.otras + Math.floor(v.titulos / titulosPorVenta(p));
         v.vendido += f.costo ?? 0;
         v.cobrado += f.pagado;
         v.debe += f.saldo;
@@ -87,20 +95,21 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
       }
     }
     return [...m].map(([clave, v]) => ({ clave, nombre: clave === SIN_VENDEDOR ? "Sin registrar" : nombrePropio(clave), ...v })).sort((a, b) => b.n - a.n);
-  }, [filas]);
+  }, [filas, reglaTitulos]);
 
   const sugerencias = useMemo(() => ventasPorVendedor.filter((v) => v.clave !== SIN_VENDEDOR).map((v) => v.nombre), [ventasPorVendedor]);
 
   const visibles = useMemo(() => {
     const t = q.trim().toLowerCase();
     return filas.filter((f) => {
+      if ((hoja === "titulos") !== (f.tipoServicio === "TITULO")) return false;
       if (vendedor && !(f.vendio ? personasVenta(f.vendio) : [SIN_VENDEDOR]).includes(vendedor)) return false;
       if (trabajo && (f.estadoTrabajo ?? "SIN") !== trabajo) return false;
       if (pago === "debe" ? f.saldo <= 0 : pago && f.estadoPago !== pago) return false;
       if (soloPendientes && f.pendientes.length === 0) return false;
       return !t || `${f.cliente} ${f.denominacion} ${f.numeroExpediente ?? ""} ${f.avance ?? ""}`.toLowerCase().includes(t);
     });
-  }, [filas, q, vendedor, trabajo, pago, soloPendientes]);
+  }, [filas, q, vendedor, trabajo, pago, soloPendientes, hoja]);
 
   const tot = useMemo(
     () => ({
@@ -138,9 +147,18 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
     <>
       <datalist id="vendedores">{sugerencias.map((s) => <option key={s} value={s} />)}</datalist>
 
+      {/* Dos hojas: contrataciones (central) y títulos de concesión */}
+      <div className="mb-4 inline-flex rounded-lg bg-black/[0.05] p-1" role="tablist" aria-label="Hoja">
+        {([["contrataciones", "Contrataciones", filas.filter((f) => f.tipoServicio !== "TITULO").length], ["titulos", "Títulos de concesión", filas.filter((f) => f.tipoServicio === "TITULO").length]] as const).map(([id, txt, n]) => (
+          <button key={id} role="tab" aria-selected={hoja === id} onClick={() => { setHoja(id); setLimite(POR_PAGINA); }} className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${hoja === id ? "bg-white text-carbon shadow-tarjeta" : "text-neutral-500 hover:text-carbon"}`}>
+            {txt} <span className="cifra opacity-60">{n}</span>
+          </button>
+        ))}
+      </div>
+
       {/* Resumen: contrataciones y cuántos deben (el dinero va en su bandeja, cerrada) */}
       <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-3">
-        <Tarjeta label="Contrataciones" valor={tot.n.toLocaleString("es-MX")} />
+        <Tarjeta label={hoja === "titulos" ? "Títulos vendidos" : "Contrataciones"} valor={tot.n.toLocaleString("es-MX")} />
         <button onClick={() => setVerDeudores(!verDeudores)} className="text-left">
           <Tarjeta label="Nos deben" valor={`${clientesDeben.length} ${clientesDeben.length === 1 ? "cliente" : "clientes"}`} nota={verDeudores ? "Clic para ocultar" : `${tot.deudores} contrataciones con saldo · clic para ver quiénes`} tono={clientesDeben.length ? "text-red-600" : ""} activo={verDeudores} />
         </button>
@@ -196,7 +214,7 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
           <div className="overflow-x-auto border-t border-black/5">
             <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-neutral-50 text-left text-xs text-neutral-500">
-                <tr><th className="px-4 py-2">Vendedor</th><th className="px-4 py-2 text-right">Ventas</th><th className="px-4 py-2 text-right">Vendido</th><th className="px-4 py-2 text-right">Cobrado</th><th className="px-4 py-2 text-right">Le deben</th><th className="px-4 py-2" /></tr>
+                <tr><th className="px-4 py-2">Vendedor</th><th className="px-4 py-2 text-right">Ventas</th><th className="px-4 py-2 text-right">Títulos por venta</th><th className="px-4 py-2 text-right">Vendido</th><th className="px-4 py-2 text-right">Cobrado</th><th className="px-4 py-2 text-right">Le deben</th><th className="px-4 py-2" /></tr>
               </thead>
               <tbody className="divide-y divide-black/5">
                 {ventasPorVendedor.map((v) => (
@@ -206,7 +224,18 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
                     </td>
                     <td className="px-4 py-2 text-right">
                       <span className="font-semibold">{v.n}</span>
-                      {v.titulos > 0 && <span className="block text-[11px] font-normal text-neutral-500" title={`Cada ${TITULOS_POR_VENTA} títulos de concesión cuentan como 1 venta`}>{v.titulos} {v.titulos === 1 ? "título" : "títulos"} = {Math.floor(v.titulos / TITULOS_POR_VENTA)} {Math.floor(v.titulos / TITULOS_POR_VENTA) === 1 ? "venta" : "ventas"}{v.titulos % TITULOS_POR_VENTA ? ` (+${v.titulos % TITULOS_POR_VENTA})` : ""}</span>}
+                      {v.titulos > 0 && (() => {
+                        const k = titulosPorVenta(v.clave);
+                        const ventas = Math.floor(v.titulos / k);
+                        return <span className="block text-[11px] font-normal text-neutral-500" title={`Cada ${k} títulos de concesión cuentan como 1 venta`}>{v.titulos} {v.titulos === 1 ? "título" : "títulos"} = {ventas} {ventas === 1 ? "venta" : "ventas"}{v.titulos % k ? ` (+${v.titulos % k})` : ""}</span>;
+                      })()}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      {v.clave === SIN_VENDEDOR ? <span className="text-neutral-300">—</span> : admin ? (
+                        <ReglaVendedora clave={v.clave} valor={reglaTitulos.porVendedor[v.clave] ?? null} general={reglaTitulos.general} />
+                      ) : (
+                        <span className="text-xs text-neutral-600">{titulosPorVenta(v.clave)}</span>
+                      )}
                     </td>
                     <td className="px-4 py-2 text-right">{mxn.format(v.vendido)}</td>
                     <td className="px-4 py-2 text-right text-marca-oscuro">{mxn.format(v.cobrado)}</td>
@@ -216,7 +245,8 @@ export function HojaContrataciones({ filas, esAdmin, historial, cobros = esAdmin
                 ))}
               </tbody>
             </table>
-            <p className="px-4 py-2 text-[11px] text-neutral-400">Mayúsculas, minúsculas y acentos no importan: “MARCO”, “Marco” y “márco” cuentan como la misma persona. Una venta compartida (“Gabriel - Tanya”) cuenta para cada uno. Títulos de concesión: cada {TITULOS_POR_VENTA} cuentan como 1 venta.</p>
+            <p className="px-4 py-2 text-[11px] text-neutral-400">Mayúsculas, minúsculas y acentos no importan: “MARCO”, “Marco” y “márco” cuentan como la misma persona. Una venta compartida (“Gabriel - Tanya”) cuenta para cada uno. Títulos de concesión: cada {reglaTitulos.general} cuentan como 1 venta, salvo las vendedoras con su propio número.</p>
+            {admin && <ReglaGeneral valor={reglaTitulos.general} />}
           </div>
         )}
       </section>
@@ -483,3 +513,46 @@ function Chip({ activo, onClick, children, color }: { activo: boolean; onClick: 
   );
 }
 
+
+/** Admin: cuántos títulos cuentan como 1 venta para esta vendedora (vacío = la regla general). */
+function ReglaVendedora({ clave, valor, general }: { clave: string; valor: number | null; general: number }) {
+  const [pendiente, iniciar] = useTransition();
+  const [texto, setTexto] = useState(valor?.toString() ?? "");
+  const guardar = () => {
+    const n = texto.trim() ? Number(texto) : null;
+    if (n === valor || (n != null && (!Number.isInteger(n) || n < 1 || n > 50))) return setTexto(valor?.toString() ?? "");
+    iniciar(() => guardarReglaTitulos(clave, n));
+  };
+  return (
+    <input
+      value={texto}
+      onChange={(e) => setTexto(e.target.value.replace(/\D/g, ""))}
+      onBlur={guardar}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      inputMode="numeric"
+      placeholder={String(general)}
+      disabled={pendiente}
+      aria-label={`Títulos por venta de ${clave}`}
+      title={`Vacío = regla general (${general})`}
+      className="input ml-auto w-16 py-1 text-right text-xs"
+    />
+  );
+}
+
+/** Admin: regla general de títulos por venta. */
+function ReglaGeneral({ valor }: { valor: number }) {
+  const [pendiente, iniciar] = useTransition();
+  const [texto, setTexto] = useState(String(valor));
+  const guardar = () => {
+    const n = Number(texto);
+    if (!Number.isInteger(n) || n < 1 || n > 50 || n === valor) return setTexto(String(valor));
+    iniciar(() => guardarReglaTitulos(null, n));
+  };
+  return (
+    <label className="flex items-center gap-2 px-4 pb-3 text-xs text-neutral-600">
+      Regla general: cada
+      <input value={texto} onChange={(e) => setTexto(e.target.value.replace(/\D/g, ""))} onBlur={guardar} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} inputMode="numeric" disabled={pendiente} className="input w-16 py-1 text-right text-xs" />
+      títulos de concesión = 1 venta {pendiente && <span className="text-neutral-400">Guardando…</span>}
+    </label>
+  );
+}

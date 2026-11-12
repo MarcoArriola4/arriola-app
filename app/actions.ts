@@ -741,6 +741,28 @@ export async function venderTitulo(form: FormData) {
   revalidatePath("/contrataciones");
 }
 
+/**
+ * Cuántos títulos de concesión cuentan como 1 venta. clave = null: la regla general; clave = vendedora: solo para ella
+ * (n = null quita su regla y vuelve a la general). Solo cambia el conteo de ventas, no las ventas registradas.
+ */
+export async function guardarReglaTitulos(clave: string | null, n: number | null) {
+  await requerirAdmin();
+  if (n != null && (!Number.isInteger(n) || n < 1 || n > 50)) throw new Error("Número inválido");
+  const cfg = await db.configuracion.findUniqueOrThrow({ where: { id: "main" } });
+  if (!clave) {
+    if (n == null) return;
+    await db.configuracion.update({ where: { id: "main" }, data: { titulosPorVenta: n } });
+  } else {
+    let mapa: Record<string, number> = {};
+    try { mapa = JSON.parse(cfg.titulosPorVentaVendedor ?? "{}"); } catch {}
+    const k = claveVendedor(clave);
+    if (n == null) delete mapa[k];
+    else mapa[k] = n;
+    await db.configuracion.update({ where: { id: "main" }, data: { titulosPorVentaVendedor: Object.keys(mapa).length ? JSON.stringify(mapa) : null } });
+  }
+  revalidatePath("/contrataciones");
+}
+
 /** Quitar "vendido" (la venta registrada se queda en Contrataciones; se borra desde ahí si fue un error). */
 export async function quitarTituloVendido(expedienteId: string) {
   const sesion = await requerirSesion();
@@ -1189,6 +1211,19 @@ export async function eliminarNotaMarca(id: string) {
  * Seguimiento de un oficio de la tabla de MARCanet que aún no tiene tarjeta en la app: se crea (o se liga a la que ya había)
  * para poder marcar si se avisó, si el cliente pagó, si se trabajó, etc. Solo afecta a esa misma marca.
  */
+/**
+ * Un oficio de MARCanet que es el título / la concesión: la marca queda Concedida (confirmada a mano) con la fecha
+ * del oficio, y aparece en Notificaciones › Marcas concedidas para avisar al cliente y vender el título.
+ */
+export async function marcarOficioComoTitulo(oficioImpiId: string) {
+  const sesion = await requerirPermiso("oficios");
+  const o = await db.oficioImpi.findUniqueOrThrow({ where: { id: oficioImpiId }, include: { expediente: { select: { etapa: true, fechaConcesion: true } } } });
+  const f = o.fechaNotificacion ?? o.fechaOficio ?? hoyUTC();
+  await db.expediente.update({ where: { id: o.expedienteId }, data: { etapa: "CONCEDIDA", etapaManual: true, fechaConcesion: o.expediente.fechaConcesion ?? f } });
+  await db.evento.create({ data: { autor: sesion.nombre, expedienteId: o.expedienteId, fecha: f, titulo: "Oficio marcado como título de concesión: la marca queda Concedida", detalle: `${o.descripcion} · oficio ${o.numero}` } });
+  refrescar(o.expedienteId);
+}
+
 export async function seguimientoOficioImpi(oficioImpiId: string, tipo: string) {
   const sesion = await requerirPermiso("oficios");
   if (!(tipo in TIPOS_OFICIO)) throw new Error("Tipo de oficio inválido");

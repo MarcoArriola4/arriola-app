@@ -7,7 +7,13 @@ export const DIAS_CONCESION_RECIENTE = 90;
 export async function concesionesRecientes(db: PrismaClient, hoy = new Date()) {
   const desde = new Date(hoy.getTime() - DIAS_CONCESION_RECIENTE * 864e5);
   const marcas = await db.expediente.findMany({
-    where: { tipo: { in: TIPOS_SIGNO }, fechaConcesion: { gte: desde, lte: hoy }, desistio: null },
+    // Solo concesiones comprobadas: estatus Concedida y número de registro (el IMPI lo asigna al conceder), o confirmada
+    // a mano (estatus puesto en la app, p. ej. al marcar el oficio como «Título»). Una fecha sola no basta
+    // (p. ej. una fecha tomada de una nota del Excel).
+    where: {
+      tipo: { in: TIPOS_SIGNO }, etapa: "CONCEDIDA", fechaConcesion: { gte: desde, lte: hoy }, desistio: null,
+      OR: [{ numeroRegistro: { not: null } }, { etapaManual: true }],
+    },
     select: {
       id: true, clienteId: true, denominacion: true, numeroExpediente: true, numeroRegistro: true, fechaConcesion: true,
       tituloNotificado: true, tituloVendido: true, tituloNota: true,

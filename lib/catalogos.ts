@@ -40,7 +40,7 @@ export const TIPOS_SERVICIO: Record<string, string> = {
   OTRO: "Otro",
 };
 
-/** Títulos de concesión: cada 6 vendidos cuentan como 1 venta para la vendedora. Precio sugerido $999. */
+/** Títulos de concesión: valor inicial de cuántos cuentan como 1 venta (se configura en Contrataciones). Precio sugerido $999. */
 export const TITULOS_POR_VENTA = 6;
 export const PRECIO_TITULO = 999;
 

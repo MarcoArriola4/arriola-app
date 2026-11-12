@@ -392,7 +392,13 @@ function DetalleMarca({ e, permisos }: { e: Exp; permisos: Set<string>; inhabile
                               </>
                             );
                           }
-                          return puede("oficios") ? <SeguimientoNuevo oficioImpiId={o.id} tipoSugerido={tipoDesdeImpi(o.descripcion)} /> : <span className="text-xs text-neutral-400">Sin seguimiento</span>;
+                          // Oficio del título / la concesión: ya marcado (la marca está Concedida con la fecha de este oficio)
+                          const fOficio = (o.fechaNotificacion ?? o.fechaOficio)?.toISOString().slice(0, 10);
+                          if (e.etapa === "CONCEDIDA" && fOficio && e.fechaConcesion?.toISOString().slice(0, 10) === fOficio) {
+                            return <span className="inline-flex items-center gap-1.5 rounded-full bg-marca-claro px-2.5 py-0.5 text-xs font-medium text-marca-oscuro">Título (concesión) · en Notificaciones › Marcas concedidas</span>;
+                          }
+                          const esTitulo = /CONCESI[OÓ]N|T[IÍ]TULO DE REGISTRO|SE OTORGA/i.test(o.descripcion);
+                          return puede("oficios") ? <SeguimientoNuevo oficioImpiId={o.id} tipoSugerido={esTitulo ? "TITULO" : tipoDesdeImpi(o.descripcion)} /> : <span className="text-xs text-neutral-400">Sin seguimiento</span>;
                         })()}
                       </td>
                     </tr>

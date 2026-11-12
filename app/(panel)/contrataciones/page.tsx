@@ -15,6 +15,14 @@ export const metadata = { title: "Contrataciones" };
 // El botón "Actualizar todas" consulta MARCanet marca por marca
 export const maxDuration = 60;
 
+/** Cuántos títulos de concesión cuentan como 1 venta (general y por vendedora). */
+async function reglaTitulos() {
+  const cfg = await db.configuracion.findUnique({ where: { id: "main" }, select: { titulosPorVenta: true, titulosPorVentaVendedor: true } });
+  let porVendedor: Record<string, number> = {};
+  try { porVendedor = JSON.parse(cfg?.titulosPorVentaVendedor ?? "{}"); } catch {}
+  return { general: cfg?.titulosPorVenta ?? 6, porVendedor };
+}
+
 export default async function Contrataciones({ searchParams }: { searchParams: Promise<{ mes?: string; vista?: string }> }) {
   const [{ mes, vista }, sesion] = await Promise.all([searchParams, requerirSesion()]);
   const historial = vista === "todo";
@@ -108,7 +116,7 @@ export default async function Contrataciones({ searchParams }: { searchParams: P
           </div>
         )}
       </Encabezado>
-      <HojaContrataciones filas={filas} esAdmin={sesion.permisos.has("contrataciones")} cobros={sesion.permisos.has("cobros")} admin={sesion.rol === "ADMIN"} historial={historial} />
+      <HojaContrataciones filas={filas} esAdmin={sesion.permisos.has("contrataciones")} cobros={sesion.permisos.has("cobros")} admin={sesion.rol === "ADMIN"} historial={historial} reglaTitulos={await reglaTitulos()} />
       {historial && (
         <section className="card mt-6 flex flex-wrap items-center justify-between gap-3 p-5">
           <div>
