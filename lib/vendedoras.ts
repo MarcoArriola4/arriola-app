@@ -1,7 +1,7 @@
 // Panel Vendedoras: sesión aparte de ArriolApp (nombre + contraseña), catálogo de resultados y días en hora de México.
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { db } from "./db";
 
 export const COOKIE_VENDEDORA = "arriola_vendedora";
@@ -67,3 +67,20 @@ export function fechaHoraLocalMx(v: string | null | undefined) {
 /** Hora de México legible: "lun 17 nov, 10:30" */
 export const fmtMx = (d: Date | string) =>
   new Date(d).toLocaleString("es-MX", { timeZone: "America/Mexico_City", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+/**
+ * Resultado de una acción: en producción Next oculta el mensaje de los errores lanzados, así que las acciones
+ * devuelven el error como dato para mostrarlo tal cual ("Falta el teléfono", etc.).
+ */
+export type Resultado<T = unknown> = { ok: true; datos?: T; mensaje?: string } | { ok: false; error: string };
+
+export async function intentar<T>(fn: () => Promise<T | void>, mensaje?: (d: T | void) => string | undefined): Promise<Resultado<T>> {
+  try {
+    const datos = await fn();
+    return { ok: true, datos: datos ?? undefined, mensaje: mensaje?.(datos) };
+  } catch (e) {
+    unstable_rethrow(e); // redirecciones (p. ej. sesión vencida) siguen su curso
+    console.error(e);
+    return { ok: false, error: e instanceof Error && e.message && !/prisma|invocation|database/i.test(e.message) ? e.message : "No se pudo guardar. Inténtalo de nuevo." };
+  }
+}

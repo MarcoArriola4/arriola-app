@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { Bell, CalendarClock, MessageCircle, Phone, Plus, X } from "lucide-react";
+import { Bell, CalendarClock, Mail, MessageCircle, Phone, Plus, X } from "lucide-react";
 import { agregarContactoPropio, guardarObservaciones, registrarLlamada } from "./actions";
 
 export type LeadVista = {
@@ -42,13 +42,14 @@ export function TarjetaLead({ l }: { l: LeadVista }) {
     iniciar(async () => {
       setError("");
       try {
-        await registrarLlamada(f);
+        const r = await registrarLlamada(f);
+        if (!r.ok) return setError(r.error);
         setAbierto(false);
         setResultado("");
         setVolver("");
         router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "No se guardó; intenta de nuevo");
+      } catch {
+        setError("No hay conexión o tu sesión se cerró. Recarga la página e inténtalo de nuevo.");
       }
     });
 
@@ -57,7 +58,7 @@ export function TarjetaLead({ l }: { l: LeadVista }) {
       <div className="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3">
         <div className="min-w-0 flex-1 basis-56">
           <p className="font-semibold">{l.nombre}</p>
-          <p className="text-sm text-neutral-600">{l.telefono}{l.email && <span className="text-neutral-400"> · {l.email}</span>}</p>
+          <p className="text-sm text-neutral-600">{l.telefono || "Sin teléfono"}{l.email && <span className="text-neutral-400"> · {l.email}</span>}</p>
           {(l.marca || l.expediente || l.estatus) && (
             <p className="mt-1 flex flex-wrap gap-1.5 text-xs">
               {l.marca && <span className="rounded-md bg-carbon px-2 py-0.5 font-medium text-white">{l.marca}</span>}
@@ -82,8 +83,9 @@ export function TarjetaLead({ l }: { l: LeadVista }) {
       </div>
       <Observaciones id={l.id} valor={l.observaciones} />
       <div className="flex flex-wrap items-center gap-2 border-t border-linea bg-black/[0.015] px-4 py-2.5">
-        <a href={`tel:${tel}`} className="btn-primario min-h-10"><Phone size={15} aria-hidden /> Llamar</a>
+        {tel.length >= 8 ? <a href={`tel:${tel}`} className="btn-primario min-h-10"><Phone size={15} aria-hidden /> Llamar</a> : <span className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">Sin teléfono</span>}
         {wa && <a href={wa} target="_blank" rel="noreferrer" className="btn min-h-10 text-green-700"><MessageCircle size={15} aria-hidden /> WhatsApp</a>}
+        {l.email && <a href={`mailto:${l.email}`} className="btn min-h-10"><Mail size={15} aria-hidden /> Correo</a>}
         <button onClick={() => setAbierto(!abierto)} className="btn-marca ml-auto min-h-10">{abierto ? "Cerrar" : "Registrar llamada"}</button>
       </div>
       {abierto && (
@@ -145,7 +147,7 @@ export function AgregarContacto() {
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-16" onClick={() => setAbierto(false)}>
       <form
         onClick={(e) => e.stopPropagation()}
-        action={(f) => iniciar(async () => { setError(""); try { await agregarContactoPropio(f); setAbierto(false); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "No se guardó"); } })}
+        action={(f) => iniciar(async () => { setError(""); try { const r = await agregarContactoPropio(f); if (!r.ok) return setError(r.error); setAbierto(false); router.refresh(); } catch { setError("No hay conexión o tu sesión se cerró. Recarga la página."); } })}
         className="animate-aparecer w-full max-w-md space-y-3 rounded-2xl bg-white p-5 shadow-flotante"
       >
         <div className="flex items-center justify-between">
@@ -154,6 +156,7 @@ export function AgregarContacto() {
         </div>
         <label className="block"><span className="label">Nombre</span><input name="nombre" required className="input min-h-10" /></label>
         <label className="block"><span className="label">Teléfono</span><input name="telefono" required inputMode="tel" className="input min-h-10" /></label>
+        <label className="block"><span className="label">Marca (opcional)</span><input name="marca" className="input min-h-10" /></label>
         <label className="block"><span className="label">Correo (opcional)</span><input name="email" type="email" className="input min-h-10" /></label>
         <label className="block"><span className="label">Nota (opcional)</span><input name="nota" className="input min-h-10" placeholder="De dónde viene, qué busca…" /></label>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
@@ -217,7 +220,7 @@ function Observaciones({ id, valor }: { id: string; valor: string | null }) {
   const guardar = async () => {
     if (texto.trim() === (valor ?? "").trim()) return;
     setEstado("guardando");
-    try { await guardarObservaciones(id, texto); setEstado("listo"); } catch { setEstado("error"); }
+    try { const r = await guardarObservaciones(id, texto); setEstado(r.ok ? "listo" : "error"); } catch { setEstado("error"); }
   };
   return (
     <label className="block border-t border-linea px-4 py-2.5">
