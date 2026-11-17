@@ -62,6 +62,14 @@ export async function registrarLlamada(form: FormData) {
   revalidatePath("/llamadas");
 }
 
+/** Observaciones de la vendedora sobre un contacto (el apartado de cada renglón). */
+export async function guardarObservaciones(leadId: string, texto: string) {
+  const v = await requerirVendedora();
+  const r = await db.lead.updateMany({ where: { id: leadId, vendedoraId: v.id }, data: { observaciones: texto.trim() || null } });
+  if (!r.count) throw new Error("Este contacto no es tuyo");
+  revalidatePath("/llamadas");
+}
+
 /** Agregar un contacto que consiguió la vendedora (queda para hoy). */
 export async function agregarContactoPropio(form: FormData) {
   const v = await requerirVendedora();

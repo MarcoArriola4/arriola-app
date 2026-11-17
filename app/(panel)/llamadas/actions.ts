@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requerirAdmin } from "@/lib/auth";
 import { rangoDia } from "@/lib/vendedoras";
+import { leerExcelContactos } from "@/lib/vendedoras-excel";
 
 const refrescar = () => {
   revalidatePath("/llamadas");
@@ -70,6 +71,27 @@ export async function asignarContactos(vendedoraId: string, dia: string, texto: 
   await db.lead.createMany({ data: contactos.map((c) => ({ ...c, vendedoraId, asignadoEl })) });
   refrescar();
   return { asignados: contactos.length, sinTelefono: malas.length };
+}
+
+/**
+ * Subir el Excel de contactos del día para una vendedora. Columnas: Cliente, Marca, Expediente, Teléfono, Correo,
+ * Estatus (y Observaciones, opcional). La fila de encabezados puede estar en cualquiera de las primeras 10 filas.
+ */
+export async function subirExcelContactos(form: FormData) {
+  await requerirAdmin();
+  const vendedoraId = String(form.get("vendedoraId") ?? "");
+  const dia = String(form.get("dia") ?? "");
+  const archivo = form.get("archivo");
+  if (!vendedoraId) throw new Error("Elige la vendedora");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) throw new Error("Elige el día");
+  if (!(archivo instanceof File) || archivo.size === 0) throw new Error("Elige el archivo de Excel");
+  if (archivo.size > 8 * 1024 * 1024) throw new Error("El archivo es muy grande (máx. 8 MB)");
+  const { contactos, sinTelefono } = await leerExcelContactos(await archivo.arrayBuffer());
+  if (!contactos.length) throw new Error(sinTelefono ? `Ninguna fila tiene teléfono (${sinTelefono} filas sin teléfono)` : "El Excel no tiene contactos debajo de los encabezados");
+  const asignadoEl = new Date(rangoDia(dia).inicio.getTime() + 9 * 3600 * 1000);
+  await db.lead.createMany({ data: contactos.map((c) => ({ ...c, vendedoraId, asignadoEl })) });
+  refrescar();
+  return { asignados: contactos.length, sinTelefono };
 }
 
 /** Quitar un contacto asignado que todavía no se llama (p. ej. se asignó por error). */

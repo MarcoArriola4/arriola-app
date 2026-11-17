@@ -2,10 +2,11 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { Bell, CalendarClock, MessageCircle, Phone, Plus, X } from "lucide-react";
-import { agregarContactoPropio, registrarLlamada } from "./actions";
+import { agregarContactoPropio, guardarObservaciones, registrarLlamada } from "./actions";
 
 export type LeadVista = {
   id: string; nombre: string; telefono: string; email: string | null; nota: string | null; estado: string; cotizacion: boolean;
+  marca: string | null; expediente: string | null; estatus: string | null; observaciones: string | null;
   comentario: string | null; volverLlamar: string | null; ultimaLlamada: string | null; intentos: number; asignadoEl: string; propio: boolean;
 };
 
@@ -57,6 +58,13 @@ export function TarjetaLead({ l }: { l: LeadVista }) {
         <div className="min-w-0 flex-1 basis-56">
           <p className="font-semibold">{l.nombre}</p>
           <p className="text-sm text-neutral-600">{l.telefono}{l.email && <span className="text-neutral-400"> · {l.email}</span>}</p>
+          {(l.marca || l.expediente || l.estatus) && (
+            <p className="mt-1 flex flex-wrap gap-1.5 text-xs">
+              {l.marca && <span className="rounded-md bg-carbon px-2 py-0.5 font-medium text-white">{l.marca}</span>}
+              {l.expediente && <span className="rounded-md bg-black/[0.05] px-2 py-0.5 text-neutral-700">Exp. {l.expediente}</span>}
+              {l.estatus && <span className="rounded-md bg-sky-50 px-2 py-0.5 text-sky-800">{l.estatus}</span>}
+            </p>
+          )}
           {l.nota && <p className="mt-0.5 text-xs text-neutral-500">Nota: {l.nota}</p>}
           {l.comentario && <p className="mt-1 text-xs text-neutral-700">“{l.comentario}”</p>}
           <p className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-neutral-400">
@@ -72,6 +80,7 @@ export function TarjetaLead({ l }: { l: LeadVista }) {
           )}
         </div>
       </div>
+      <Observaciones id={l.id} valor={l.observaciones} />
       <div className="flex flex-wrap items-center gap-2 border-t border-linea bg-black/[0.015] px-4 py-2.5">
         <a href={`tel:${tel}`} className="btn-primario min-h-10"><Phone size={15} aria-hidden /> Llamar</a>
         {wa && <a href={wa} target="_blank" rel="noreferrer" className="btn min-h-10 text-green-700"><MessageCircle size={15} aria-hidden /> WhatsApp</a>}
@@ -198,5 +207,25 @@ export function Avisos({ proximos }: { proximos: { id: string; nombre: string; c
         </button>
       )}
     </>
+  );
+}
+
+/** Apartado de observaciones de cada contacto: se guarda solo al salir del cuadro. */
+function Observaciones({ id, valor }: { id: string; valor: string | null }) {
+  const [texto, setTexto] = useState(valor ?? "");
+  const [estado, setEstado] = useState<"" | "guardando" | "listo" | "error">("");
+  const guardar = async () => {
+    if (texto.trim() === (valor ?? "").trim()) return;
+    setEstado("guardando");
+    try { await guardarObservaciones(id, texto); setEstado("listo"); } catch { setEstado("error"); }
+  };
+  return (
+    <label className="block border-t border-linea px-4 py-2.5">
+      <span className="label flex items-center justify-between">
+        Observaciones
+        <span className="text-[11px] font-normal text-neutral-400">{estado === "guardando" ? "Guardando…" : estado === "listo" ? "Guardado" : estado === "error" ? <span className="text-red-600">No se guardó</span> : ""}</span>
+      </span>
+      <textarea value={texto} onChange={(e) => { setTexto(e.target.value); setEstado(""); }} onBlur={guardar} rows={2} placeholder="Escribe aquí lo importante de este cliente…" className="input text-sm" />
+    </label>
   );
 }

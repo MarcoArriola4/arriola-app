@@ -336,6 +336,11 @@ model Lead {
   telefono      String
   email         String?
   nota          String?   // lo que el gerente le dice del contacto (de dónde viene, qué busca…)
+  // Columnas del Excel del gerente: Cliente, Marca, Expediente, Teléfono, Correo, Estatus (+ Observaciones de la vendedora)
+  marca         String?
+  expediente    String?
+  estatus       String?   // estatus que trae el Excel
+  observaciones String?   // apartado de la vendedora para cada contacto
   asignadoEl    DateTime  // día en que se le asignó (para llamarle ese día)
   // Estado actual: PENDIENTE | NO_CONTESTO | CONTESTO | COTIZACION | VOLVER | VENDIDO | NO_INTERESA
   estado        String    @default("PENDIENTE")

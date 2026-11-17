@@ -42,12 +42,13 @@ export default async function PanelVendedoras({ searchParams }: { searchParams: 
     lista = [{ titulo: "En seguimiento", ayuda: "Interesados, con cotización o por volver a llamar", leads: seguimiento }];
   } else {
     const t = q?.trim();
-    const where: Prisma.LeadWhereInput = { ...mias, ...(t && { OR: [{ nombre: { contains: t, mode: "insensitive" } }, { telefono: { contains: t } }, { comentario: { contains: t, mode: "insensitive" } }] }) };
+    const where: Prisma.LeadWhereInput = { ...mias, ...(t && { OR: [{ nombre: { contains: t, mode: "insensitive" } }, { telefono: { contains: t } }, { marca: { contains: t, mode: "insensitive" } }, { expediente: { contains: t } }, { observaciones: { contains: t, mode: "insensitive" } }, { comentario: { contains: t, mode: "insensitive" } }] }) };
     lista = [{ titulo: t ? `Resultados para “${t}”` : "Todos mis contactos", leads: await db.lead.findMany({ where, orderBy: { actualizado: "desc" }, take: 200 }) }];
   }
 
   const vista = (l: (typeof asignadosHoy)[number]): LeadVista => ({
     id: l.id, nombre: l.nombre, telefono: l.telefono, email: l.email, nota: l.nota, estado: l.estado, cotizacion: l.cotizacion, comentario: l.comentario,
+    marca: l.marca, expediente: l.expediente, estatus: l.estatus, observaciones: l.observaciones,
     volverLlamar: l.volverLlamar?.toISOString() ?? null, ultimaLlamada: l.ultimaLlamada?.toISOString() ?? null, intentos: l.intentos, asignadoEl: l.asignadoEl.toISOString(), propio: l.propio,
   });
 
@@ -124,7 +125,7 @@ export default async function PanelVendedoras({ searchParams }: { searchParams: 
           {ver === "todos" && (
             <form className="flex flex-1 gap-2" role="search">
               <input type="hidden" name="ver" value="todos" />
-              <input name="q" defaultValue={q} placeholder="Buscar nombre, teléfono o comentario" aria-label="Buscar contactos" className="input min-h-10 max-w-xs" />
+              <input name="q" defaultValue={q} placeholder="Buscar cliente, marca, expediente, teléfono…" aria-label="Buscar contactos" className="input min-h-10 max-w-xs" />
               <button className="btn min-h-10">Buscar</button>
             </form>
           )}

@@ -1,8 +1,8 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { KeyRound, Trash2, UserPlus } from "lucide-react";
-import { activarVendedora, asignarContactos, cambiarPasswordVendedora, crearVendedora, eliminarVendedora, quitarContacto } from "./actions";
+import { FileSpreadsheet, KeyRound, Trash2, UserPlus } from "lucide-react";
+import { activarVendedora, asignarContactos, subirExcelContactos, cambiarPasswordVendedora, crearVendedora, eliminarVendedora, quitarContacto } from "./actions";
 
 /** El reporte de hoy se actualiza solo cada 30 segundos (lo que van registrando las vendedoras). */
 export function ActualizarSolo() {
@@ -38,23 +38,43 @@ const useAccion = () => {
   return { pendiente, mensaje, correr };
 };
 
-/** Pegar los contactos del día (uno por línea) y asignarlos a una vendedora. */
+/** Subir el Excel de contactos del día (o pegarlos) y asignarlos a una vendedora. */
 export function AsignarContactos({ vendedoras, hoy }: { vendedoras: { id: string; nombre: string }[]; hoy: string }) {
   const { pendiente, mensaje, correr } = useAccion();
   const [texto, setTexto] = useState("");
   const [vendedora, setVendedora] = useState(vendedoras[0]?.id ?? "");
   const [dia, setDia] = useState(hoy);
+  const [modo, setModo] = useState<"excel" | "pegar">("excel");
   const lineas = texto.split(/\r?\n/).filter((l) => l.trim()).length;
+  const resultado = (r: { asignados: number; sinTelefono: number }) => `${r.asignados} contactos asignados${r.sinTelefono ? ` · ${r.sinTelefono} filas sin teléfono no se agregaron` : ""}`;
   return (
     <section className="card p-4">
       <h2 className="text-sm font-semibold">Asignar contactos del día</h2>
-      <p className="mb-3 mt-0.5 text-xs text-neutral-500">Uno por línea: <b>Nombre, teléfono, nota</b> (también puedes pegar columnas del Excel). Le aparecen a la vendedora en «Hoy».</p>
+      <p className="mb-3 mt-0.5 text-xs text-neutral-500">Le aparecen a la vendedora en «Hoy», con un apartado de observaciones por cada contacto.</p>
       {vendedoras.length === 0 ? <p className="text-sm text-neutral-500">Primero da acceso a una vendedora.</p> : (
-        <form action={() => correr(async () => { const r = await asignarContactos(vendedora, dia, texto); setTexto(""); return `${r.asignados} contactos asignados${r.sinTelefono ? ` · ${r.sinTelefono} líneas sin teléfono no se agregaron` : ""}`; })} className="space-y-3">
+        <div className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block"><span className="label">Vendedora</span><select value={vendedora} onChange={(e) => setVendedora(e.target.value)} className="input min-h-10">{vendedoras.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}</select></label>
             <label className="block"><span className="label">Para el día</span><input type="date" value={dia} min={hoy} onChange={(e) => setDia(e.target.value)} className="input min-h-10" /></label>
           </div>
+          <div className="inline-flex rounded-lg bg-black/[0.05] p-1" role="tablist">
+            {([["excel", "Subir Excel"], ["pegar", "Pegar contactos"]] as const).map(([id, t]) => (
+              <button key={id} type="button" role="tab" aria-selected={modo === id} onClick={() => setModo(id)} className={`rounded-md px-3 py-1.5 text-xs font-medium ${modo === id ? "bg-white text-carbon shadow-tarjeta" : "text-neutral-500"}`}>{t}</button>
+            ))}
+          </div>
+          {modo === "excel" ? (
+            <form action={(f) => correr(async () => { f.set("vendedoraId", vendedora); f.set("dia", dia); const r = await subirExcelContactos(f); return resultado(r); })} className="space-y-3">
+              <p className="rounded-lg bg-black/[0.03] px-3 py-2 text-xs text-neutral-600">
+                <FileSpreadsheet size={14} className="mr-1 inline text-marca-oscuro" aria-hidden />
+                Columnas: <b>Cliente, Marca, Expediente, Teléfono, Correo, Estatus</b> (y <b>Observaciones</b>, opcional). Una fila por contacto.
+              </p>
+              <input type="file" name="archivo" required accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="input min-h-10 py-1.5 text-xs file:mr-3 file:rounded-md file:border-0 file:bg-carbon file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white" />
+              {mensaje && <p role="status" className={`text-sm ${mensaje.ok ? "text-marca-oscuro" : "text-red-600"}`}>{mensaje.t}</p>}
+              <button disabled={pendiente} className="btn-primario min-h-10">{pendiente ? "Subiendo…" : "Subir y asignar"}</button>
+            </form>
+          ) : (
+        <form action={() => correr(async () => { const r = await asignarContactos(vendedora, dia, texto); setTexto(""); return resultado(r); })} className="space-y-3">
+          <p className="text-xs text-neutral-500">Uno por línea: <b>Nombre, teléfono, nota</b>.</p>
           <label className="block">
             <span className="label">Contactos {lineas > 0 && <span className="text-neutral-400">· {lineas} {lineas === 1 ? "línea" : "líneas"}</span>}</span>
             <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={8} required placeholder={"Juan Pérez, 5512345678, quiere registrar su marca\nMaría López, 33 1234 5678"} className="input font-mono text-xs" />
@@ -62,6 +82,8 @@ export function AsignarContactos({ vendedoras, hoy }: { vendedoras: { id: string
           {mensaje && <p role="status" className={`text-sm ${mensaje.ok ? "text-marca-oscuro" : "text-red-600"}`}>{mensaje.t}</p>}
           <button disabled={pendiente || !lineas} className="btn-primario min-h-10">{pendiente ? "Asignando…" : "Asignar contactos"}</button>
         </form>
+          )}
+        </div>
       )}
     </section>
   );
