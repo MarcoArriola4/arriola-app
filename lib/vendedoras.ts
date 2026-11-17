@@ -39,10 +39,18 @@ export const RESULTADOS: Record<string, { txt: string; cls: string; contesto: bo
   NO_CONTESTO: { txt: "No contestó", cls: "bg-neutral-100 text-neutral-600", contesto: false },
   CONTESTO: { txt: "Contestó · interesado", cls: "bg-sky-50 text-sky-800", contesto: true },
   COTIZACION: { txt: "Cotización enviada", cls: "bg-violet-50 text-violet-800", contesto: true },
-  VOLVER: { txt: "Volver a llamar", cls: "bg-amber-50 text-amber-800", contesto: true },
+  VOLVER: { txt: "Volver a contactar", cls: "bg-amber-50 text-amber-800", contesto: true },
   VENDIDO: { txt: "Vendido", cls: "bg-marca-claro text-marca-oscuro", contesto: true },
   NO_INTERESA: { txt: "No le interesa", cls: "bg-red-50 text-red-700", contesto: true },
 };
+/** Por dónde se hizo el contacto: si no contesta la llamada, se le escribe por WhatsApp. */
+export const CANALES: Record<string, { txt: string; cls: string }> = {
+  LLAMADA: { txt: "Llamada", cls: "bg-sky-50 text-sky-800" },
+  WHATSAPP: { txt: "WhatsApp", cls: "bg-emerald-50 text-emerald-800" },
+};
+/** Texto del resultado según el canal ("No respondió" en WhatsApp). */
+export const txtResultado = (resultado: string, canal?: string | null) =>
+  canal === "WHATSAPP" && resultado === "NO_CONTESTO" ? "No respondió" : (RESULTADOS[resultado]?.txt ?? "Por llamar");
 export const ESTADO_PENDIENTE = { txt: "Por llamar", cls: "bg-white text-carbon ring-1 ring-black/10" };
 export const estadoLead = (e: string) => RESULTADOS[e] ?? ESTADO_PENDIENTE;
 

@@ -350,6 +350,8 @@ model Lead {
   ultimaLlamada DateTime?
   intentos      Int       @default(0)
   propio        Boolean   @default(false) // lo agregó la vendedora (no se lo asignó el gerente)
+  canal         String?   // por dónde fue el último contacto: LLAMADA | WHATSAPP
+  contestoPor   String?   // por dónde contestó/respondió (último registro en que contestó): LLAMADA | WHATSAPP
   creado        DateTime  @default(now())
   actualizado   DateTime  @updatedAt
   llamadas      Llamada[]
@@ -371,6 +373,8 @@ model Llamada {
   comentario   String?
   cotizacion   Boolean   @default(false)
   volverLlamar DateTime?
+  canal        String    @default("LLAMADA") // LLAMADA | WHATSAPP (si no contestó la llamada se le escribe por WhatsApp)
+  editado      DateTime? // última vez que se corrigió el registro
 
   @@index([vendedoraId, fecha])
 }

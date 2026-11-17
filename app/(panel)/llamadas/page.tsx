@@ -2,8 +2,9 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { requerirAdmin } from "@/lib/auth";
 import { Encabezado, Vacio } from "@/components/ui";
-import { CONTACTOS_POR_DIA, RESULTADOS, diaMx, estadoLead, fmtMx, rangoDia } from "@/lib/vendedoras";
-import { Accesos, ActualizarSolo, AsignarContactos, EditarContacto, QuitarContacto } from "./componentes";
+import { CONTACTOS_POR_DIA, RESULTADOS, diaMx, estadoLead, fmtMx, rangoDia, txtResultado } from "@/lib/vendedoras";
+import { ChipCanal, type RegistroVista } from "@/components/registros-contacto";
+import { Accesos, ActualizarSolo, AsignarContactos, EditarContacto, QuitarContacto, RegistrosAdmin, RegistrosContacto } from "./componentes";
 
 export const metadata = { title: "Panel Vendedoras" };
 export const dynamic = "force-dynamic";
@@ -34,7 +35,7 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
   // Control: rendimiento de los últimos 30 días, por qué no compran y los contactos con sus observaciones
   const hace30 = new Date(fin.getTime() - 30 * 864e5);
   const [llamadas30, asignados30, noInteresa, contactos] = await Promise.all([
-    db.llamada.findMany({ where: { ...deQuien, fecha: { gte: hace30, lt: fin } }, select: { vendedoraId: true, contesto: true, cotizacion: true, resultado: true, leadId: true } }),
+    db.llamada.findMany({ where: { ...deQuien, fecha: { gte: hace30, lt: fin } }, select: { vendedoraId: true, contesto: true, cotizacion: true, resultado: true, leadId: true, canal: true } }),
     db.lead.groupBy({ by: ["vendedoraId"], where: { ...deQuien, asignadoEl: { gte: hace30, lt: fin } }, _count: true }),
     db.llamada.findMany({ where: { ...deQuien, fecha: { gte: hace30, lt: fin }, resultado: "NO_INTERESA" }, include: { lead: { select: { nombre: true, marca: true, observaciones: true } } }, orderBy: { fecha: "desc" }, take: 80 }),
     db.lead.findMany({
@@ -42,22 +43,26 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
         ...deQuien,
         ...(sp.q?.trim() && { OR: ["nombre", "telefono", "marca", "expediente", "email", "observaciones", "comentario"].map((k) => ({ [k]: { contains: sp.q!.trim(), mode: "insensitive" as const } })) }),
       },
-      include: { vendedora: { select: { nombre: true } } }, orderBy: { actualizado: "desc" }, take: filtro || sp.q ? 400 : 150,
+      include: { vendedora: { select: { nombre: true } }, llamadas: { orderBy: { fecha: "desc" } } }, orderBy: { actualizado: "desc" }, take: filtro || sp.q ? 400 : 150,
     }),
   ]);
   const rendimiento = vendedoras
     .filter((x) => !filtro || x.id === filtro)
     .map((x) => {
-      const ll = llamadas30.filter((l) => l.vendedoraId === x.id);
-      const contesto = ll.filter((l) => l.contesto).length;
-      const vendidos = ll.filter((l) => l.resultado === "VENDIDO").length;
+      const todos = llamadas30.filter((l) => l.vendedoraId === x.id);
+      const ll = todos.filter((l) => l.canal !== "WHATSAPP");
+      const wa = todos.filter((l) => l.canal === "WHATSAPP");
+      const contesto = todos.filter((l) => l.contesto).length;
+      const vendidos = todos.filter((l) => l.resultado === "VENDIDO").length;
       return {
         id: x.id, nombre: x.nombre, asignados: asignados30.find((a) => a.vendedoraId === x.id)?._count ?? 0, llamadas: ll.length,
-        pctContesta: ll.length ? Math.round((contesto / ll.length) * 100) : 0, cotizaciones: ll.filter((l) => l.cotizacion).length, vendidos,
-        pctCierre: contesto ? Math.round((vendidos / contesto) * 100) : 0, noInteresa: ll.filter((l) => l.resultado === "NO_INTERESA").length,
+        pctContesta: ll.length ? Math.round((ll.filter((l) => l.contesto).length / ll.length) * 100) : 0,
+        whats: wa.length, pctWhats: wa.length ? Math.round((wa.filter((l) => l.contesto).length / wa.length) * 100) : 0,
+        cotizaciones: todos.filter((l) => l.cotizacion).length, vendidos, ventasWhats: wa.filter((l) => l.resultado === "VENDIDO").length,
+        pctCierre: contesto ? Math.round((vendidos / contesto) * 100) : 0, noInteresa: todos.filter((l) => l.resultado === "NO_INTERESA").length,
       };
     })
-    .filter((r) => r.llamadas || r.asignados);
+    .filter((r) => r.llamadas || r.whats || r.asignados);
 
   const nombreDe = new Map(vendedoras.map((x) => [x.id, x.nombre]));
   const listaVendedoras = vendedoras.map((x) => ({ id: x.id, nombre: x.activa ? x.nombre : `${x.nombre} (sin acceso)` }));
@@ -69,17 +74,24 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
     .filter((x) => x.activa || asignados.some((a) => a.vendedoraId === x.id) || llamadas.some((l) => l.vendedoraId === x.id))
     .filter((x) => !filtro || x.id === filtro)
     .map((x) => {
-      const ll = llamadas.filter((l) => l.vendedoraId === x.id);
+      const todos = llamadas.filter((l) => l.vendedoraId === x.id);
+      const ll = todos.filter((l) => l.canal !== "WHATSAPP");
+      const wa = todos.filter((l) => l.canal === "WHATSAPP");
       const asig = asignados.filter((a) => a.vendedoraId === x.id);
-      const llamados = new Set(ll.map((l) => l.leadId)).size;
+      const llamados = new Set(todos.map((l) => l.leadId)).size;
       return {
         id: x.id, nombre: x.nombre, activa: x.activa, asignados: asig.length, llamadas: ll.length, llamados,
         contestaron: ll.filter((l) => l.contesto).length, noContesto: ll.filter((l) => !l.contesto).length,
-        cotizaciones: ll.filter((l) => l.cotizacion).length, volver: ll.filter((l) => l.volverLlamar).length,
-        vendidos: ll.filter((l) => l.resultado === "VENDIDO").length, noInteresa: ll.filter((l) => l.resultado === "NO_INTERESA").length,
-        ultima: ll[0]?.fecha ?? null,
+        whats: wa.length, respondieron: wa.filter((l) => l.contesto).length,
+        cotizaciones: todos.filter((l) => l.cotizacion).length, volver: todos.filter((l) => l.volverLlamar).length,
+        vendidos: todos.filter((l) => l.resultado === "VENDIDO").length, noInteresa: todos.filter((l) => l.resultado === "NO_INTERESA").length,
+        ultima: todos[0]?.fecha ?? null,
       };
     });
+  const reg = (r: { id: string; fecha: Date; canal: string; resultado: string; comentario: string | null; cotizacion: boolean; volverLlamar: Date | null; editado: Date | null }, encabezado?: string): RegistroVista => ({
+    id: r.id, fecha: r.fecha.toISOString(), canal: r.canal, resultado: r.resultado, comentario: r.comentario, cotizacion: r.cotizacion,
+    volverLlamar: r.volverLlamar?.toISOString() ?? null, editado: r.editado?.toISOString() ?? null, encabezado,
+  });
   const total = (k: keyof (typeof resumen)[number]) => resumen.reduce((a, r) => a + (typeof r[k] === "number" ? (r[k] as number) : 0), 0);
   const cumplido = (r: (typeof recordatoriosDia)[number]) => (r.lead.llamadas[0]?.fecha ?? new Date(0)) > r.fecha;
   const url = (p: Record<string, string | undefined>) => `/llamadas?${new URLSearchParams(Object.entries({ dia, v: filtro, ...p }).filter(([, v]) => v) as [string, string][])}`;
@@ -101,14 +113,16 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
       {dia === hoy && <ActualizarSolo />}
 
       {/* Totales del día */}
-      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-5">
         {[
           { t: "Contactos asignados", n: total("asignados") },
           { t: "Llamadas hechas", n: total("llamadas") },
-          { t: "Contestaron", n: total("contestaron") },
-          { t: "No contestaron", n: total("noContesto") },
+          { t: "Contestaron la llamada", n: total("contestaron") },
+          { t: "No contestaron la llamada", n: total("noContesto") },
+          { t: "WhatsApp enviados", n: total("whats") },
+          { t: "Respondieron WhatsApp", n: total("respondieron") },
           { t: "Cotizaciones enviadas", n: total("cotizaciones") },
-          { t: "Por volver a llamar", n: total("volver") },
+          { t: "Por volver a contactar", n: total("volver") },
           { t: "Vendidos", n: total("vendidos") },
         ].map((x) => (
           <div key={x.t} className="card px-4 py-3">
@@ -122,8 +136,8 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
       <section className="card mb-6 overflow-x-auto">
         <h2 className="border-b border-linea px-4 py-3 text-sm font-semibold">Por vendedora</h2>
         {resumen.length === 0 ? <Vacio>Aún no hay vendedoras. Dales acceso abajo.</Vacio> : (
-          <table className="w-full min-w-[820px] text-sm">
-            <thead className="border-b border-linea"><tr><th className="th">Vendedora</th><th className="th">Avance</th><th className="th text-right">Llamadas</th><th className="th text-right">Contestaron</th><th className="th text-right">Cotizaciones</th><th className="th text-right">Volver a llamar</th><th className="th text-right">Vendidos</th><th className="th text-right">No le interesa</th><th className="th">Última llamada</th></tr></thead>
+          <table className="w-full min-w-[960px] text-sm">
+            <thead className="border-b border-linea"><tr><th className="th">Vendedora</th><th className="th">Avance</th><th className="th text-right">Llamadas</th><th className="th text-right">Contestaron</th><th className="th text-right">WhatsApp</th><th className="th text-right">Respondieron WA</th><th className="th text-right">Cotizaciones</th><th className="th text-right">Volver a contactar</th><th className="th text-right">Vendidos</th><th className="th text-right">No le interesa</th><th className="th">Último registro</th></tr></thead>
             <tbody className="divide-y divide-black/5">
               {resumen.map((r) => {
                 const meta = Math.max(r.asignados, CONTACTOS_POR_DIA);
@@ -137,6 +151,8 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
                     </td>
                     <td className="td cifra text-right font-semibold">{r.llamadas}</td>
                     <td className="td cifra text-right">{r.contestaron}</td>
+                    <td className="td cifra text-right">{r.whats}</td>
+                    <td className="td cifra text-right">{r.respondieron}</td>
                     <td className="td cifra text-right">{r.cotizaciones}</td>
                     <td className="td cifra text-right">{r.volver}</td>
                     <td className="td cifra text-right text-marca-oscuro">{r.vendidos}</td>
@@ -153,30 +169,16 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
       <div className="mb-6 grid gap-6 lg:grid-cols-2">
         {/* Actividad en tiempo real */}
         <section className="card">
-          <h2 className="border-b border-linea px-4 py-3 text-sm font-semibold">Llamadas del día ({llamadas.length})</h2>
-          {llamadas.length === 0 ? <Vacio>Todavía no hay llamadas registradas este día.</Vacio> : (
-            <ul className="max-h-[520px] divide-y divide-black/5 overflow-y-auto">
-              {llamadas.map((l) => {
-                const r = estadoLead(l.resultado);
-                return (
-                  <li key={l.id} className="px-4 py-2.5 text-sm">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="cifra text-xs text-neutral-400">{hora(l.fecha)}</span>
-                      <span className="font-medium">{l.lead.nombre}</span>
-                      {l.lead.marca && <span className="rounded bg-black/[0.05] px-1.5 text-[11px] text-neutral-700">{l.lead.marca}</span>}
-                      <span className="text-xs text-neutral-500">· {nombreDe.get(l.vendedoraId)}</span>
-                      <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-medium ${r.cls}`}>{r.txt}</span>
-                    </div>
-                    {l.comentario && <p className="mt-0.5 text-xs text-neutral-600">“{l.comentario}”</p>}
-                    <p className="text-[11px] text-neutral-400">
-                      {l.cotizacion && "Cotización enviada · "}
-                      {l.volverLlamar && `Volver a llamar: ${fmtMx(l.volverLlamar)}`}
-                    </p>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <h2 className="border-b border-linea px-4 py-3 text-sm font-semibold">
+            Llamadas y WhatsApp del día ({llamadas.length})
+            <span className="ml-2 font-normal text-neutral-500">· puedes corregir o borrar cualquiera</span>
+          </h2>
+          <div className="max-h-[520px] overflow-y-auto text-sm">
+            <RegistrosAdmin
+              registros={llamadas.map((l) => reg(l, `${l.lead.nombre}${l.lead.marca ? ` (${l.lead.marca})` : ""} · ${nombreDe.get(l.vendedoraId) ?? ""}`))}
+              vacio="Todavía no hay llamadas ni WhatsApp registrados este día."
+            />
+          </div>
         </section>
 
         <div className="space-y-6">
@@ -248,8 +250,8 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
       <section className="card mb-6 overflow-x-auto">
         <h2 className="border-b border-linea px-4 py-3 text-sm font-semibold">Rendimiento · últimos 30 días <span className="font-normal text-neutral-500">(para ver quién vende más y por qué)</span></h2>
         {rendimiento.length === 0 ? <Vacio>Sin actividad en los últimos 30 días.</Vacio> : (
-          <table className="w-full min-w-[760px] text-sm">
-            <thead className="border-b border-linea"><tr><th className="th">Vendedora</th><th className="th text-right">Asignados</th><th className="th text-right">Llamadas</th><th className="th text-right">% contestan</th><th className="th text-right">Cotizaciones</th><th className="th text-right">Vendidos</th><th className="th text-right">% cierre</th><th className="th text-right">No les interesa</th></tr></thead>
+          <table className="w-full min-w-[900px] text-sm">
+            <thead className="border-b border-linea"><tr><th className="th">Vendedora</th><th className="th text-right">Asignados</th><th className="th text-right">Llamadas</th><th className="th text-right">% contestan</th><th className="th text-right">WhatsApp</th><th className="th text-right">% responden WA</th><th className="th text-right">Cotizaciones</th><th className="th text-right">Vendidos</th><th className="th text-right">% cierre</th><th className="th text-right">No les interesa</th></tr></thead>
             <tbody className="divide-y divide-black/5">
               {rendimiento.map((r) => (
                 <tr key={r.id}>
@@ -257,8 +259,10 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
                   <td className="td cifra text-right">{r.asignados}</td>
                   <td className="td cifra text-right font-semibold">{r.llamadas}</td>
                   <td className="td cifra text-right">{r.pctContesta}%</td>
+                  <td className="td cifra text-right">{r.whats}</td>
+                  <td className="td cifra text-right">{r.pctWhats}%</td>
                   <td className="td cifra text-right">{r.cotizaciones}</td>
-                  <td className="td cifra text-right text-marca-oscuro">{r.vendidos}</td>
+                  <td className="td cifra text-right text-marca-oscuro">{r.vendidos}{r.ventasWhats > 0 && <span className="ml-1 text-[11px] text-emerald-700">({r.ventasWhats} por WA)</span>}</td>
                   <td className={`td cifra text-right font-semibold ${r.pctCierre >= 20 ? "text-marca-oscuro" : r.pctCierre >= 10 ? "text-amber-700" : "text-red-600"}`}>{r.pctCierre}%</td>
                   <td className="td cifra text-right text-neutral-500">{r.noInteresa}</td>
                 </tr>
@@ -266,7 +270,7 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
             </tbody>
           </table>
         )}
-        <p className="border-t border-linea px-4 py-2 text-[11px] text-neutral-400">% cierre = vendidos entre los que contestaron.</p>
+        <p className="border-t border-linea px-4 py-2 text-[11px] text-neutral-400">% cierre = vendidos entre los que contestaron (por llamada o WhatsApp).</p>
       </section>
 
       {/* Por qué no compran */}
@@ -305,7 +309,7 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
         {contactos.length === 0 ? <Vacio>Sin contactos.</Vacio> : (
           <div className="max-h-[560px] overflow-y-auto">
             <table className="w-full min-w-[1000px] text-xs">
-              <thead className="sticky top-0 border-b border-linea bg-white"><tr><th className="th">Cliente</th><th className="th">Marca / exp.</th><th className="th">Estatus (Excel)</th><th className="th">Resultado</th><th className="th">Lo que dijo</th><th className="th">Observaciones</th><th className="th">Volver a llamar</th>{!filtro && <th className="th">Vendedora</th>}<th className="th"><span className="sr-only">Acciones</span></th></tr></thead>
+              <thead className="sticky top-0 border-b border-linea bg-white"><tr><th className="th">Cliente</th><th className="th">Marca / exp.</th><th className="th">Estatus (Excel)</th><th className="th">Resultado</th><th className="th">Lo que dijo</th><th className="th">Observaciones</th><th className="th">Volver a contactar</th>{!filtro && <th className="th">Vendedora</th>}<th className="th"><span className="sr-only">Acciones</span></th></tr></thead>
               <tbody className="divide-y divide-black/5">
                 {contactos.map((c) => {
                   const e = estadoLead(c.estado);
@@ -314,12 +318,19 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
                       <td className="td"><p className="font-medium">{c.nombre}</p><p className="text-neutral-500">{c.telefono}</p></td>
                       <td className="td">{c.marca ?? "—"}{c.expediente && <p className="text-neutral-500">Exp. {c.expediente}</p>}</td>
                       <td className="td text-neutral-600">{c.estatus ?? "—"}</td>
-                      <td className="td"><span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${e.cls}`}>{e.txt}</span>{c.cotizacion && c.estado !== "COTIZACION" && <p className="mt-0.5 text-violet-700">Con cotización</p>}<p className="mt-0.5 text-neutral-400">{c.intentos} {c.intentos === 1 ? "llamada" : "llamadas"}</p></td>
+                      <td className="td">
+                        <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${e.cls}`}>{txtResultado(c.estado, c.canal)}</span>
+                        {c.contestoPor && <p className="mt-1"><ChipCanal canal={c.contestoPor} prefijo={c.contestoPor === "WHATSAPP" ? "Respondió por " : "Contestó por "} /></p>}
+                        {!c.contestoPor && c.canal === "WHATSAPP" && <p className="mt-0.5 text-emerald-700">WhatsApp sin respuesta</p>}
+                        {c.cotizacion && c.estado !== "COTIZACION" && <p className="mt-0.5 text-violet-700">Con cotización</p>}
+                        <p className="mt-0.5 text-neutral-400">{c.llamadas.filter((x) => x.canal !== "WHATSAPP").length} llamadas · {c.llamadas.filter((x) => x.canal === "WHATSAPP").length} WhatsApp</p>
+                      </td>
                       <td className="td max-w-[220px] text-neutral-700">{c.comentario ?? "—"}</td>
                       <td className="td max-w-[220px] text-neutral-700">{c.observaciones ?? "—"}</td>
                       <td className={`td whitespace-nowrap ${c.volverLlamar && c.volverLlamar < ahora ? "font-medium text-red-600" : "text-neutral-600"}`}>{c.volverLlamar ? fmtMx(c.volverLlamar) : "—"}</td>
                       {!filtro && <td className="td text-neutral-600">{c.vendedora.nombre}</td>}
                       <td className="td whitespace-nowrap text-right">
+                        <RegistrosContacto nombre={c.nombre} registros={c.llamadas.map((r) => reg(r))} />
                         <EditarContacto id={c.id} vendedoras={listaVendedoras} datos={datosDe(c)} />
                         <QuitarContacto id={c.id} nombre={c.nombre} llamadas={c.intentos} />
                       </td>

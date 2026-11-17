@@ -21,7 +21,7 @@ export default async function PanelVendedoras({ searchParams }: { searchParams: 
 
   const [asignadosHoy, llamadasHoy, vencidos, proximos, atrasados] = await Promise.all([
     db.lead.findMany({ where: { ...mias, asignadoEl: { gte: inicio, lt: fin } }, orderBy: { creado: "asc" } }),
-    db.llamada.findMany({ where: { ...mias, fecha: { gte: inicio, lt: fin } }, select: { contesto: true, cotizacion: true, leadId: true } }),
+    db.llamada.findMany({ where: { ...mias, fecha: { gte: inicio, lt: fin } }, select: { contesto: true, cotizacion: true, leadId: true, canal: true } }),
     db.lead.findMany({ where: { ...mias, estado: ABIERTOS, volverLlamar: { lte: ahora } }, orderBy: { volverLlamar: "asc" } }),
     db.lead.findMany({ where: { ...mias, estado: ABIERTOS, volverLlamar: { gt: ahora } }, orderBy: { volverLlamar: "asc" } }),
     db.lead.findMany({ where: { ...mias, estado: "PENDIENTE", asignadoEl: { lt: inicio } }, orderBy: { asignadoEl: "asc" } }),
@@ -39,21 +39,42 @@ export default async function PanelVendedoras({ searchParams }: { searchParams: 
     lista = [{ titulo: "Próximos recordatorios", ayuda: "Ordenados por fecha", leads: proximos }];
   } else if (ver === "seguimiento") {
     const seguimiento = await db.lead.findMany({ where: { ...mias, estado: { in: ["CONTESTO", "COTIZACION", "VOLVER"] } }, orderBy: { ultimaLlamada: "desc" } });
-    lista = [{ titulo: "En seguimiento", ayuda: "Interesados, con cotización o por volver a llamar", leads: seguimiento }];
+    lista = [{ titulo: "En seguimiento", ayuda: "Interesados, con cotización o por volver a contactar", leads: seguimiento }];
+  } else if (ver === "contestaron") {
+    const [porLlamada, porWhats, sinRespuesta] = await Promise.all([
+      db.lead.findMany({ where: { ...mias, contestoPor: "LLAMADA" }, orderBy: { ultimaLlamada: "desc" }, take: 200 }),
+      db.lead.findMany({ where: { ...mias, contestoPor: "WHATSAPP" }, orderBy: { ultimaLlamada: "desc" }, take: 200 }),
+      db.lead.findMany({ where: { ...mias, contestoPor: null, canal: "WHATSAPP", estado: ABIERTOS }, orderBy: { ultimaLlamada: "desc" }, take: 200 }),
+    ]);
+    lista = [
+      { titulo: "Contestaron por llamada", ayuda: "Con qué pasó en su último registro", leads: porLlamada },
+      { titulo: "Respondieron por WhatsApp", ayuda: "No contestaron la llamada pero sí el WhatsApp", leads: porWhats },
+      { titulo: "WhatsApp enviado, sin respuesta", ayuda: "Todavía no contestan por ningún lado", leads: sinRespuesta },
+    ];
   } else {
     const t = q?.trim();
     const where: Prisma.LeadWhereInput = { ...mias, ...(t && { OR: [{ nombre: { contains: t, mode: "insensitive" } }, { telefono: { contains: t } }, { marca: { contains: t, mode: "insensitive" } }, { expediente: { contains: t } }, { observaciones: { contains: t, mode: "insensitive" } }, { comentario: { contains: t, mode: "insensitive" } }] }) };
     lista = [{ titulo: t ? `Resultados para “${t}”` : "Todos mis contactos", leads: await db.lead.findMany({ where, orderBy: { actualizado: "desc" }, take: 200 }) }];
   }
 
+  // Registros (llamadas y WhatsApp) de los contactos que se muestran, para verlos y corregirlos
+  const ids = [...new Set(lista.flatMap((g) => g.leads.map((l) => l.id)))];
+  const registros = ids.length ? await db.llamada.findMany({ where: { ...mias, leadId: { in: ids } }, orderBy: { fecha: "desc" } }) : [];
   const vista = (l: (typeof asignadosHoy)[number]): LeadVista => ({
+    canal: l.canal, contestoPor: l.contestoPor,
+    registros: registros.filter((r) => r.leadId === l.id).map((r) => ({
+      id: r.id, fecha: r.fecha.toISOString(), canal: r.canal, resultado: r.resultado, comentario: r.comentario, cotizacion: r.cotizacion,
+      volverLlamar: r.volverLlamar?.toISOString() ?? null, editado: r.editado?.toISOString() ?? null,
+    })),
     id: l.id, nombre: l.nombre, telefono: l.telefono, email: l.email, nota: l.nota, estado: l.estado, cotizacion: l.cotizacion, comentario: l.comentario,
     marca: l.marca, expediente: l.expediente, estatus: l.estatus, observaciones: l.observaciones,
     volverLlamar: l.volverLlamar?.toISOString() ?? null, ultimaLlamada: l.ultimaLlamada?.toISOString() ?? null, intentos: l.intentos, asignadoEl: l.asignadoEl.toISOString(), propio: l.propio,
   });
 
-  const llamadas = llamadasHoy.length;
-  const contestaron = llamadasHoy.filter((x) => x.contesto).length;
+  const llamadas = llamadasHoy.filter((x) => x.canal !== "WHATSAPP").length;
+  const whats = llamadasHoy.length - llamadas;
+  const contestaron = llamadasHoy.filter((x) => x.contesto && x.canal !== "WHATSAPP").length;
+  const respondieron = llamadasHoy.filter((x) => x.contesto && x.canal === "WHATSAPP").length;
   const cotizaciones = llamadasHoy.filter((x) => x.cotizacion).length;
   const llamadosHoy = new Set(llamadasHoy.map((x) => x.leadId)).size;
   const meta = Math.max(asignadosHoy.length, CONTACTOS_POR_DIA);
@@ -62,6 +83,7 @@ export default async function PanelVendedoras({ searchParams }: { searchParams: 
     { id: "hoy", txt: "Hoy", n: vencidos.length + asignadosHoy.filter((l) => l.estado === "PENDIENTE").length + atrasados.length },
     { id: "recordatorios", txt: "Recordatorios", n: proximos.length },
     { id: "seguimiento", txt: "Seguimiento" },
+    { id: "contestaron", txt: "Contestaron" },
     { id: "todos", txt: "Todos" },
   ];
 
@@ -85,14 +107,16 @@ export default async function PanelVendedoras({ searchParams }: { searchParams: 
         {/* Avance del día */}
         <section className="card mt-5 p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-sm font-semibold">Avance de hoy: {llamadosHoy} de {meta} contactos llamados</p>
+            <p className="text-sm font-semibold">Avance de hoy: {llamadosHoy} de {meta} contactos trabajados</p>
             <span className="cifra text-sm font-semibold text-marca-oscuro">{pct}%</span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/[0.06]"><div className="h-full rounded-full bg-marca transition-all" style={{ width: `${pct}%` }} /></div>
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {[
               { t: "Llamadas hechas", n: llamadas },
-              { t: "Contestaron", n: contestaron },
+              { t: "Contestaron la llamada", n: contestaron },
+              { t: "WhatsApp enviados", n: whats },
+              { t: "Respondieron WhatsApp", n: respondieron },
               { t: "Cotizaciones enviadas", n: cotizaciones },
               { t: "Recordatorios pendientes", n: vencidos.length + proximos.length },
             ].map((x) => (
@@ -107,7 +131,7 @@ export default async function PanelVendedoras({ searchParams }: { searchParams: 
         {vencidos.length > 0 && (
           <Link href="/vendedoras?ver=hoy" className="mt-4 flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <BellRing size={18} className="shrink-0 text-amber-600" aria-hidden />
-            <span><b>{vencidos.length}</b> {vencidos.length === 1 ? "contacto espera" : "contactos esperan"} tu llamada ahora (recordatorio). El primero: {vencidos[0].nombre} · {fmtMx(vencidos[0].volverLlamar!)}</span>
+            <span><b>{vencidos.length}</b> {vencidos.length === 1 ? "contacto espera" : "contactos esperan"} que los contactes ahora (recordatorio). El primero: {vencidos[0].nombre} · {fmtMx(vencidos[0].volverLlamar!)}</span>
           </Link>
         )}
 

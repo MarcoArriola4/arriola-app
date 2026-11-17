@@ -3,7 +3,8 @@ import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { RESULTADOS, cerrarSesionVendedora, crearSesionVendedora, fechaHoraLocalMx, intentar, requerirVendedora, type Resultado } from "@/lib/vendedoras";
+import { cerrarSesionVendedora, crearSesionVendedora, intentar, requerirVendedora, type Resultado } from "@/lib/vendedoras";
+import { corregirRegistro, leerRegistro } from "@/lib/vendedoras-registros";
 
 const MAX_INTENTOS = 5;
 const VENTANA_MS = 15 * 60 * 1000;
@@ -31,33 +32,27 @@ export async function salirVendedora() {
   redirect("/vendedoras/login");
 }
 
-/** Registrar una llamada: si contestó, qué dijo, si se envió cotización y cuándo volver a llamar. */
+/** Registrar un contacto (llamada o WhatsApp): qué pasó, qué dijo, si se envió cotización y cuándo volver a contactar. */
 export async function registrarLlamada(form: FormData): Promise<Resultado> {
   return intentar(async () => {
     const v = await requerirVendedora();
     const leadId = txt(form, "leadId") ?? "";
-    const resultado = txt(form, "resultado") ?? "";
-    if (!(resultado in RESULTADOS)) throw new Error("Elige qué pasó en la llamada");
     const lead = await db.lead.findFirst({ where: { id: leadId, vendedoraId: v.id } });
     if (!lead) throw new Error("Este contacto ya no está en tu lista. Recarga la página.");
-    const comentario = txt(form, "comentario");
-    const cotizacion = form.get("cotizacion") === "on" || resultado === "COTIZACION";
-    const volverTxt = txt(form, "volverLlamar");
-    const volver = fechaHoraLocalMx(volverTxt);
-    if (volverTxt && !volver) throw new Error("La fecha del recordatorio no es válida");
+    const d = leerRegistro(form);
     const ahora = new Date();
     await db.$transaction([
-      db.llamada.create({
-        data: { leadId, vendedoraId: v.id, fecha: ahora, contesto: RESULTADOS[resultado].contesto, resultado, comentario, cotizacion, volverLlamar: volver },
-      }),
+      db.llamada.create({ data: { ...d, leadId, vendedoraId: v.id, fecha: ahora } }),
       db.lead.update({
         where: { id: leadId },
         data: {
-          estado: resultado,
-          cotizacion: lead.cotizacion || cotizacion,
-          ...(comentario && { comentario }),
+          estado: d.resultado,
+          cotizacion: lead.cotizacion || d.cotizacion,
+          ...(d.comentario && { comentario: d.comentario }),
+          canal: d.canal,
+          ...(d.contesto && { contestoPor: d.canal }),
           // El recordatorio nuevo reemplaza al anterior; si no se pone, el que ya se cumplió se cierra
-          volverLlamar: volver ?? (lead.volverLlamar && lead.volverLlamar > ahora && !["VENDIDO", "NO_INTERESA"].includes(resultado) ? lead.volverLlamar : null),
+          volverLlamar: d.volverLlamar ?? (lead.volverLlamar && lead.volverLlamar > ahora && !["VENDIDO", "NO_INTERESA"].includes(d.resultado) ? lead.volverLlamar : null),
           ultimaLlamada: ahora,
           intentos: { increment: 1 },
         },
@@ -65,7 +60,17 @@ export async function registrarLlamada(form: FormData): Promise<Resultado> {
     ]);
     revalidatePath("/vendedoras");
     revalidatePath("/llamadas");
-  }, () => "Llamada guardada");
+  }, () => "Guardado");
+}
+
+/** Corregir un registro propio (qué pasó, qué dijo, canal, cotización, recordatorio). No borra nada. */
+export async function editarRegistro(id: string, form: FormData): Promise<Resultado> {
+  return intentar(async () => {
+    const v = await requerirVendedora();
+    await corregirRegistro(id, form, v.id);
+    revalidatePath("/vendedoras");
+    revalidatePath("/llamadas");
+  }, () => "Cambios guardados");
 }
 
 /** Observaciones de la vendedora sobre un contacto (el apartado de cada renglón). */

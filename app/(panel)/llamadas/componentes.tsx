@@ -1,8 +1,9 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { FileSpreadsheet, KeyRound, Pencil, Trash2, UserPlus, X } from "lucide-react";
-import { activarVendedora, asignarContactos, subirExcelContactos, cambiarPasswordVendedora, crearVendedora, editarContacto, eliminarVendedora, quitarContacto, type DatosContacto } from "./actions";
+import { FileSpreadsheet, History, KeyRound, Pencil, Trash2, UserPlus, X } from "lucide-react";
+import { ListaRegistros, type RegistroVista } from "@/components/registros-contacto";
+import { activarVendedora, asignarContactos, subirExcelContactos, cambiarPasswordVendedora, crearVendedora, editarContacto, editarRegistroAdmin, eliminarRegistroAdmin, eliminarVendedora, quitarContacto, type DatosContacto } from "./actions";
 import type { Resultado } from "@/lib/vendedoras";
 
 /** El reporte de hoy se actualiza solo cada 30 segundos (lo que van registrando las vendedoras). */
@@ -198,6 +199,36 @@ export function EditarContacto({ id, datos, vendedoras }: { id: string; datos: D
           <button type="button" onClick={() => setAbierto(false)} className="btn min-h-10">Cancelar</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/** Registros (llamadas y WhatsApp) del día: el gerente puede corregir o borrar cualquiera. */
+export function RegistrosAdmin({ registros, vacio }: { registros: RegistroVista[]; vacio?: string }) {
+  return <ListaRegistros registros={registros} editar={editarRegistroAdmin} eliminar={eliminarRegistroAdmin} vacio={vacio} />;
+}
+
+/** Botón que abre todos los registros de un contacto para corregirlos o borrarlos. */
+export function RegistrosContacto({ nombre, registros }: { nombre: string; registros: RegistroVista[] }) {
+  const [abierto, setAbierto] = useState(false);
+  if (!abierto) {
+    return (
+      <button onClick={() => setAbierto(true)} title="Ver y corregir registros" className="inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs text-neutral-600 hover:bg-black/[0.05] hover:text-carbon">
+        <History size={13} aria-hidden /> Registros ({registros.length})
+      </button>
+    );
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-12 text-left" onClick={() => setAbierto(false)}>
+      <div onClick={(e) => e.stopPropagation()} className="animate-aparecer w-full max-w-2xl rounded-2xl bg-white shadow-flotante">
+        <div className="flex items-center justify-between border-b border-linea px-4 py-3">
+          <h2 className="font-titulo text-xl font-semibold">Registros de {nombre}</h2>
+          <button type="button" onClick={() => setAbierto(false)} aria-label="Cerrar" className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100"><X size={18} /></button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto text-sm">
+          <RegistrosAdmin registros={registros} vacio="Todavía no tiene llamadas ni WhatsApp registrados." />
+        </div>
+      </div>
     </div>
   );
 }

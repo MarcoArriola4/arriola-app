@@ -1,57 +1,21 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { Bell, CalendarClock, Check, Copy, PhoneMissed, Plus, X } from "lucide-react";
-import { agregarContactoPropio, guardarObservaciones, registrarLlamada } from "./actions";
+import { Bell, CalendarClock, History, Plus, X } from "lucide-react";
+import { ChipCanal, FormRegistro, ListaRegistros, RESULTADOS_UI, fmt, txtRes, type RegistroVista } from "@/components/registros-contacto";
+import { agregarContactoPropio, editarRegistro, guardarObservaciones, registrarLlamada } from "./actions";
 
 export type LeadVista = {
   id: string; nombre: string; telefono: string; email: string | null; nota: string | null; estado: string; cotizacion: boolean;
   marca: string | null; expediente: string | null; estatus: string | null; observaciones: string | null;
   comentario: string | null; volverLlamar: string | null; ultimaLlamada: string | null; intentos: number; asignadoEl: string; propio: boolean;
-};
-
-// Mismo catálogo que lib/vendedoras.ts (aquí para el navegador)
-const RESULTADOS: Record<string, { txt: string; cls: string }> = {
-  NO_CONTESTO: { txt: "No contestó", cls: "bg-neutral-100 text-neutral-600" },
-  CONTESTO: { txt: "Contestó · interesado", cls: "bg-sky-50 text-sky-800" },
-  COTIZACION: { txt: "Cotización enviada", cls: "bg-violet-50 text-violet-800" },
-  VOLVER: { txt: "Volver a llamar", cls: "bg-amber-50 text-amber-800" },
-  VENDIDO: { txt: "Vendido", cls: "bg-marca-claro text-marca-oscuro" },
-  NO_INTERESA: { txt: "No le interesa", cls: "bg-red-50 text-red-700" },
-};
-const fmt = (d: string) => new Date(d).toLocaleString("es-MX", { timeZone: "America/Mexico_City", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-/** Fecha para <input type="datetime-local"> en hora de México, a N días a las 10:00 */
-const enDias = (n: number, hora = "10:00") => {
-  const d = new Date(Date.now() + n * 864e5 - 6 * 3600e3).toISOString().slice(0, 10);
-  return `${d}T${hora}`;
+  canal: string | null; contestoPor: string | null; registros: RegistroVista[];
 };
 
 export function TarjetaLead({ l }: { l: LeadVista }) {
-  const router = useRouter();
-  const [abierto, setAbierto] = useState(false);
-  const [resultado, setResultado] = useState("");
-  const [volver, setVolver] = useState("");
-  const [error, setError] = useState("");
-  const [pendiente, iniciar] = useTransition();
-  const tel = l.telefono.replace(/\D/g, "");
-  const [copiado, setCopiado] = useState(false);
-  const estado = RESULTADOS[l.estado];
+  const [abierto, setAbierto] = useState<"" | "nuevo" | "historial">("");
+  const estado = RESULTADOS_UI[l.estado];
   const vencido = l.volverLlamar && new Date(l.volverLlamar) <= new Date();
-
-  const guardar = (f: FormData) =>
-    iniciar(async () => {
-      setError("");
-      try {
-        const r = await registrarLlamada(f);
-        if (!r.ok) return setError(r.error);
-        setAbierto(false);
-        setResultado("");
-        setVolver("");
-        router.refresh();
-      } catch {
-        setError("No hay conexión o tu sesión se cerró. Recarga la página e inténtalo de nuevo.");
-      }
-    });
 
   return (
     <li className={`card overflow-hidden ${vencido ? "border-amber-300 ring-1 ring-amber-200" : ""}`}>
@@ -69,93 +33,44 @@ export function TarjetaLead({ l }: { l: LeadVista }) {
           {l.nota && <p className="mt-0.5 text-xs text-neutral-500">Nota: {l.nota}</p>}
           {l.comentario && <p className="mt-1 text-xs text-neutral-700">“{l.comentario}”</p>}
           <p className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-neutral-400">
-            {l.ultimaLlamada && <span>Última llamada: {fmt(l.ultimaLlamada)} · {l.intentos} {l.intentos === 1 ? "intento" : "intentos"}</span>}
+            {l.ultimaLlamada && <span>Último contacto: {fmt(l.ultimaLlamada)} · {l.intentos} {l.intentos === 1 ? "registro" : "registros"}</span>}
             {l.propio && <span>Contacto propio</span>}
           </p>
         </div>
         <div className="flex flex-col items-end gap-1.5">
-          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${estado ? estado.cls : "bg-white text-carbon ring-1 ring-black/10"}`}>{estado ? estado.txt : "Por llamar"}</span>
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${estado ? estado.cls : "bg-white text-carbon ring-1 ring-black/10"}`}>{estado ? txtRes(l.estado, l.canal) : "Por llamar"}</span>
+          {l.contestoPor && <ChipCanal canal={l.contestoPor} prefijo={l.contestoPor === "WHATSAPP" ? "Respondió por " : "Contestó por "} />}
+          {!l.contestoPor && l.canal === "WHATSAPP" && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800">WhatsApp enviado · sin respuesta</span>}
           {l.cotizacion && l.estado !== "COTIZACION" && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-800">Con cotización</span>}
           {l.volverLlamar && (
-            <span className={`inline-flex items-center gap-1 text-xs font-medium ${vencido ? "text-amber-700" : "text-neutral-600"}`}><CalendarClock size={13} aria-hidden /> {vencido ? "Llamar ya · " : "Volver a llamar: "}{fmt(l.volverLlamar)}</span>
+            <span className={`inline-flex items-center gap-1 text-xs font-medium ${vencido ? "text-amber-700" : "text-neutral-600"}`}><CalendarClock size={13} aria-hidden /> {vencido ? "Contactar ya · " : "Volver a contactar: "}{fmt(l.volverLlamar)}</span>
           )}
         </div>
       </div>
       <Observaciones id={l.id} valor={l.observaciones} />
       <div className="flex flex-wrap items-center gap-2 border-t border-linea bg-black/[0.015] px-4 py-2.5">
-        {/* Llaman desde su celular: aquí solo copian el número y registran lo que pasó */}
-        {tel.length >= 8 ? (
-          <button
-            type="button"
-            onClick={async () => { try { await navigator.clipboard.writeText(tel); setCopiado(true); setTimeout(() => setCopiado(false), 2000); } catch {} }}
-            className="btn min-h-10"
-          >
-            {copiado ? <><Check size={15} className="text-marca-oscuro" aria-hidden /> Copiado</> : <><Copy size={15} aria-hidden /> Copiar número</>}
+        {l.registros.length > 0 && (
+          <button type="button" onClick={() => setAbierto(abierto === "historial" ? "" : "historial")} aria-expanded={abierto === "historial"} className="btn min-h-10">
+            <History size={15} aria-hidden /> {abierto === "historial" ? "Ocultar registros" : `Ver / editar registros (${l.registros.length})`}
           </button>
-        ) : (
-          <span className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">Sin teléfono</span>
         )}
-        <button
-          type="button"
-          disabled={pendiente}
-          onClick={() => {
-            // Atajo: "No contestó" con recordatorio para mañana a las 12:00
-            const f = new FormData();
-            f.set("leadId", l.id);
-            f.set("resultado", "NO_CONTESTO");
-            f.set("volverLlamar", enDias(1, "12:00"));
-            guardar(f);
-          }}
-          title="Registra «No contestó» y deja recordatorio para mañana a las 12:00"
-          className="btn min-h-10"
-        >
-          <PhoneMissed size={15} aria-hidden /> No contestó
-        </button>
-        <button onClick={() => setAbierto(!abierto)} className="btn-marca ml-auto min-h-10">{abierto ? "Cerrar" : "Registrar llamada"}</button>
+        <button onClick={() => setAbierto(abierto === "nuevo" ? "" : "nuevo")} className="btn-marca ml-auto min-h-10">{abierto === "nuevo" ? "Cerrar" : "Registrar llamada o WhatsApp"}</button>
       </div>
-      {abierto && (
-        <form action={guardar} className="space-y-3 border-t border-linea px-4 py-3">
-          <input type="hidden" name="leadId" value={l.id} />
-          <input type="hidden" name="resultado" value={resultado} />
-          <div>
-            <p className="label">¿Qué pasó?</p>
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(RESULTADOS).map(([k, r]) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => { setResultado(k); if (k === "VOLVER" && !volver) setVolver(enDias(1)); if (k === "NO_CONTESTO" && !volver) setVolver(enDias(1, "12:00")); }}
-                  aria-pressed={resultado === k}
-                  className={`min-h-9 rounded-full px-3 text-xs font-medium ring-1 transition ${resultado === k ? `${r.cls} ring-current` : "bg-white text-neutral-600 ring-black/10 hover:bg-neutral-50"}`}
-                >
-                  {r.txt}
-                </button>
-              ))}
-            </div>
-          </div>
-          <label className="block">
-            <span className="label">¿Qué dijo? (comentario)</span>
-            <textarea name="comentario" rows={2} placeholder="Ej. le interesa registrar su marca de ropa, quiere precio" className="input" />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="label">Recordatorio: volver a llamar el</span>
-              <input type="datetime-local" name="volverLlamar" value={volver} onChange={(e) => setVolver(e.target.value)} className="input min-h-10" />
-              <span className="mt-1 flex gap-1.5">
-                {[["Mañana", 1], ["En 3 días", 3], ["En 1 semana", 7]].map(([t, n]) => (
-                  <button key={t} type="button" onClick={() => setVolver(enDias(n as number))} className="rounded-md bg-black/[0.05] px-2 py-1 text-[11px] text-neutral-600 hover:bg-black/10">{t}</button>
-                ))}
-                {volver && <button type="button" onClick={() => setVolver("")} className="rounded-md px-2 py-1 text-[11px] text-neutral-500 underline">Sin recordatorio</button>}
-              </span>
-            </label>
-            <label className="flex items-center gap-2 self-center text-sm">
-              <input type="checkbox" name="cotizacion" defaultChecked={l.cotizacion} className="h-5 w-5 accent-[#91ac45]" />
-              Ya le envié cotización
-            </label>
-          </div>
-          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-          <button disabled={!resultado || pendiente} className="btn-primario min-h-10 w-full sm:w-auto">{pendiente ? "Guardando…" : resultado ? "Guardar llamada" : "Elige qué pasó"}</button>
-        </form>
+      {abierto === "nuevo" && (
+        <div className="border-t border-linea px-4 py-3">
+          <FormRegistro
+            inicial={{ cotizacion: l.cotizacion }}
+            onGuardar={(f) => { f.set("leadId", l.id); return registrarLlamada(f); }}
+            onListo={() => setAbierto("")}
+            textoBoton="Guardar registro"
+          />
+        </div>
+      )}
+      {abierto === "historial" && (
+        <div className="border-t border-linea">
+          <p className="px-4 pt-2 text-[11px] text-neutral-400">Puedes corregir lo que registraste: por dónde fue, qué pasó, qué dijo el cliente, cotización y recordatorio.</p>
+          <ListaRegistros registros={l.registros} editar={editarRegistro} />
+        </div>
       )}
     </li>
   );

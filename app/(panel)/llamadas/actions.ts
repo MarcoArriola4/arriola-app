@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requerirAdmin } from "@/lib/auth";
 import { intentar, rangoDia, type Resultado } from "@/lib/vendedoras";
+import { borrarRegistro, corregirRegistro } from "@/lib/vendedoras-registros";
 import { leerExcelContactos, leerTextoContactos, type Lectura } from "@/lib/vendedoras-excel";
 
 // Todas devuelven { ok, error } en lugar de lanzar el error: así el mensaje se ve tal cual en producción.
@@ -130,4 +131,22 @@ export async function editarContacto(id: string, d: DatosContacto): Promise<Resu
     });
     refrescar();
   }, () => "Contacto actualizado");
+}
+
+/** Corregir cualquier registro de llamada/WhatsApp de cualquier vendedora. */
+export async function editarRegistroAdmin(id: string, form: FormData): Promise<Resultado> {
+  return intentar(async () => {
+    await requerirAdmin();
+    await corregirRegistro(id, form);
+    refrescar();
+  }, () => "Registro corregido");
+}
+
+/** Borrar un registro equivocado (el contacto se conserva y se recalcula su estado). */
+export async function eliminarRegistroAdmin(id: string): Promise<Resultado> {
+  return intentar(async () => {
+    await requerirAdmin();
+    await borrarRegistro(id);
+    refrescar();
+  }, () => "Registro eliminado");
 }
