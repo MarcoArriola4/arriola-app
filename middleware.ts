@@ -12,6 +12,7 @@ export async function middleware(req: NextRequest) {
   return NextResponse.redirect(new URL("/login", req.url));
 }
 
+// /vendedoras: Panel Vendedoras, con su propio inicio de sesión (lib/vendedoras.ts)
 export const config = {
-  matcher: ["/((?!login|api/cron|api/tareas|_next|icon.png|logo.png|apple-icon.png|manifest.webmanifest|icono-).*)"],
+  matcher: ["/((?!login|vendedoras|api/cron|api/tareas|_next|icon.png|logo.png|apple-icon.png|manifest.webmanifest|icono-).*)"],
 };

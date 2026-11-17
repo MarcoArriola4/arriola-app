@@ -314,3 +314,58 @@ model Auditoria {
   @@index([clienteId])
   @@index([estado])
 }
+
+// ───────────── Panel Vendedoras (llamadas a contactos) ─────────────
+// Acceso aparte (nombre + contraseña) a /vendedoras. El administrador las da de alta y ve el reporte en /llamadas.
+model Vendedora {
+  id           String    @id @default(cuid())
+  nombre       String    @unique
+  passwordHash String
+  activa       Boolean   @default(true)
+  creado       DateTime  @default(now())
+  leads        Lead[]
+  llamadas     Llamada[]
+}
+
+// Contacto asignado a una vendedora para llamarle (el gerente asigna ~35 al día, de lunes a viernes)
+model Lead {
+  id            String    @id @default(cuid())
+  vendedoraId   String
+  vendedora     Vendedora @relation(fields: [vendedoraId], references: [id], onDelete: Cascade)
+  nombre        String
+  telefono      String
+  email         String?
+  nota          String?   // lo que el gerente le dice del contacto (de dónde viene, qué busca…)
+  asignadoEl    DateTime  // día en que se le asignó (para llamarle ese día)
+  // Estado actual: PENDIENTE | NO_CONTESTO | CONTESTO | COTIZACION | VOLVER | VENDIDO | NO_INTERESA
+  estado        String    @default("PENDIENTE")
+  cotizacion    Boolean   @default(false) // ya se le envió cotización
+  comentario    String?   // lo último que dijo el lead
+  volverLlamar  DateTime? // recordatorio: cuándo volver a llamar (null = ninguno pendiente)
+  ultimaLlamada DateTime?
+  intentos      Int       @default(0)
+  propio        Boolean   @default(false) // lo agregó la vendedora (no se lo asignó el gerente)
+  creado        DateTime  @default(now())
+  actualizado   DateTime  @updatedAt
+  llamadas      Llamada[]
+
+  @@index([vendedoraId, asignadoEl])
+  @@index([vendedoraId, volverLlamar])
+}
+
+// Cada llamada registrada (historial y reporte diario del gerente)
+model Llamada {
+  id           String    @id @default(cuid())
+  leadId       String
+  lead         Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  vendedoraId  String
+  vendedora    Vendedora @relation(fields: [vendedoraId], references: [id], onDelete: Cascade)
+  fecha        DateTime  @default(now())
+  contesto     Boolean
+  resultado    String    // mismo catálogo que Lead.estado
+  comentario   String?
+  cotizacion   Boolean   @default(false)
+  volverLlamar DateTime?
+
+  @@index([vendedoraId, fecha])
+}

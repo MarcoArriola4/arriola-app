@@ -1,0 +1,202 @@
+"use client";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
+import { Bell, CalendarClock, MessageCircle, Phone, Plus, X } from "lucide-react";
+import { agregarContactoPropio, registrarLlamada } from "./actions";
+
+export type LeadVista = {
+  id: string; nombre: string; telefono: string; email: string | null; nota: string | null; estado: string; cotizacion: boolean;
+  comentario: string | null; volverLlamar: string | null; ultimaLlamada: string | null; intentos: number; asignadoEl: string; propio: boolean;
+};
+
+// Mismo catálogo que lib/vendedoras.ts (aquí para el navegador)
+const RESULTADOS: Record<string, { txt: string; cls: string }> = {
+  NO_CONTESTO: { txt: "No contestó", cls: "bg-neutral-100 text-neutral-600" },
+  CONTESTO: { txt: "Contestó · interesado", cls: "bg-sky-50 text-sky-800" },
+  COTIZACION: { txt: "Cotización enviada", cls: "bg-violet-50 text-violet-800" },
+  VOLVER: { txt: "Volver a llamar", cls: "bg-amber-50 text-amber-800" },
+  VENDIDO: { txt: "Vendido", cls: "bg-marca-claro text-marca-oscuro" },
+  NO_INTERESA: { txt: "No le interesa", cls: "bg-red-50 text-red-700" },
+};
+const fmt = (d: string) => new Date(d).toLocaleString("es-MX", { timeZone: "America/Mexico_City", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+/** Fecha para <input type="datetime-local"> en hora de México, a N días a las 10:00 */
+const enDias = (n: number, hora = "10:00") => {
+  const d = new Date(Date.now() + n * 864e5 - 6 * 3600e3).toISOString().slice(0, 10);
+  return `${d}T${hora}`;
+};
+
+export function TarjetaLead({ l }: { l: LeadVista }) {
+  const router = useRouter();
+  const [abierto, setAbierto] = useState(false);
+  const [resultado, setResultado] = useState("");
+  const [volver, setVolver] = useState("");
+  const [error, setError] = useState("");
+  const [pendiente, iniciar] = useTransition();
+  const tel = l.telefono.replace(/\D/g, "");
+  const wa = tel.length >= 10 ? `https://wa.me/${tel.length === 10 ? `52${tel}` : tel}` : null;
+  const estado = RESULTADOS[l.estado];
+  const vencido = l.volverLlamar && new Date(l.volverLlamar) <= new Date();
+
+  const guardar = (f: FormData) =>
+    iniciar(async () => {
+      setError("");
+      try {
+        await registrarLlamada(f);
+        setAbierto(false);
+        setResultado("");
+        setVolver("");
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "No se guardó; intenta de nuevo");
+      }
+    });
+
+  return (
+    <li className={`card overflow-hidden ${vencido ? "border-amber-300 ring-1 ring-amber-200" : ""}`}>
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3">
+        <div className="min-w-0 flex-1 basis-56">
+          <p className="font-semibold">{l.nombre}</p>
+          <p className="text-sm text-neutral-600">{l.telefono}{l.email && <span className="text-neutral-400"> · {l.email}</span>}</p>
+          {l.nota && <p className="mt-0.5 text-xs text-neutral-500">Nota: {l.nota}</p>}
+          {l.comentario && <p className="mt-1 text-xs text-neutral-700">“{l.comentario}”</p>}
+          <p className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-neutral-400">
+            {l.ultimaLlamada && <span>Última llamada: {fmt(l.ultimaLlamada)} · {l.intentos} {l.intentos === 1 ? "intento" : "intentos"}</span>}
+            {l.propio && <span>Contacto propio</span>}
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1.5">
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${estado ? estado.cls : "bg-white text-carbon ring-1 ring-black/10"}`}>{estado ? estado.txt : "Por llamar"}</span>
+          {l.cotizacion && l.estado !== "COTIZACION" && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-800">Con cotización</span>}
+          {l.volverLlamar && (
+            <span className={`inline-flex items-center gap-1 text-xs font-medium ${vencido ? "text-amber-700" : "text-neutral-600"}`}><CalendarClock size={13} aria-hidden /> {vencido ? "Llamar ya · " : "Volver a llamar: "}{fmt(l.volverLlamar)}</span>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-t border-linea bg-black/[0.015] px-4 py-2.5">
+        <a href={`tel:${tel}`} className="btn-primario min-h-10"><Phone size={15} aria-hidden /> Llamar</a>
+        {wa && <a href={wa} target="_blank" rel="noreferrer" className="btn min-h-10 text-green-700"><MessageCircle size={15} aria-hidden /> WhatsApp</a>}
+        <button onClick={() => setAbierto(!abierto)} className="btn-marca ml-auto min-h-10">{abierto ? "Cerrar" : "Registrar llamada"}</button>
+      </div>
+      {abierto && (
+        <form action={guardar} className="space-y-3 border-t border-linea px-4 py-3">
+          <input type="hidden" name="leadId" value={l.id} />
+          <input type="hidden" name="resultado" value={resultado} />
+          <div>
+            <p className="label">¿Qué pasó?</p>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(RESULTADOS).map(([k, r]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => { setResultado(k); if (k === "VOLVER" && !volver) setVolver(enDias(1)); if (k === "NO_CONTESTO" && !volver) setVolver(enDias(1, "12:00")); }}
+                  aria-pressed={resultado === k}
+                  className={`min-h-9 rounded-full px-3 text-xs font-medium ring-1 transition ${resultado === k ? `${r.cls} ring-current` : "bg-white text-neutral-600 ring-black/10 hover:bg-neutral-50"}`}
+                >
+                  {r.txt}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="block">
+            <span className="label">¿Qué dijo? (comentario)</span>
+            <textarea name="comentario" rows={2} placeholder="Ej. le interesa registrar su marca de ropa, quiere precio" className="input" />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="label">Recordatorio: volver a llamar el</span>
+              <input type="datetime-local" name="volverLlamar" value={volver} onChange={(e) => setVolver(e.target.value)} className="input min-h-10" />
+              <span className="mt-1 flex gap-1.5">
+                {[["Mañana", 1], ["En 3 días", 3], ["En 1 semana", 7]].map(([t, n]) => (
+                  <button key={t} type="button" onClick={() => setVolver(enDias(n as number))} className="rounded-md bg-black/[0.05] px-2 py-1 text-[11px] text-neutral-600 hover:bg-black/10">{t}</button>
+                ))}
+                {volver && <button type="button" onClick={() => setVolver("")} className="rounded-md px-2 py-1 text-[11px] text-neutral-500 underline">Sin recordatorio</button>}
+              </span>
+            </label>
+            <label className="flex items-center gap-2 self-center text-sm">
+              <input type="checkbox" name="cotizacion" defaultChecked={l.cotizacion} className="h-5 w-5 accent-[#91ac45]" />
+              Ya le envié cotización
+            </label>
+          </div>
+          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+          <button disabled={!resultado || pendiente} className="btn-primario min-h-10 w-full sm:w-auto">{pendiente ? "Guardando…" : resultado ? "Guardar llamada" : "Elige qué pasó"}</button>
+        </form>
+      )}
+    </li>
+  );
+}
+
+/** Agregar un contacto propio (no asignado por el gerente). */
+export function AgregarContacto() {
+  const router = useRouter();
+  const [abierto, setAbierto] = useState(false);
+  const [error, setError] = useState("");
+  const [pendiente, iniciar] = useTransition();
+  if (!abierto) return <button onClick={() => setAbierto(true)} className="btn min-h-10"><Plus size={15} aria-hidden /> Agregar contacto</button>;
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-16" onClick={() => setAbierto(false)}>
+      <form
+        onClick={(e) => e.stopPropagation()}
+        action={(f) => iniciar(async () => { setError(""); try { await agregarContactoPropio(f); setAbierto(false); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "No se guardó"); } })}
+        className="animate-aparecer w-full max-w-md space-y-3 rounded-2xl bg-white p-5 shadow-flotante"
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="font-titulo text-xl font-semibold">Agregar contacto</h2>
+          <button type="button" onClick={() => setAbierto(false)} aria-label="Cerrar" className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100"><X size={18} /></button>
+        </div>
+        <label className="block"><span className="label">Nombre</span><input name="nombre" required className="input min-h-10" /></label>
+        <label className="block"><span className="label">Teléfono</span><input name="telefono" required inputMode="tel" className="input min-h-10" /></label>
+        <label className="block"><span className="label">Correo (opcional)</span><input name="email" type="email" className="input min-h-10" /></label>
+        <label className="block"><span className="label">Nota (opcional)</span><input name="nota" className="input min-h-10" placeholder="De dónde viene, qué busca…" /></label>
+        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+        <button disabled={pendiente} className="btn-primario min-h-10 w-full">{pendiente ? "Guardando…" : "Agregar a mis contactos de hoy"}</button>
+      </form>
+    </div>
+  );
+}
+
+/**
+ * Avisos de recordatorios: mientras el panel está abierto, al llegar la hora de volver a llamar a alguien aparece
+ * un aviso (y una notificación del navegador si se activaron). La página se actualiza sola cada 2 minutos.
+ */
+export function Avisos({ proximos }: { proximos: { id: string; nombre: string; cuando: string }[] }) {
+  const router = useRouter();
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [permiso, setPermiso] = useState<string>("default");
+
+  useEffect(() => {
+    if (typeof Notification !== "undefined") setPermiso(Notification.permission);
+    const refresco = setInterval(() => router.refresh(), 2 * 60 * 1000);
+    const timers = proximos
+      .map((p) => ({ ...p, ms: new Date(p.cuando).getTime() - Date.now() }))
+      .filter((p) => p.ms > 0 && p.ms < 12 * 3600 * 1000)
+      .map((p) =>
+        setTimeout(() => {
+          const texto = `Es hora de volver a llamar a ${p.nombre}`;
+          setAviso(texto);
+          try { if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("Panel Vendedoras", { body: texto, icon: "/icon.png" }); } catch {}
+          router.refresh();
+        }, p.ms)
+      );
+    return () => { clearInterval(refresco); timers.forEach(clearTimeout); };
+  }, [proximos, router]);
+
+  return (
+    <>
+      {aviso && (
+        <div role="alert" className="animate-aparecer fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-md items-center gap-3 rounded-xl bg-carbon px-4 py-3 text-sm text-white shadow-flotante">
+          <Bell size={18} className="shrink-0 text-marca" aria-hidden />
+          <span className="flex-1">{aviso}</span>
+          <button onClick={() => setAviso(null)} aria-label="Cerrar aviso" className="text-white/60 hover:text-white"><X size={16} /></button>
+        </div>
+      )}
+      {permiso === "default" && proximos.length > 0 && (
+        <button
+          onClick={async () => { try { setPermiso(await Notification.requestPermission()); } catch {} }}
+          className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500 underline hover:text-carbon"
+        >
+          <Bell size={13} aria-hidden /> Activar avisos en este dispositivo para los recordatorios
+        </button>
+      )}
+    </>
+  );
+}

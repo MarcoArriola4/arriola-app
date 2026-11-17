@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Bell, CalendarClock, FileBarChart, FileDown, Home, KeyRound, LogOut, Menu, NotebookPen, Sheet, ShieldCheck, Users, Wallet, X } from "lucide-react";
+import { Bell, CalendarClock, FileBarChart, FileDown, Home, KeyRound, LogOut, Menu, NotebookPen, PhoneCall, Sheet, ShieldCheck, Users, Wallet, X } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof Home };
 
@@ -48,6 +48,7 @@ export function Nav({
         { href: "/reportes", label: "Reportes", icon: FileBarChart },
         { href: "/notas", label: "Mis notas", icon: NotebookPen },
         ...(permisos.includes("exportar") ? [{ href: "/exportar", label: "Exportar Excel", icon: FileDown }] : []),
+        ...(esAdmin ? [{ href: "/llamadas", label: "Panel Vendedoras", icon: PhoneCall }] : []),
         ...(esAdmin ? [{ href: "/admin", label: "Admin", icon: ShieldCheck }] : []),
       ],
     },
