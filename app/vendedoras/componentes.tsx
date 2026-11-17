@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { Bell, CalendarClock, Mail, MessageCircle, Phone, Plus, X } from "lucide-react";
+import { Bell, CalendarClock, Check, Copy, PhoneMissed, Plus, X } from "lucide-react";
 import { agregarContactoPropio, guardarObservaciones, registrarLlamada } from "./actions";
 
 export type LeadVista = {
@@ -34,7 +34,7 @@ export function TarjetaLead({ l }: { l: LeadVista }) {
   const [error, setError] = useState("");
   const [pendiente, iniciar] = useTransition();
   const tel = l.telefono.replace(/\D/g, "");
-  const wa = tel.length >= 10 ? `https://wa.me/${tel.length === 10 ? `52${tel}` : tel}` : null;
+  const [copiado, setCopiado] = useState(false);
   const estado = RESULTADOS[l.estado];
   const vencido = l.volverLlamar && new Date(l.volverLlamar) <= new Date();
 
@@ -83,9 +83,34 @@ export function TarjetaLead({ l }: { l: LeadVista }) {
       </div>
       <Observaciones id={l.id} valor={l.observaciones} />
       <div className="flex flex-wrap items-center gap-2 border-t border-linea bg-black/[0.015] px-4 py-2.5">
-        {tel.length >= 8 ? <a href={`tel:${tel}`} className="btn-primario min-h-10"><Phone size={15} aria-hidden /> Llamar</a> : <span className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">Sin teléfono</span>}
-        {wa && <a href={wa} target="_blank" rel="noreferrer" className="btn min-h-10 text-green-700"><MessageCircle size={15} aria-hidden /> WhatsApp</a>}
-        {l.email && <a href={`mailto:${l.email}`} className="btn min-h-10"><Mail size={15} aria-hidden /> Correo</a>}
+        {/* Llaman desde su celular: aquí solo copian el número y registran lo que pasó */}
+        {tel.length >= 8 ? (
+          <button
+            type="button"
+            onClick={async () => { try { await navigator.clipboard.writeText(tel); setCopiado(true); setTimeout(() => setCopiado(false), 2000); } catch {} }}
+            className="btn min-h-10"
+          >
+            {copiado ? <><Check size={15} className="text-marca-oscuro" aria-hidden /> Copiado</> : <><Copy size={15} aria-hidden /> Copiar número</>}
+          </button>
+        ) : (
+          <span className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">Sin teléfono</span>
+        )}
+        <button
+          type="button"
+          disabled={pendiente}
+          onClick={() => {
+            // Atajo: "No contestó" con recordatorio para mañana a las 12:00
+            const f = new FormData();
+            f.set("leadId", l.id);
+            f.set("resultado", "NO_CONTESTO");
+            f.set("volverLlamar", enDias(1, "12:00"));
+            guardar(f);
+          }}
+          title="Registra «No contestó» y deja recordatorio para mañana a las 12:00"
+          className="btn min-h-10"
+        >
+          <PhoneMissed size={15} aria-hidden /> No contestó
+        </button>
         <button onClick={() => setAbierto(!abierto)} className="btn-marca ml-auto min-h-10">{abierto ? "Cerrar" : "Registrar llamada"}</button>
       </div>
       {abierto && (
