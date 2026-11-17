@@ -687,7 +687,7 @@ export async function altaServicio(form: FormData) {
   if (tipoServicio === "CONTESTACION") await ventaDeContestacion(alta.id, sesion.nombre);
   if (tipoServicio === "TITULO") await db.expediente.updateMany({ where: { id: expedienteId, tituloVendido: null }, data: { tituloVendido: alta.fechaContratacion ?? hoyUTC() } });
   refrescar(expedienteId);
-  return { url: `/clientes/${clienteId}?marca=${expedienteId}&ok=alta` };
+  return { url: `/clientes/${clienteId}?marca=${expedienteId}&ok=alta`, servicioId: alta.id, clienteId, expedienteId };
 }
 
 /**

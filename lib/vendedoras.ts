@@ -42,7 +42,10 @@ export const RESULTADOS: Record<string, { txt: string; cls: string; contesto: bo
   VOLVER: { txt: "Volver a contactar", cls: "bg-amber-50 text-amber-800", contesto: true },
   VENDIDO: { txt: "Vendido", cls: "bg-marca-claro text-marca-oscuro", contesto: true },
   NO_INTERESA: { txt: "No le interesa", cls: "bg-red-50 text-red-700", contesto: true },
+  SIN_CONTACTO: { txt: "Sin WhatsApp · no se pudo contactar", cls: "bg-neutral-200 text-neutral-600", contesto: false },
 };
+/** Contactos que ya no se siguen: vendido, no le interesa o no se pudo contactar (sin WhatsApp). */
+export const CERRADOS = ["VENDIDO", "NO_INTERESA", "SIN_CONTACTO"];
 /** Por dónde se hizo el contacto: si no contesta la llamada, se le escribe por WhatsApp. */
 export const CANALES: Record<string, { txt: string; cls: string }> = {
   LLAMADA: { txt: "Llamada", cls: "bg-sky-50 text-sky-800" },
@@ -50,7 +53,12 @@ export const CANALES: Record<string, { txt: string; cls: string }> = {
 };
 /** Texto del resultado según el canal ("No respondió" en WhatsApp). */
 export const txtResultado = (resultado: string, canal?: string | null) =>
-  canal === "WHATSAPP" && resultado === "NO_CONTESTO" ? "No respondió" : (RESULTADOS[resultado]?.txt ?? "Por llamar");
+  resultado === "NO_CONTESTO" ? (canal === "WHATSAPP" ? "WhatsApp enviado · sin respuesta" : "No contestó") : (RESULTADOS[resultado]?.txt ?? "Por llamar");
+
+/** Servicios que puede reportar una vendedora (los mismos de Contrataciones). */
+export const SERVICIOS_VENTA: Record<string, string> = {
+  MARCA: "Registro de marca", CONTESTACION: "Contestación de oficio", DDU: "Declaración de uso", RENOVACION: "Renovación", TITULO: "Título de concesión", OTRO: "Otro",
+};
 export const ESTADO_PENDIENTE = { txt: "Por llamar", cls: "bg-white text-carbon ring-1 ring-black/10" };
 export const estadoLead = (e: string) => RESULTADOS[e] ?? ESTADO_PENDIENTE;
 

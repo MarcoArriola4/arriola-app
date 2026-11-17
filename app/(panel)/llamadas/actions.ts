@@ -25,7 +25,7 @@ export async function crearVendedora(nombre: string, password: string): Promise<
     const n = nombre.replace(/\s+/g, " ").trim();
     if (n.length < 3) throw new Error("Escribe el nombre completo");
     if (await db.vendedora.findFirst({ where: { nombre: { equals: n, mode: "insensitive" } } })) throw new Error("Ya existe una vendedora con ese nombre");
-    await db.vendedora.create({ data: { nombre: n, passwordHash: await bcrypt.hash(validarPassword(password), 10) } });
+    await db.vendedora.create({ data: { nombre: n, nombreVentas: n.split(" ")[0], passwordHash: await bcrypt.hash(validarPassword(password), 10) } });
     refrescar();
   }, () => "Acceso creado");
 }
@@ -51,8 +51,8 @@ export async function activarVendedora(id: string, activa: boolean): Promise<Res
 export async function eliminarVendedora(id: string): Promise<Resultado> {
   return intentar(async () => {
     await requerirAdmin();
-    const v = await db.vendedora.findUniqueOrThrow({ where: { id }, select: { _count: { select: { leads: true, llamadas: true } } } });
-    if (v._count.leads || v._count.llamadas) throw new Error("Tiene contactos o llamadas registradas: mejor quítale el acceso para conservar su historial");
+    const v = await db.vendedora.findUniqueOrThrow({ where: { id }, select: { _count: { select: { leads: true, llamadas: true, ventas: true } } } });
+    if (v._count.leads || v._count.llamadas || v._count.ventas) throw new Error("Tiene contactos o llamadas registradas: mejor quítale el acceso para conservar su historial");
     await db.vendedora.delete({ where: { id } });
     refrescar();
   }, () => "Vendedora eliminada");
@@ -149,4 +149,15 @@ export async function eliminarRegistroAdmin(id: string): Promise<Resultado> {
     await borrarRegistro(id);
     refrescar();
   }, () => "Registro eliminado");
+}
+
+/** Cómo aparece la vendedora en la columna "Vendió" de Contrataciones (para su conteo de ventas y títulos). */
+export async function cambiarNombreVentas(id: string, nombre: string): Promise<Resultado> {
+  return intentar(async () => {
+    await requerirAdmin();
+    const n = nombre.replace(/\s+/g, " ").trim();
+    if (n.length < 2) throw new Error("Escribe el nombre como aparece en Contrataciones (ej. Tanya)");
+    await db.vendedora.update({ where: { id }, data: { nombreVentas: n } });
+    refrescar();
+  }, () => "Nombre en Contrataciones guardado");
 }

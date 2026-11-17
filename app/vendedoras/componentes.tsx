@@ -1,19 +1,30 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { Bell, CalendarClock, History, Plus, X } from "lucide-react";
+import { Bell, CalendarClock, CircleDollarSign, History, MessageCircle, Plus, X } from "lucide-react";
 import { ChipCanal, FormRegistro, ListaRegistros, RESULTADOS_UI, fmt, txtRes, type RegistroVista } from "@/components/registros-contacto";
-import { agregarContactoPropio, editarRegistro, guardarObservaciones, registrarLlamada } from "./actions";
+import { CamposVenta, SERVICIOS, aFormData, type DatosVenta } from "@/components/campos-venta";
+import { agregarContactoPropio, editarRegistro, editarVenta, guardarObservaciones, registrarLlamada, registrarVenta } from "./actions";
 
 export type LeadVista = {
   id: string; nombre: string; telefono: string; email: string | null; nota: string | null; estado: string; cotizacion: boolean;
   marca: string | null; expediente: string | null; estatus: string | null; observaciones: string | null;
   comentario: string | null; volverLlamar: string | null; ultimaLlamada: string | null; intentos: number; asignadoEl: string; propio: boolean;
   canal: string | null; contestoPor: string | null; registros: RegistroVista[];
+  venta: { estado: string; motivo: string | null } | null;
 };
 
+const ESTADOS_VENTA: Record<string, { txt: string; cls: string }> = {
+  PENDIENTE: { txt: "Venta en revisión", cls: "bg-amber-50 text-amber-800" },
+  APROBANDO: { txt: "Venta en revisión", cls: "bg-amber-50 text-amber-800" },
+  APROBADA: { txt: "Venta aprobada", cls: "bg-marca-claro text-marca-oscuro" },
+  RECHAZADA: { txt: "Venta rechazada", cls: "bg-red-50 text-red-700" },
+};
+const CERRADOS_UI = ["VENDIDO", "NO_INTERESA", "SIN_CONTACTO"];
+
 export function TarjetaLead({ l }: { l: LeadVista }) {
-  const [abierto, setAbierto] = useState<"" | "nuevo" | "historial">("");
+  const [abierto, setAbierto] = useState<"" | "nuevo" | "whats" | "historial">("");
+  const esperandoWhats = l.canal === "WHATSAPP" && !l.contestoPor && !CERRADOS_UI.includes(l.estado);
   const estado = RESULTADOS_UI[l.estado];
   const vencido = l.volverLlamar && new Date(l.volverLlamar) <= new Date();
 
@@ -39,8 +50,8 @@ export function TarjetaLead({ l }: { l: LeadVista }) {
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${estado ? estado.cls : "bg-white text-carbon ring-1 ring-black/10"}`}>{estado ? txtRes(l.estado, l.canal) : "Por llamar"}</span>
+          {l.venta && <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ESTADOS_VENTA[l.venta.estado]?.cls ?? ""}`} title={l.venta.motivo ?? undefined}>{ESTADOS_VENTA[l.venta.estado]?.txt}{l.venta.motivo && ` · ${l.venta.motivo}`}</span>}
           {l.contestoPor && <ChipCanal canal={l.contestoPor} prefijo={l.contestoPor === "WHATSAPP" ? "Respondió por " : "Contestó por "} />}
-          {!l.contestoPor && l.canal === "WHATSAPP" && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800">WhatsApp enviado · sin respuesta</span>}
           {l.cotizacion && l.estado !== "COTIZACION" && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-800">Con cotización</span>}
           {l.volverLlamar && (
             <span className={`inline-flex items-center gap-1 text-xs font-medium ${vencido ? "text-amber-700" : "text-neutral-600"}`}><CalendarClock size={13} aria-hidden /> {vencido ? "Contactar ya · " : "Volver a contactar: "}{fmt(l.volverLlamar)}</span>
@@ -54,7 +65,20 @@ export function TarjetaLead({ l }: { l: LeadVista }) {
             <History size={15} aria-hidden /> {abierto === "historial" ? "Ocultar registros" : `Ver / editar registros (${l.registros.length})`}
           </button>
         )}
-        <button onClick={() => setAbierto(abierto === "nuevo" ? "" : "nuevo")} className="btn-marca ml-auto min-h-10">{abierto === "nuevo" ? "Cerrar" : "Registrar llamada o WhatsApp"}</button>
+        {(!l.venta || l.venta.estado === "RECHAZADA") && (
+          <ReportarVenta
+            leadId={l.id}
+            inicial={{ clienteNombre: l.nombre, telefono: l.telefono, email: l.email ?? "", denominacion: l.marca ?? "", numeroExpediente: l.expediente ?? "" }}
+          />
+        )}
+        <span className="ml-auto flex flex-wrap gap-2">
+          {esperandoWhats && (
+            <button onClick={() => setAbierto(abierto === "whats" ? "" : "whats")} className="btn min-h-10 border-emerald-300 text-emerald-800">
+              <MessageCircle size={15} aria-hidden /> {abierto === "whats" ? "Cerrar" : "Ya respondió el WhatsApp"}
+            </button>
+          )}
+          <button onClick={() => setAbierto(abierto === "nuevo" ? "" : "nuevo")} className="btn-marca min-h-10">{abierto === "nuevo" ? "Cerrar" : "Registrar llamada o WhatsApp"}</button>
+        </span>
       </div>
       {abierto === "nuevo" && (
         <div className="border-t border-linea px-4 py-3">
@@ -63,6 +87,17 @@ export function TarjetaLead({ l }: { l: LeadVista }) {
             onGuardar={(f) => { f.set("leadId", l.id); return registrarLlamada(f); }}
             onListo={() => setAbierto("")}
             textoBoton="Guardar registro"
+          />
+        </div>
+      )}
+      {abierto === "whats" && (
+        <div className="border-t border-linea bg-emerald-50/40 px-4 py-3">
+          <p className="mb-2 text-xs text-emerald-900">¿Qué te respondió por WhatsApp?</p>
+          <FormRegistro
+            inicial={{ canal: "WHATSAPP", cotizacion: l.cotizacion }}
+            onGuardar={(f) => { f.set("leadId", l.id); return registrarLlamada(f); }}
+            onListo={() => setAbierto("")}
+            textoBoton="Guardar respuesta"
           />
         </div>
       )}
@@ -170,5 +205,79 @@ function Observaciones({ id, valor }: { id: string; valor: string | null }) {
       </span>
       <textarea value={texto} onChange={(e) => { setTexto(e.target.value); setEstado(""); }} onBlur={guardar} rows={2} placeholder="Escribe aquí lo importante de este cliente…" className="input text-sm" />
     </label>
+  );
+}
+
+const hoyMx = () => new Date(Date.now() - 6 * 3600e3).toISOString().slice(0, 10);
+const VENTA_VACIA: DatosVenta = { clienteNombre: "", telefono: "", email: "", servicio: "MARCA", denominacion: "", numeroExpediente: "", pagado: "", debe: "", fechaCobro: "", banco: "", notas: "" };
+
+/** Botón "Registrar venta": la venta queda en revisión hasta que el administrador la apruebe. */
+export function ReportarVenta({ leadId, ventaId, inicial, boton }: { leadId?: string; ventaId?: string; inicial?: Partial<DatosVenta>; boton?: React.ReactNode }) {
+  const router = useRouter();
+  const [abierto, setAbierto] = useState(false);
+  const [d, setD] = useState<DatosVenta>({ ...VENTA_VACIA, fechaCobro: hoyMx(), ...inicial });
+  const [error, setError] = useState("");
+  const [pendiente, iniciar] = useTransition();
+  if (!abierto) {
+    return (
+      <button type="button" onClick={() => { setD({ ...VENTA_VACIA, fechaCobro: hoyMx(), ...inicial }); setError(""); setAbierto(true); }} className="btn min-h-10">
+        {boton ?? <><CircleDollarSign size={15} aria-hidden /> Registrar venta</>}
+      </button>
+    );
+  }
+  const enviar = () =>
+    iniciar(async () => {
+      setError("");
+      const f = aFormData(d);
+      if (leadId) f.set("leadId", leadId);
+      try {
+        const r = ventaId ? await editarVenta(ventaId, f) : await registrarVenta(f);
+        if (!r.ok) return setError(r.error);
+        setAbierto(false);
+        router.refresh();
+      } catch { setError("No hay conexión o tu sesión se cerró. Recarga la página."); }
+    });
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-10" onClick={() => setAbierto(false)}>
+      <form onClick={(e) => e.stopPropagation()} action={enviar} className="animate-aparecer w-full max-w-2xl space-y-4 rounded-2xl bg-white p-5 shadow-flotante">
+        <div className="flex items-center justify-between">
+          <h2 className="font-titulo text-xl font-semibold">{ventaId ? "Corregir venta" : "Registrar venta"}</h2>
+          <button type="button" onClick={() => setAbierto(false)} aria-label="Cerrar" className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100"><X size={18} /></button>
+        </div>
+        <p className="text-xs text-neutral-500">La venta queda <b>en revisión</b>. Cuando el administrador la apruebe, pasa a Contrataciones y cuenta en tus ventas.</p>
+        <CamposVenta d={d} set={setD} />
+        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+        <button disabled={pendiente} className="btn-primario min-h-10 w-full">{pendiente ? "Enviando…" : "Enviar a revisión"}</button>
+      </form>
+    </div>
+  );
+}
+
+export type VentaPropia = { id: string; estado: string; motivo: string | null; creado: string; datos: DatosVenta; revisadoEl: string | null };
+
+/** Lista de ventas que reportó la vendedora, con su estado (en revisión, aprobada o rechazada). */
+export function MisVentas({ ventas }: { ventas: VentaPropia[] }) {
+  if (!ventas.length) return <p className="card px-4 py-6 text-center text-sm text-neutral-500">Todavía no has reportado ventas en este periodo.</p>;
+  const mxn = (n: string) => (Number(n) || 0).toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 });
+  return (
+    <ul className="card divide-y divide-black/5">
+      {ventas.map((v) => {
+        const e = ESTADOS_VENTA[v.estado];
+        return (
+          <li key={v.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-sm">
+            <div className="min-w-0 flex-1 basis-60">
+              <p className="font-medium">{v.datos.clienteNombre}</p>
+              <p className="text-xs text-neutral-500">
+                {SERVICIOS[v.datos.servicio] ?? v.datos.servicio}{v.datos.denominacion && ` · ${v.datos.denominacion}`}{v.datos.numeroExpediente && ` · Exp. ${v.datos.numeroExpediente}`}
+              </p>
+              <p className="cifra text-xs text-neutral-600">Pagó {mxn(v.datos.pagado)}{Number(v.datos.debe) > 0 && ` · debe ${mxn(v.datos.debe)}`} · cobro {new Date(`${v.datos.fechaCobro}T12:00:00Z`).toLocaleDateString("es-MX", { day: "numeric", month: "short", timeZone: "UTC" })}</p>
+              {v.motivo && <p className="text-xs text-red-600">Motivo del rechazo: {v.motivo}</p>}
+            </div>
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${e?.cls ?? ""}`}>{e?.txt ?? v.estado}</span>
+            {(v.estado === "PENDIENTE" || v.estado === "RECHAZADA") && <ReportarVenta ventaId={v.id} inicial={v.datos} boton={v.estado === "RECHAZADA" ? "Corregir y reenviar" : "Corregir"} />}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

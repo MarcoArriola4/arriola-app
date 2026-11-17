@@ -14,9 +14,14 @@ export const RESULTADOS_UI: Record<string, { txt: string; cls: string }> = {
   VOLVER: { txt: "Volver a contactar", cls: "bg-amber-50 text-amber-800" },
   VENDIDO: { txt: "Vendido", cls: "bg-marca-claro text-marca-oscuro" },
   NO_INTERESA: { txt: "No le interesa", cls: "bg-red-50 text-red-700" },
+  SIN_CONTACTO: { txt: "Sin WhatsApp · no se pudo contactar", cls: "bg-neutral-200 text-neutral-600" },
 };
+const CERRADOS_UI = ["VENDIDO", "NO_INTERESA", "SIN_CONTACTO"];
 export const txtRes = (r: string, canal?: string | null) =>
-  canal === "WHATSAPP" && r === "NO_CONTESTO" ? "No respondió" : (RESULTADOS_UI[r]?.txt ?? "Por llamar");
+  r === "NO_CONTESTO" ? (canal === "WHATSAPP" ? "WhatsApp enviado · sin respuesta" : "No contestó") : (RESULTADOS_UI[r]?.txt ?? "Por llamar");
+/** Texto del botón al registrar: en llamada, "No contestó" significa que se le manda WhatsApp. */
+const txtOpcion = (r: string, canal: string) =>
+  r === "NO_CONTESTO" ? (canal === "WHATSAPP" ? "Todavía no responde" : "No contestó → se le envió WhatsApp") : r === "SIN_CONTACTO" ? "No contestó y no tiene WhatsApp" : txtRes(r, canal);
 
 export function ChipCanal({ canal, prefijo = "" }: { canal: string; prefijo?: string }) {
   const wa = canal === "WHATSAPP";
@@ -47,7 +52,7 @@ export function FormRegistro({ inicial, onGuardar, onListo, onCancelar, textoBot
   const [v, setV] = useState<Valores>({ canal: "LLAMADA", resultado: "", comentario: "", cotizacion: false, volver: "", ...inicial });
   const [error, setError] = useState("");
   const [pendiente, iniciar] = useTransition();
-  const cerrado = v.resultado === "VENDIDO" || v.resultado === "NO_INTERESA";
+  const cerrado = CERRADOS_UI.includes(v.resultado);
   const wa = v.canal === "WHATSAPP";
 
   const guardar = () =>
@@ -96,12 +101,15 @@ export function FormRegistro({ inicial, onGuardar, onListo, onCancelar, textoBot
               aria-pressed={v.resultado === k}
               className={`min-h-9 rounded-full px-3 text-xs font-medium ring-1 transition ${v.resultado === k ? `${r.cls} ring-current` : "bg-white text-neutral-600 ring-black/10 hover:bg-neutral-50"}`}
             >
-              {txtRes(k, v.canal)}
+              {txtOpcion(k, v.canal)}
             </button>
           ))}
         </div>
         {!wa && v.resultado === "NO_CONTESTO" && (
-          <p className="mt-1.5 text-xs text-emerald-800">Si le mandas WhatsApp, regístralo aparte eligiendo «WhatsApp» para saber si responde por ahí.</p>
+          <p className="mt-1.5 text-xs text-emerald-800">Se registra también el WhatsApp enviado. Cuando te responda, usa «Ya respondió el WhatsApp» en este contacto.</p>
+        )}
+        {v.resultado === "SIN_CONTACTO" && (
+          <p className="mt-1.5 text-xs text-neutral-500">El contacto se da por cerrado: no se pudo contactar.</p>
         )}
       </div>
       <label className="block">

@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Bell, CalendarClock, FileBarChart, FileDown, Home, KeyRound, LogOut, Menu, NotebookPen, PhoneCall, Sheet, ShieldCheck, Users, Wallet, X } from "lucide-react";
+import { BadgeDollarSign, Bell, CalendarClock, FileBarChart, FileDown, Home, KeyRound, LogOut, Menu, NotebookPen, PhoneCall, Sheet, ShieldCheck, Users, Wallet, X } from "lucide-react";
 
 type Item = { href: string; label: string; icon: typeof Home };
 
@@ -12,8 +12,8 @@ type Item = { href: string; label: string; icon: typeof Home };
  * En teléfono: barra superior con botón que abre el menú completo (sin desplazarse de lado).
  */
 export function Nav({
-  urgentes, esAdmin, permisos, recordatorios, nombre, salir,
-}: { urgentes: number; esAdmin: boolean; permisos: string[]; recordatorios: number; nombre: string; salir: () => Promise<void> }) {
+  urgentes, esAdmin, permisos, recordatorios, nombre, salir, ventasPorAprobar = 0,
+}: { ventasPorAprobar?: number; urgentes: number; esAdmin: boolean; permisos: string[]; recordatorios: number; nombre: string; salir: () => Promise<void> }) {
   const path = usePathname();
   const [abierto, setAbierto] = useState(false);
   useEffect(() => setAbierto(false), [path]);
@@ -49,6 +49,7 @@ export function Nav({
         { href: "/notas", label: "Mis notas", icon: NotebookPen },
         ...(permisos.includes("exportar") ? [{ href: "/exportar", label: "Exportar Excel", icon: FileDown }] : []),
         ...(esAdmin ? [{ href: "/llamadas", label: "Panel Vendedoras", icon: PhoneCall }] : []),
+        ...(esAdmin ? [{ href: "/ventas-vendedoras", label: "Ventas por aprobar", icon: BadgeDollarSign }] : []),
         ...(esAdmin ? [{ href: "/admin", label: "Admin", icon: ShieldCheck }] : []),
       ],
     },
@@ -64,7 +65,7 @@ export function Nav({
           <ul className="space-y-0.5">
             {g.items.map(({ href, label, icon: Icon }) => {
               const activo = activoEn(href);
-              const numero = href === "/notificaciones" ? urgentes : href === "/notas" ? recordatorios : 0;
+              const numero = href === "/notificaciones" ? urgentes : href === "/notas" ? recordatorios : href === "/ventas-vendedoras" ? ventasPorAprobar : 0;
               return (
                 <li key={href}>
                   <Link
@@ -80,7 +81,7 @@ export function Nav({
                     {numero > 0 && (
                       <span
                         data-numerito={href === "/notificaciones" ? "notificaciones" : undefined}
-                        title={href === "/notificaciones" ? "Notificaciones nuevas sin ver" : "Recordatorios pendientes"}
+                        title={href === "/notificaciones" ? "Notificaciones nuevas sin ver" : href === "/ventas-vendedoras" ? "Ventas por aprobar" : "Recordatorios pendientes"}
                         className={`cifra ml-auto min-w-5 rounded-full px-1.5 text-center text-[11px] font-semibold leading-5 ${href === "/notificaciones" ? "bg-red-500 text-white" : "bg-amber-400 text-carbon"}`}
                       >
                         {numero}

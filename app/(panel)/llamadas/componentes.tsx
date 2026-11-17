@@ -3,7 +3,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { FileSpreadsheet, History, KeyRound, Pencil, Trash2, UserPlus, X } from "lucide-react";
 import { ListaRegistros, type RegistroVista } from "@/components/registros-contacto";
-import { activarVendedora, asignarContactos, subirExcelContactos, cambiarPasswordVendedora, crearVendedora, editarContacto, editarRegistroAdmin, eliminarRegistroAdmin, eliminarVendedora, quitarContacto, type DatosContacto } from "./actions";
+import { activarVendedora, asignarContactos, cambiarNombreVentas, subirExcelContactos, cambiarPasswordVendedora, crearVendedora, editarContacto, editarRegistroAdmin, eliminarRegistroAdmin, eliminarVendedora, quitarContacto, type DatosContacto } from "./actions";
 import type { Resultado } from "@/lib/vendedoras";
 
 /** El reporte de hoy se actualiza solo cada 30 segundos (lo que van registrando las vendedoras). */
@@ -98,7 +98,7 @@ export function AsignarContactos({ vendedoras, hoy }: { vendedoras: { id: string
 }
 
 /** Accesos al Panel Vendedoras: dar de alta, cambiar contraseña, quitar o devolver el acceso, eliminar. */
-export function Accesos({ vendedoras }: { vendedoras: { id: string; nombre: string; activa: boolean; contactos: number }[] }) {
+export function Accesos({ vendedoras }: { vendedoras: { id: string; nombre: string; activa: boolean; contactos: number; nombreVentas: string | null }[] }) {
   const { pendiente, mensaje, correr } = useAccion();
   const [nombre, setNombre] = useState("");
   const [password, setPassword] = useState("");
@@ -111,8 +111,9 @@ export function Accesos({ vendedoras }: { vendedoras: { id: string; nombre: stri
         {vendedoras.map((v) => (
           <li key={v.id} className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm">
             <span className={`font-medium ${v.activa ? "" : "text-neutral-400 line-through"}`}>{v.nombre}</span>
-            <span className="text-xs text-neutral-400">{v.contactos} contactos</span>
+            <span className="text-xs text-neutral-400">{v.contactos} contactos · en Contrataciones: «{v.nombreVentas ?? "—"}»</span>
             <span className="ml-auto flex flex-wrap gap-1.5">
+              <button disabled={pendiente} title="Cómo aparece en la columna «Vendió» de Contrataciones (para su conteo de ventas)" onClick={() => { const n = prompt(`¿Cómo aparece ${v.nombre} en la columna «Vendió» de Contrataciones?`, v.nombreVentas ?? ""); if (n) correr(() => cambiarNombreVentas(v.id, n)); }} className="btn min-h-8 px-2 py-1 text-xs">Nombre en ventas</button>
               <button disabled={pendiente} onClick={() => { const p = prompt(`Nueva contraseña para ${v.nombre}:`); if (p) correr(() => cambiarPasswordVendedora(v.id, p)); }} className="btn min-h-8 px-2 py-1 text-xs"><KeyRound size={13} aria-hidden /> Contraseña</button>
               <button disabled={pendiente} onClick={() => { if (confirm(v.activa ? `¿Quitarle el acceso a ${v.nombre}? Sus contactos y llamadas se conservan.` : `¿Devolverle el acceso a ${v.nombre}?`)) correr(() => activarVendedora(v.id, !v.activa)); }} className="btn min-h-8 px-2 py-1 text-xs">{v.activa ? "Quitar acceso" : "Devolver acceso"}</button>
               {v.contactos === 0 && (

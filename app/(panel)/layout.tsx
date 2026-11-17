@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { UserPlus } from "lucide-react";
+import { BadgeDollarSign, UserPlus } from "lucide-react";
 import { requerirSesion } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { salir } from "../login/actions";
@@ -20,9 +20,14 @@ export default async function PanelLayout({ children }: { children: React.ReactN
     where: { estado: { in: ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"] }, servicio: { is: null }, creado: { gt: vistas ?? new Date(Date.now() - 30 * 864e5) } },
   });
 
+  // Ventas que reportaron las vendedoras y esperan aprobación (solo el administrador las ve)
+  const ventasPorAprobar = esAdmin
+    ? await db.ventaVendedora.findMany({ where: { estado: "PENDIENTE" }, select: { clienteNombre: true, vendedora: { select: { nombre: true } } }, orderBy: { creado: "asc" } })
+    : [];
+
   return (
     <div className="min-h-screen md:flex">
-      <Nav urgentes={urgentes} esAdmin={esAdmin} permisos={permisos} recordatorios={recordatorios} nombre={sesion.nombre} salir={salir} />
+      <Nav ventasPorAprobar={ventasPorAprobar.length} urgentes={urgentes} esAdmin={esAdmin} permisos={permisos} recordatorios={recordatorios} nombre={sesion.nombre} salir={salir} />
       <div className="min-w-0 flex-1">
         <header className="sticky top-16 z-30 flex items-center gap-3 border-b border-linea bg-fondo/85 px-4 py-3 backdrop-blur-md print:hidden md:top-0 md:px-8">
           <Buscador />
@@ -30,6 +35,17 @@ export default async function PanelLayout({ children }: { children: React.ReactN
             <Link href="/admin/alta" className="btn-primario ml-auto min-h-10 shrink-0" aria-label="Nuevo cliente o servicio"><UserPlus size={16} aria-hidden /> <span className="hidden sm:inline">Nuevo cliente / servicio</span></Link>
           )}
         </header>
+        {ventasPorAprobar.length > 0 && (
+          <Link href="/ventas-vendedoras" className="flex flex-wrap items-center gap-2 border-b border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 print:hidden md:px-8">
+            <BadgeDollarSign size={17} className="shrink-0 text-amber-600" aria-hidden />
+            <span>
+              {ventasPorAprobar.length === 1
+                ? <><b>{ventasPorAprobar[0].vendedora.nombre}</b> reportó una venta a <b>{ventasPorAprobar[0].clienteNombre}</b>.</>
+                : <><b>{ventasPorAprobar.length} ventas</b> de las vendedoras esperan tu aprobación.</>}
+            </span>
+            <span className="ml-auto font-semibold underline">Revisar y aprobar</span>
+          </Link>
+        )}
         <main className="animate-aparecer mx-auto w-full max-w-[1500px] px-4 py-6 md:px-8 md:py-8 print:p-0">{children}</main>
         <AvisoRecordatorios />
       </div>

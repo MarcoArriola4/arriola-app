@@ -325,6 +325,9 @@ model Vendedora {
   creado       DateTime  @default(now())
   leads        Lead[]
   llamadas     Llamada[]
+  ventas       VentaVendedora[]
+  // Cómo aparece en la columna "Vendió" de Contrataciones (p. ej. "Tanya"): para su conteo de ventas y títulos
+  nombreVentas String?
 }
 
 // Contacto asignado a una vendedora para llamarle (el gerente asigna ~35 al día, de lunes a viernes)
@@ -355,6 +358,7 @@ model Lead {
   creado        DateTime  @default(now())
   actualizado   DateTime  @updatedAt
   llamadas      Llamada[]
+  ventas        VentaVendedora[]
 
   @@index([vendedoraId, asignadoEl])
   @@index([vendedoraId, volverLlamar])
@@ -377,4 +381,35 @@ model Llamada {
   editado      DateTime? // última vez que se corrigió el registro
 
   @@index([vendedoraId, fecha])
+}
+
+// Venta que reporta una vendedora desde su panel. Solo entra a Contrataciones cuando el administrador la aprueba.
+model VentaVendedora {
+  id               String    @id @default(cuid())
+  vendedoraId      String
+  vendedora        Vendedora @relation(fields: [vendedoraId], references: [id], onDelete: Restrict)
+  leadId           String?
+  lead             Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  estado           String    @default("PENDIENTE") // PENDIENTE | APROBADA | RECHAZADA
+  clienteNombre    String
+  telefono         String?
+  email            String?
+  servicio         String    @default("MARCA") // MARCA (registro nuevo) | CONTESTACION | DDU | RENOVACION | TITULO | OTRO
+  denominacion     String?   // marca
+  numeroExpediente String?
+  pagado           Float     @default(0)
+  debe             Float     @default(0)
+  fechaCobro       DateTime  // cuándo se hizo el cobro
+  banco            String?   // a dónde pagó (cuenta / forma de pago)
+  notas            String?
+  creado           DateTime  @default(now())
+  actualizado      DateTime  @updatedAt
+  revisadoEl       DateTime?
+  revisadoPor      String?
+  motivoRechazo    String?
+  servicioId       String?   @unique // el servicio que se creó en Contrataciones al aprobar
+  clienteId        String?   // cliente de ArriolApp al que quedó ligada
+
+  @@index([estado, creado])
+  @@index([vendedoraId, creado])
 }

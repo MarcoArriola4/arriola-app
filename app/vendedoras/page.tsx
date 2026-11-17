@@ -3,73 +3,144 @@ import Link from "next/link";
 import { BellRing, LogOut, PhoneCall } from "lucide-react";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { CONTACTOS_POR_DIA, diaMx, fmtMx, rangoDia, requerirVendedora } from "@/lib/vendedoras";
+import { CERRADOS, CONTACTOS_POR_DIA, diaMx, fmtMx, rangoDia, requerirVendedora } from "@/lib/vendedoras";
+import { conteoOficial } from "@/lib/ventas-vendedoras";
 import { salirVendedora } from "./actions";
-import { AgregarContacto, Avisos, TarjetaLead, type LeadVista } from "./componentes";
+import { AgregarContacto, Avisos, MisVentas, ReportarVenta, TarjetaLead, type LeadVista, type VentaPropia } from "./componentes";
 
 export const metadata = { title: "Panel Vendedoras" };
 export const dynamic = "force-dynamic";
 
-const ABIERTOS = { notIn: ["VENDIDO", "NO_INTERESA"] };
+const ABIERTOS = { notIn: CERRADOS };
+const SERVICIO_TXT: Record<string, string> = { REGISTRO: "Registro", CONTESTACION: "Contestación", DDU: "Declaración de uso", RENOVACION: "Renovación", TITULO: "Título", OTRO: "Otro" };
 
-export default async function PanelVendedoras({ searchParams }: { searchParams: Promise<{ ver?: string; q?: string }> }) {
+// Filtro de estado del historial (información ordenada: quién contestó, por dónde y qué pasó)
+const FILTROS: { id: string; txt: string; where: Prisma.LeadWhereInput }[] = [
+  { id: "", txt: "Todos", where: {} },
+  { id: "PENDIENTE", txt: "Por llamar", where: { estado: "PENDIENTE" } },
+  { id: "NO_CONTESTO", txt: "No contestó · WhatsApp sin respuesta", where: { estado: "NO_CONTESTO" } },
+  { id: "LLAMADA", txt: "Contestaron por llamada", where: { contestoPor: "LLAMADA" } },
+  { id: "WHATSAPP", txt: "Respondieron WhatsApp", where: { contestoPor: "WHATSAPP" } },
+  { id: "CONTESTO", txt: "Interesados", where: { estado: "CONTESTO" } },
+  { id: "COTIZACION", txt: "Cotización enviada", where: { estado: "COTIZACION" } },
+  { id: "VOLVER", txt: "Volver a contactar", where: { estado: "VOLVER" } },
+  { id: "VENTA", txt: "Venta en revisión", where: { ventas: { some: { estado: { in: ["PENDIENTE", "APROBANDO"] } } } } },
+  { id: "VENDIDO", txt: "Vendidos", where: { estado: "VENDIDO" } },
+  { id: "NO_INTERESA", txt: "No le interesa", where: { estado: "NO_INTERESA" } },
+  { id: "SIN_CONTACTO", txt: "Sin WhatsApp · no se pudo contactar", where: { estado: "SIN_CONTACTO" } },
+];
+
+type Params = { ver?: string; q?: string; estado?: string; desde?: string; hasta?: string; por?: string; mes?: string };
+
+export default async function PanelVendedoras({ searchParams }: { searchParams: Promise<Params> }) {
   const v = await requerirVendedora();
-  const { ver = "hoy", q } = await searchParams;
+  const sp = await searchParams;
+  const ver = sp.ver === "todos" || sp.ver === "contestaron" ? "historial" : (sp.ver ?? "hoy");
   const ahora = new Date();
   const { inicio, fin } = rangoDia(diaMx(ahora));
   const mias = { vendedoraId: v.id };
 
-  const [asignadosHoy, llamadasHoy, vencidos, proximos, atrasados] = await Promise.all([
+  const [asignadosHoy, llamadasHoy, vencidos, proximos, atrasados, ventasEnRevision] = await Promise.all([
     db.lead.findMany({ where: { ...mias, asignadoEl: { gte: inicio, lt: fin } }, orderBy: { creado: "asc" } }),
     db.llamada.findMany({ where: { ...mias, fecha: { gte: inicio, lt: fin } }, select: { contesto: true, cotizacion: true, leadId: true, canal: true } }),
     db.lead.findMany({ where: { ...mias, estado: ABIERTOS, volverLlamar: { lte: ahora } }, orderBy: { volverLlamar: "asc" } }),
     db.lead.findMany({ where: { ...mias, estado: ABIERTOS, volverLlamar: { gt: ahora } }, orderBy: { volverLlamar: "asc" } }),
     db.lead.findMany({ where: { ...mias, estado: "PENDIENTE", asignadoEl: { lt: inicio } }, orderBy: { asignadoEl: "asc" } }),
+    db.ventaVendedora.count({ where: { ...mias, estado: { in: ["PENDIENTE", "APROBANDO"] } } }),
   ]);
 
-  let lista: { titulo: string; ayuda?: string; leads: typeof asignadosHoy }[] = [];
+  type L = (typeof asignadosHoy)[number];
+  let lista: { titulo: string; ayuda?: string; leads: L[] }[] = [];
+  let conteos: Map<string, number> | null = null;
+  let ventasVista: { mes: string; nombreMes: string; anterior: string; siguiente: string; oficial: Awaited<ReturnType<typeof conteoOficial>>; revision: VentaPropia[]; aprobadas: VentaPropia[] } | null = null;
+
   if (ver === "hoy") {
     lista = [
-      { titulo: "Volver a llamar · ya es hora", ayuda: "Recordatorios cuya fecha ya llegó", leads: vencidos },
+      { titulo: "Volver a contactar · ya es hora", ayuda: "Recordatorios cuya fecha ya llegó", leads: vencidos },
       { titulo: "Contactos de hoy por llamar", leads: asignadosHoy.filter((l) => l.estado === "PENDIENTE") },
       { titulo: "Pendientes de días anteriores", ayuda: "Asignados antes y todavía sin llamar", leads: atrasados },
-      { titulo: "Ya llamados hoy", leads: asignadosHoy.filter((l) => l.estado !== "PENDIENTE" && !vencidos.some((x) => x.id === l.id)) },
+      { titulo: "Ya trabajados hoy", leads: asignadosHoy.filter((l) => l.estado !== "PENDIENTE" && !vencidos.some((x) => x.id === l.id)) },
     ];
   } else if (ver === "recordatorios") {
     lista = [{ titulo: "Próximos recordatorios", ayuda: "Ordenados por fecha", leads: proximos }];
   } else if (ver === "seguimiento") {
-    const seguimiento = await db.lead.findMany({ where: { ...mias, estado: { in: ["CONTESTO", "COTIZACION", "VOLVER"] } }, orderBy: { ultimaLlamada: "desc" } });
-    lista = [{ titulo: "En seguimiento", ayuda: "Interesados, con cotización o por volver a contactar", leads: seguimiento }];
-  } else if (ver === "contestaron") {
-    const [porLlamada, porWhats, sinRespuesta] = await Promise.all([
-      db.lead.findMany({ where: { ...mias, contestoPor: "LLAMADA" }, orderBy: { ultimaLlamada: "desc" }, take: 200 }),
-      db.lead.findMany({ where: { ...mias, contestoPor: "WHATSAPP" }, orderBy: { ultimaLlamada: "desc" }, take: 200 }),
-      db.lead.findMany({ where: { ...mias, contestoPor: null, canal: "WHATSAPP", estado: ABIERTOS }, orderBy: { ultimaLlamada: "desc" }, take: 200 }),
+    const [seguimiento, esperando] = await Promise.all([
+      db.lead.findMany({ where: { ...mias, estado: { in: ["CONTESTO", "COTIZACION", "VOLVER"] } }, orderBy: { ultimaLlamada: "desc" } }),
+      db.lead.findMany({ where: { ...mias, estado: "NO_CONTESTO", canal: "WHATSAPP" }, orderBy: { ultimaLlamada: "desc" }, take: 200 }),
     ]);
     lista = [
-      { titulo: "Contestaron por llamada", ayuda: "Con qué pasó en su último registro", leads: porLlamada },
-      { titulo: "Respondieron por WhatsApp", ayuda: "No contestaron la llamada pero sí el WhatsApp", leads: porWhats },
-      { titulo: "WhatsApp enviado, sin respuesta", ayuda: "Todavía no contestan por ningún lado", leads: sinRespuesta },
+      { titulo: "En seguimiento", ayuda: "Interesados, con cotización o por volver a contactar", leads: seguimiento },
+      { titulo: "WhatsApp enviado · esperando respuesta", ayuda: "Cuando te contesten, usa «Ya respondió el WhatsApp»", leads: esperando },
     ];
-  } else {
-    const t = q?.trim();
-    const where: Prisma.LeadWhereInput = { ...mias, ...(t && { OR: [{ nombre: { contains: t, mode: "insensitive" } }, { telefono: { contains: t } }, { marca: { contains: t, mode: "insensitive" } }, { expediente: { contains: t } }, { observaciones: { contains: t, mode: "insensitive" } }, { comentario: { contains: t, mode: "insensitive" } }] }) };
-    lista = [{ titulo: t ? `Resultados para “${t}”` : "Todos mis contactos", leads: await db.lead.findMany({ where, orderBy: { actualizado: "desc" }, take: 200 }) }];
+  } else if (ver === "historial") {
+    // Historial completo con filtros: estado, búsqueda (nombre, expediente, teléfono, marca) y fechas
+    const t = sp.q?.trim();
+    const porContacto = sp.por === "contacto";
+    const valida = (d?: string) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : undefined);
+    const desde = valida(sp.desde);
+    const hasta = valida(sp.hasta);
+    const rango = desde || hasta ? { ...(desde && { gte: rangoDia(desde).inicio }), ...(hasta && { lt: rangoDia(hasta).fin }) } : undefined;
+    const base: Prisma.LeadWhereInput = {
+      ...mias,
+      ...(rango && (porContacto ? { llamadas: { some: { fecha: rango } } } : { asignadoEl: rango })),
+      ...(t && { OR: [{ nombre: { contains: t, mode: "insensitive" } }, { telefono: { contains: t.replace(/\s/g, "") } }, { telefono: { contains: t } }, { expediente: { contains: t } }, { marca: { contains: t, mode: "insensitive" } }] }),
+    };
+    const filtro = FILTROS.find((f) => f.id === (sp.estado ?? "")) ?? FILTROS[0];
+    const [leads, ...cuentas] = await Promise.all([
+      db.lead.findMany({ where: { AND: [base, filtro.where] }, orderBy: porContacto ? [{ ultimaLlamada: { sort: "desc", nulls: "last" } }] : [{ asignadoEl: "desc" }, { creado: "asc" }], take: 300 }),
+      ...FILTROS.map((f) => db.lead.count({ where: { AND: [base, f.where] } })),
+    ]);
+    conteos = new Map(FILTROS.map((f, i) => [f.id, cuentas[i]]));
+    lista = [{ titulo: `${filtro.txt}${t ? ` · “${t}”` : ""}`, ayuda: leads.length === 300 ? "Se muestran los 300 más recientes; usa los filtros para acotar" : undefined, leads }];
+  } else if (ver === "ventas") {
+    // Mis ventas: conteo oficial (Contrataciones) del mes y las ventas que reportó
+    const mesMx = diaMx(ahora).slice(0, 7);
+    const mes = /^\d{4}-\d{2}$/.test(sp.mes ?? "") ? sp.mes! : mesMx;
+    const [y, m] = mes.split("-").map(Number);
+    const desde = new Date(Date.UTC(y, m - 1, 1));
+    const hasta = new Date(Date.UTC(y, m, 1));
+    const clave = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    const nombreVentas = (await db.vendedora.findUnique({ where: { id: v.id }, select: { nombreVentas: true } }))?.nombreVentas ?? v.nombre.split(" ")[0];
+    const [oficial, revision, aprobadas] = await Promise.all([
+      conteoOficial(nombreVentas, desde, hasta),
+      db.ventaVendedora.findMany({ where: { ...mias, estado: { in: ["PENDIENTE", "APROBANDO", "RECHAZADA"] } }, orderBy: { creado: "desc" } }),
+      db.ventaVendedora.findMany({ where: { ...mias, estado: "APROBADA", fechaCobro: { gte: desde, lt: hasta } }, orderBy: { fechaCobro: "desc" } }),
+    ]);
+    const propia = (x: (typeof revision)[number]): VentaPropia => ({
+      id: x.id, estado: x.estado, motivo: x.motivoRechazo, creado: x.creado.toISOString(), revisadoEl: x.revisadoEl?.toISOString() ?? null,
+      datos: {
+        clienteNombre: x.clienteNombre, telefono: x.telefono ?? "", email: x.email ?? "", servicio: x.servicio, denominacion: x.denominacion ?? "",
+        numeroExpediente: x.numeroExpediente ?? "", pagado: String(x.pagado), debe: String(x.debe), fechaCobro: x.fechaCobro.toISOString().slice(0, 10), banco: x.banco ?? "", notas: x.notas ?? "",
+      },
+    });
+    ventasVista = {
+      mes, nombreMes: desde.toLocaleDateString("es-MX", { month: "long", year: "numeric", timeZone: "UTC" }),
+      anterior: clave(new Date(Date.UTC(y, m - 2, 1))), siguiente: clave(hasta), oficial, revision: revision.map(propia), aprobadas: aprobadas.map(propia),
+    };
   }
 
-  // Registros (llamadas y WhatsApp) de los contactos que se muestran, para verlos y corregirlos
+  // Registros (llamadas y WhatsApp) y venta reportada de los contactos que se muestran
   const ids = [...new Set(lista.flatMap((g) => g.leads.map((l) => l.id)))];
-  const registros = ids.length ? await db.llamada.findMany({ where: { ...mias, leadId: { in: ids } }, orderBy: { fecha: "desc" } }) : [];
-  const vista = (l: (typeof asignadosHoy)[number]): LeadVista => ({
-    canal: l.canal, contestoPor: l.contestoPor,
-    registros: registros.filter((r) => r.leadId === l.id).map((r) => ({
-      id: r.id, fecha: r.fecha.toISOString(), canal: r.canal, resultado: r.resultado, comentario: r.comentario, cotizacion: r.cotizacion,
-      volverLlamar: r.volverLlamar?.toISOString() ?? null, editado: r.editado?.toISOString() ?? null,
-    })),
-    id: l.id, nombre: l.nombre, telefono: l.telefono, email: l.email, nota: l.nota, estado: l.estado, cotizacion: l.cotizacion, comentario: l.comentario,
-    marca: l.marca, expediente: l.expediente, estatus: l.estatus, observaciones: l.observaciones,
-    volverLlamar: l.volverLlamar?.toISOString() ?? null, ultimaLlamada: l.ultimaLlamada?.toISOString() ?? null, intentos: l.intentos, asignadoEl: l.asignadoEl.toISOString(), propio: l.propio,
-  });
+  const [registros, ventasLeads] = ids.length
+    ? await Promise.all([
+        db.llamada.findMany({ where: { ...mias, leadId: { in: ids } }, orderBy: { fecha: "desc" } }),
+        db.ventaVendedora.findMany({ where: { ...mias, leadId: { in: ids } }, orderBy: { creado: "desc" }, select: { leadId: true, estado: true, motivoRechazo: true } }),
+      ])
+    : [[], []];
+  const vista = (l: L): LeadVista => {
+    const venta = ventasLeads.find((x) => x.leadId === l.id);
+    return {
+      id: l.id, nombre: l.nombre, telefono: l.telefono, email: l.email, nota: l.nota, estado: l.estado, cotizacion: l.cotizacion, comentario: l.comentario,
+      marca: l.marca, expediente: l.expediente, estatus: l.estatus, observaciones: l.observaciones,
+      volverLlamar: l.volverLlamar?.toISOString() ?? null, ultimaLlamada: l.ultimaLlamada?.toISOString() ?? null, intentos: l.intentos, asignadoEl: l.asignadoEl.toISOString(), propio: l.propio,
+      canal: l.canal, contestoPor: l.contestoPor,
+      registros: registros.filter((r) => r.leadId === l.id).map((r) => ({
+        id: r.id, fecha: r.fecha.toISOString(), canal: r.canal, resultado: r.resultado, comentario: r.comentario, cotizacion: r.cotizacion,
+        volverLlamar: r.volverLlamar?.toISOString() ?? null, editado: r.editado?.toISOString() ?? null,
+      })),
+      venta: venta ? { estado: venta.estado, motivo: venta.motivoRechazo } : null,
+    };
+  };
 
   const llamadas = llamadasHoy.filter((x) => x.canal !== "WHATSAPP").length;
   const whats = llamadasHoy.length - llamadas;
@@ -83,9 +154,14 @@ export default async function PanelVendedoras({ searchParams }: { searchParams: 
     { id: "hoy", txt: "Hoy", n: vencidos.length + asignadosHoy.filter((l) => l.estado === "PENDIENTE").length + atrasados.length },
     { id: "recordatorios", txt: "Recordatorios", n: proximos.length },
     { id: "seguimiento", txt: "Seguimiento" },
-    { id: "contestaron", txt: "Contestaron" },
-    { id: "todos", txt: "Todos" },
+    { id: "historial", txt: "Historial" },
+    { id: "ventas", txt: "Mis ventas", n: ventasEnRevision },
   ];
+  const urlHistorial = (p: Partial<Params>) => {
+    const q = new URLSearchParams(Object.entries({ ver: "historial", q: sp.q, estado: sp.estado, desde: sp.desde, hasta: sp.hasta, por: sp.por, ...p }).filter(([, x]) => x) as [string, string][]);
+    return `/vendedoras?${q}`;
+  };
+  const mxn = (n: number) => n.toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 });
 
   return (
     <div className="min-h-screen bg-fondo">
@@ -139,22 +215,109 @@ export default async function PanelVendedoras({ searchParams }: { searchParams: 
 
         {/* Pestañas */}
         <div className="mt-6 flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg bg-black/[0.05] p-1" role="tablist">
+          <div className="inline-flex max-w-full overflow-x-auto rounded-lg bg-black/[0.05] p-1" role="tablist">
             {tabs.map((t) => (
-              <Link key={t.id} href={`/vendedoras?ver=${t.id}`} role="tab" aria-selected={ver === t.id} className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${ver === t.id ? "bg-white text-carbon shadow-tarjeta" : "text-neutral-500 hover:text-carbon"}`}>
+              <Link key={t.id} href={`/vendedoras?ver=${t.id}`} role="tab" aria-selected={ver === t.id} className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition ${ver === t.id ? "bg-white text-carbon shadow-tarjeta" : "text-neutral-500 hover:text-carbon"}`}>
                 {t.txt}{t.n != null && t.n > 0 && <span className="cifra ml-1 opacity-60">{t.n}</span>}
               </Link>
             ))}
           </div>
-          {ver === "todos" && (
-            <form className="flex flex-1 gap-2" role="search">
-              <input type="hidden" name="ver" value="todos" />
-              <input name="q" defaultValue={q} placeholder="Buscar cliente, marca, expediente, teléfono…" aria-label="Buscar contactos" className="input min-h-10 max-w-xs" />
-              <button className="btn min-h-10">Buscar</button>
-            </form>
-          )}
-          <div className="ml-auto"><AgregarContacto /></div>
+          <div className="ml-auto flex gap-2">
+            {ver === "ventas" && <ReportarVenta />}
+            <AgregarContacto />
+          </div>
         </div>
+
+        {/* Filtros del historial */}
+        {ver === "historial" && conteos && (
+          <section className="card mt-4 space-y-3 p-4">
+            <form className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto_auto] sm:items-end" role="search">
+              <input type="hidden" name="ver" value="historial" />
+              {sp.estado && <input type="hidden" name="estado" value={sp.estado} />}
+              <label className="block"><span className="label">Buscar</span><input name="q" defaultValue={sp.q} placeholder="Nombre, expediente o teléfono" className="input min-h-10" /></label>
+              <label className="block">
+                <span className="label">Fechas de</span>
+                <select name="por" defaultValue={sp.por ?? "asignado"} className="input min-h-10">
+                  <option value="asignado">Cuando se me asignó</option>
+                  <option value="contacto">Cuando lo contacté</option>
+                </select>
+              </label>
+              <label className="block"><span className="label">Desde</span><input type="date" name="desde" defaultValue={sp.desde} className="input min-h-10" /></label>
+              <label className="block"><span className="label">Hasta</span><input type="date" name="hasta" defaultValue={sp.hasta} className="input min-h-10" /></label>
+              <div className="flex gap-2">
+                <button className="btn-primario min-h-10">Filtrar</button>
+                {(sp.q || sp.desde || sp.hasta || sp.estado) && <Link href="/vendedoras?ver=historial" className="btn min-h-10">Limpiar</Link>}
+              </div>
+            </form>
+            <div className="flex flex-wrap gap-1.5" aria-label="Filtrar por estado">
+              {FILTROS.map((f) => {
+                const activo = (sp.estado ?? "") === f.id;
+                return (
+                  <Link key={f.id || "todos"} href={urlHistorial({ estado: f.id || undefined })} aria-current={activo ? "true" : undefined}
+                    className={`inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs font-medium ring-1 transition ${activo ? "bg-carbon text-white ring-carbon" : "bg-white text-neutral-600 ring-black/10 hover:bg-neutral-50"}`}>
+                    {f.txt} <span className="cifra opacity-60">{conteos!.get(f.id) ?? 0}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Mis ventas */}
+        {ventasVista && (
+          <>
+            <section className="card mt-4 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-semibold first-letter:uppercase">Mis ventas de {ventasVista.nombreMes}</h2>
+                <span className="ml-auto flex items-center gap-1">
+                  <Link href={`/vendedoras?ver=ventas&mes=${ventasVista.anterior}`} className="btn min-h-9 px-2 text-xs">← Anterior</Link>
+                  <Link href={`/vendedoras?ver=ventas&mes=${ventasVista.siguiente}`} className="btn min-h-9 px-2 text-xs">Siguiente →</Link>
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { t: "Ventas (sin títulos)", n: ventasVista.oficial.ventas },
+                  { t: "Títulos vendidos", n: ventasVista.oficial.titulos },
+                  { t: `Ventas por títulos (cada ${ventasVista.oficial.regla})`, n: ventasVista.oficial.porTitulos },
+                  { t: "Total de ventas", n: ventasVista.oficial.total, destacado: true },
+                ].map((x) => (
+                  <div key={x.t} className={`rounded-xl px-3 py-2.5 ${x.destacado ? "bg-marca-claro" : "bg-black/[0.03]"}`}>
+                    <p className={`cifra text-2xl font-semibold ${x.destacado ? "text-marca-oscuro" : ""}`}>{x.n}</p>
+                    <p className="text-xs text-neutral-500">{x.t}</p>
+                  </div>
+                ))}
+              </div>
+              {ventasVista.oficial.titulos % ventasVista.oficial.regla > 0 && (
+                <p className="mt-2 text-xs text-neutral-500">Te faltan {ventasVista.oficial.regla - (ventasVista.oficial.titulos % ventasVista.oficial.regla)} títulos para sumar otra venta.</p>
+              )}
+              <p className="mt-2 text-[11px] text-neutral-400">Conteo oficial: lo que ya está en Contrataciones con tu nombre. Las ventas en revisión cuentan cuando el administrador las aprueba.</p>
+            </section>
+
+            <section className="mt-6">
+              <h2 className="rotulo mb-2 px-1">En revisión y rechazadas · {ventasVista.revision.length}</h2>
+              <MisVentas ventas={ventasVista.revision} />
+            </section>
+            <section className="mt-6">
+              <h2 className="rotulo mb-2 px-1">Aprobadas que reportaste este mes · {ventasVista.aprobadas.length}</h2>
+              <MisVentas ventas={ventasVista.aprobadas} />
+            </section>
+            <section className="mt-6">
+              <h2 className="rotulo mb-2 px-1">En Contrataciones con tu nombre · {ventasVista.oficial.lista.length}</h2>
+              {ventasVista.oficial.lista.length === 0 ? <p className="card px-4 py-6 text-center text-sm text-neutral-500">Nada este mes todavía.</p> : (
+                <ul className="card divide-y divide-black/5">
+                  {ventasVista.oficial.lista.map((s) => (
+                    <li key={s.id} className="flex flex-wrap items-center gap-x-3 px-4 py-2.5 text-sm">
+                      <span className="text-xs text-neutral-400">{s.fecha ? s.fecha.toLocaleDateString("es-MX", { day: "numeric", month: "short", timeZone: "UTC" }) : "—"}</span>
+                      <span className="font-medium">{s.cliente}</span>
+                      <span className="text-xs text-neutral-500">{s.marca} · {SERVICIO_TXT[s.tipo] ?? s.tipo}</span>
+                      <span className="cifra ml-auto text-xs text-neutral-600">{mxn(s.costo)}{s.costo - s.pagado > 0 && <span className="text-red-600"> · debe {mxn(s.costo - s.pagado)}</span>}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </>
+        )}
 
         {lista.map((g) => (
           <section key={g.titulo} className="mt-6">

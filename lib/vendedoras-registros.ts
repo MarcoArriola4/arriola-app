@@ -1,9 +1,8 @@
 // Registros de contacto (llamada o WhatsApp) de las vendedoras: leer el formulario y mantener al día el contacto.
 import { db } from "./db";
-import { CANALES, RESULTADOS, fechaHoraLocalMx } from "./vendedoras";
+import { CANALES, CERRADOS, RESULTADOS, fechaHoraLocalMx } from "./vendedoras";
 
 const txt = (f: FormData, k: string) => String(f.get(k) ?? "").replace(/\s+/g, " ").trim() || null;
-const CERRADOS = ["VENDIDO", "NO_INTERESA"];
 
 /** Lee y valida el formulario de un registro (nuevo o corregido). */
 export function leerRegistro(form: FormData) {

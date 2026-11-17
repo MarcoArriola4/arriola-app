@@ -2,7 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { requerirAdmin } from "@/lib/auth";
 import { Encabezado, Vacio } from "@/components/ui";
-import { CONTACTOS_POR_DIA, RESULTADOS, diaMx, estadoLead, fmtMx, rangoDia, txtResultado } from "@/lib/vendedoras";
+import { CERRADOS, CONTACTOS_POR_DIA, RESULTADOS, diaMx, estadoLead, fmtMx, rangoDia, txtResultado } from "@/lib/vendedoras";
 import { ChipCanal, type RegistroVista } from "@/components/registros-contacto";
 import { Accesos, ActualizarSolo, AsignarContactos, EditarContacto, QuitarContacto, RegistrosAdmin, RegistrosContacto } from "./componentes";
 
@@ -28,7 +28,7 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
     db.llamada.findMany({ where: { ...deQuien, fecha: { gte: inicio, lt: fin } }, include: { lead: { select: { nombre: true, telefono: true, marca: true } } }, orderBy: { fecha: "desc" } }),
     // Recordatorios que vencían ese día (de llamadas anteriores) y si se cumplieron
     db.llamada.findMany({ where: { ...deQuien, volverLlamar: { gte: inicio, lt: fin } }, include: { lead: { select: { nombre: true, llamadas: { select: { fecha: true }, orderBy: { fecha: "desc" }, take: 1 } } } }, orderBy: { volverLlamar: "asc" } }),
-    db.lead.findMany({ where: { ...deQuien, volverLlamar: { gte: fin }, estado: { notIn: ["VENDIDO", "NO_INTERESA"] } }, include: { vendedora: { select: { nombre: true } } }, orderBy: { volverLlamar: "asc" }, take: 60 }),
+    db.lead.findMany({ where: { ...deQuien, volverLlamar: { gte: fin }, estado: { notIn: CERRADOS } }, include: { vendedora: { select: { nombre: true } } }, orderBy: { volverLlamar: "asc" }, take: 60 }),
     db.lead.findMany({ where: { ...deQuien, asignadoEl: { gte: inicio, lt: fin }, estado: "PENDIENTE" }, include: { vendedora: { select: { nombre: true } } }, orderBy: { creado: "asc" } }),
   ]);
 
@@ -345,7 +345,7 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
 
       <div className="grid gap-6 lg:grid-cols-2">
         <AsignarContactos vendedoras={vendedoras.filter((x) => x.activa).map((x) => ({ id: x.id, nombre: x.nombre }))} hoy={hoy} />
-        <Accesos vendedoras={vendedoras.map((x) => ({ id: x.id, nombre: x.nombre, activa: x.activa, contactos: x._count.leads }))} />
+        <Accesos vendedoras={vendedoras.map((x) => ({ id: x.id, nombre: x.nombre, activa: x.activa, contactos: x._count.leads, nombreVentas: x.nombreVentas }))} />
       </div>
     </>
   );
