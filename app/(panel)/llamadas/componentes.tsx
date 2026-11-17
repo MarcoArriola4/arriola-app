@@ -1,8 +1,8 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { FileSpreadsheet, KeyRound, Trash2, UserPlus } from "lucide-react";
-import { activarVendedora, asignarContactos, subirExcelContactos, cambiarPasswordVendedora, crearVendedora, eliminarVendedora, quitarContacto } from "./actions";
+import { FileSpreadsheet, KeyRound, Pencil, Trash2, UserPlus, X } from "lucide-react";
+import { activarVendedora, asignarContactos, subirExcelContactos, cambiarPasswordVendedora, crearVendedora, editarContacto, eliminarVendedora, quitarContacto, type DatosContacto } from "./actions";
 import type { Resultado } from "@/lib/vendedoras";
 
 /** El reporte de hoy se actualiza solo cada 30 segundos (lo que van registrando las vendedoras). */
@@ -131,12 +131,73 @@ export function Accesos({ vendedoras }: { vendedoras: { id: string; nombre: stri
   );
 }
 
-export function QuitarContacto({ id, nombre }: { id: string; nombre: string }) {
+export function QuitarContacto({ id, nombre, llamadas = 0 }: { id: string; nombre: string; llamadas?: number }) {
   const { pendiente, mensaje, correr } = useAccion();
+  const pregunta = llamadas
+    ? `¿Eliminar a ${nombre}? También se borran sus ${llamadas} ${llamadas === 1 ? "llamada registrada" : "llamadas registradas"}. No se puede deshacer.`
+    : `¿Eliminar a ${nombre} de los contactos asignados?`;
   return (
     <>
       {mensaje && !mensaje.ok && <span className="mr-2 text-xs text-red-600">{mensaje.t}</span>}
-      <button disabled={pendiente} onClick={() => { if (confirm(`¿Quitar a ${nombre} de los contactos asignados?`)) correr(() => quitarContacto(id)); }} className="text-xs text-neutral-400 underline hover:text-red-600">Quitar</button>
+      <button disabled={pendiente} onClick={() => { if (confirm(pregunta)) correr(() => quitarContacto(id)); }} title="Eliminar contacto" aria-label={`Eliminar a ${nombre}`} className="inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs text-neutral-500 hover:bg-red-50 hover:text-red-600">
+        <Trash2 size={13} aria-hidden /> Eliminar
+      </button>
     </>
+  );
+}
+
+/** Editar un contacto ya asignado (datos, vendedora y día). */
+export function EditarContacto({ id, datos, vendedoras }: { id: string; datos: DatosContacto; vendedoras: { id: string; nombre: string }[] }) {
+  const { pendiente, mensaje, correr } = useAccion();
+  const [abierto, setAbierto] = useState(false);
+  const [d, setD] = useState(datos);
+  const campo = (k: keyof DatosContacto, t: string, extra?: React.InputHTMLAttributes<HTMLInputElement>) => (
+    <label className="block">
+      <span className="label">{t}</span>
+      <input value={d[k]} onChange={(e) => setD({ ...d, [k]: e.target.value })} className="input min-h-10" {...extra} />
+    </label>
+  );
+  if (!abierto) {
+    return (
+      <button onClick={() => { setD(datos); setAbierto(true); }} title="Editar contacto" className="inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs text-neutral-600 hover:bg-black/[0.05] hover:text-carbon">
+        <Pencil size={13} aria-hidden /> Editar
+      </button>
+    );
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-12" onClick={() => setAbierto(false)}>
+      <form
+        onClick={(e) => e.stopPropagation()}
+        action={() => correr(() => editarContacto(id, d), () => setAbierto(false))}
+        className="animate-aparecer w-full max-w-lg space-y-3 rounded-2xl bg-white p-5 text-left shadow-flotante"
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="font-titulo text-xl font-semibold">Editar contacto</h2>
+          <button type="button" onClick={() => setAbierto(false)} aria-label="Cerrar" className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100"><X size={18} /></button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {campo("nombre", "Cliente", { required: true })}
+          {campo("telefono", "Teléfono", { inputMode: "tel" })}
+          {campo("marca", "Marca")}
+          {campo("expediente", "Expediente")}
+          {campo("email", "Correo", { type: "email" })}
+          {campo("estatus", "Estatus")}
+        </div>
+        {campo("nota", "Nota para la vendedora")}
+        <label className="block">
+          <span className="label">Observaciones</span>
+          <textarea value={d.observaciones} onChange={(e) => setD({ ...d, observaciones: e.target.value })} rows={2} className="input" />
+        </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block"><span className="label">Vendedora</span><select value={d.vendedoraId} onChange={(e) => setD({ ...d, vendedoraId: e.target.value })} className="input min-h-10">{vendedoras.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}</select></label>
+          {campo("dia", "Asignado para el día", { type: "date", required: true })}
+        </div>
+        {mensaje && !mensaje.ok && <p role="alert" className="text-sm text-red-600">{mensaje.t}</p>}
+        <div className="flex gap-2">
+          <button disabled={pendiente} className="btn-primario min-h-10 flex-1">{pendiente ? "Guardando…" : "Guardar cambios"}</button>
+          <button type="button" onClick={() => setAbierto(false)} className="btn min-h-10">Cancelar</button>
+        </div>
+      </form>
+    </div>
   );
 }

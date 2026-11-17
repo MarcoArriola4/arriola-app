@@ -3,14 +3,14 @@ import { db } from "@/lib/db";
 import { requerirAdmin } from "@/lib/auth";
 import { Encabezado, Vacio } from "@/components/ui";
 import { CONTACTOS_POR_DIA, RESULTADOS, diaMx, estadoLead, fmtMx, rangoDia } from "@/lib/vendedoras";
-import { Accesos, ActualizarSolo, AsignarContactos, QuitarContacto } from "./componentes";
+import { Accesos, ActualizarSolo, AsignarContactos, EditarContacto, QuitarContacto } from "./componentes";
 
 export const metadata = { title: "Panel Vendedoras" };
 export const dynamic = "force-dynamic";
 
 const hora = (d: Date) => d.toLocaleTimeString("es-MX", { timeZone: "America/Mexico_City", hour: "2-digit", minute: "2-digit" });
 
-export default async function ReporteLlamadas({ searchParams }: { searchParams: Promise<{ dia?: string; v?: string }> }) {
+export default async function ReporteLlamadas({ searchParams }: { searchParams: Promise<{ dia?: string; v?: string; q?: string }> }) {
   await requerirAdmin();
   const sp = await searchParams;
   const hoy = diaMx();
@@ -37,7 +37,13 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
     db.llamada.findMany({ where: { ...deQuien, fecha: { gte: hace30, lt: fin } }, select: { vendedoraId: true, contesto: true, cotizacion: true, resultado: true, leadId: true } }),
     db.lead.groupBy({ by: ["vendedoraId"], where: { ...deQuien, asignadoEl: { gte: hace30, lt: fin } }, _count: true }),
     db.llamada.findMany({ where: { ...deQuien, fecha: { gte: hace30, lt: fin }, resultado: "NO_INTERESA" }, include: { lead: { select: { nombre: true, marca: true, observaciones: true } } }, orderBy: { fecha: "desc" }, take: 80 }),
-    db.lead.findMany({ where: { ...deQuien }, include: { vendedora: { select: { nombre: true } } }, orderBy: { actualizado: "desc" }, take: filtro ? 400 : 150 }),
+    db.lead.findMany({
+      where: {
+        ...deQuien,
+        ...(sp.q?.trim() && { OR: ["nombre", "telefono", "marca", "expediente", "email", "observaciones", "comentario"].map((k) => ({ [k]: { contains: sp.q!.trim(), mode: "insensitive" as const } })) }),
+      },
+      include: { vendedora: { select: { nombre: true } } }, orderBy: { actualizado: "desc" }, take: filtro || sp.q ? 400 : 150,
+    }),
   ]);
   const rendimiento = vendedoras
     .filter((x) => !filtro || x.id === filtro)
@@ -54,6 +60,11 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
     .filter((r) => r.llamadas || r.asignados);
 
   const nombreDe = new Map(vendedoras.map((x) => [x.id, x.nombre]));
+  const listaVendedoras = vendedoras.map((x) => ({ id: x.id, nombre: x.activa ? x.nombre : `${x.nombre} (sin acceso)` }));
+  const datosDe = (c: { nombre: string; telefono: string; marca: string | null; expediente: string | null; email: string | null; estatus: string | null; observaciones: string | null; nota: string | null; vendedoraId: string; asignadoEl: Date }) => ({
+    nombre: c.nombre, telefono: c.telefono, marca: c.marca ?? "", expediente: c.expediente ?? "", email: c.email ?? "", estatus: c.estatus ?? "",
+    observaciones: c.observaciones ?? "", nota: c.nota ?? "", vendedoraId: c.vendedoraId, dia: diaMx(c.asignadoEl),
+  });
   const resumen = vendedoras
     .filter((x) => x.activa || asignados.some((a) => a.vendedoraId === x.id) || llamadas.some((l) => l.vendedoraId === x.id))
     .filter((x) => !filtro || x.id === filtro)
@@ -223,7 +234,10 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
               <li key={l.id} className="flex flex-wrap items-center gap-x-2 px-4 py-2 text-sm">
                 <span className="font-medium">{l.nombre}</span>
                 <span className="text-xs text-neutral-500">{l.telefono} · {l.vendedora.nombre}</span>
-                <span className="ml-auto"><QuitarContacto id={l.id} nombre={l.nombre} /></span>
+                <span className="ml-auto flex items-center">
+                  <EditarContacto id={l.id} vendedoras={listaVendedoras} datos={datosDe(l)} />
+                  <QuitarContacto id={l.id} nombre={l.nombre} llamadas={l.intentos} />
+                </span>
               </li>
             ))}
           </ul>
@@ -279,12 +293,19 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
       <section className="card mb-6 overflow-x-auto">
         <h2 className="border-b border-linea px-4 py-3 text-sm font-semibold">
           {filtro ? `Contactos de ${nombreDe.get(filtro)}` : "Contactos más recientes (todas)"} ({contactos.length})
-          {!filtro && <span className="ml-2 font-normal text-neutral-500">· elige una vendedora arriba para ver todos los suyos</span>}
+          {!filtro && !sp.q && <span className="ml-2 font-normal text-neutral-500">· elige una vendedora arriba para ver todos los suyos</span>}
         </h2>
+        <form className="flex flex-wrap gap-2 border-b border-linea px-4 py-2.5" role="search">
+          <input type="hidden" name="dia" value={dia} />
+          {filtro && <input type="hidden" name="v" value={filtro} />}
+          <input name="q" defaultValue={sp.q} placeholder="Buscar cliente, teléfono, marca, expediente…" aria-label="Buscar contactos" className="input min-h-9 max-w-sm py-1.5" />
+          <button className="btn min-h-9">Buscar</button>
+          {sp.q && <Link href={url({ q: undefined })} className="btn min-h-9">Quitar búsqueda</Link>}
+        </form>
         {contactos.length === 0 ? <Vacio>Sin contactos.</Vacio> : (
           <div className="max-h-[560px] overflow-y-auto">
             <table className="w-full min-w-[1000px] text-xs">
-              <thead className="sticky top-0 border-b border-linea bg-white"><tr><th className="th">Cliente</th><th className="th">Marca / exp.</th><th className="th">Estatus (Excel)</th><th className="th">Resultado</th><th className="th">Lo que dijo</th><th className="th">Observaciones</th><th className="th">Volver a llamar</th>{!filtro && <th className="th">Vendedora</th>}</tr></thead>
+              <thead className="sticky top-0 border-b border-linea bg-white"><tr><th className="th">Cliente</th><th className="th">Marca / exp.</th><th className="th">Estatus (Excel)</th><th className="th">Resultado</th><th className="th">Lo que dijo</th><th className="th">Observaciones</th><th className="th">Volver a llamar</th>{!filtro && <th className="th">Vendedora</th>}<th className="th"><span className="sr-only">Acciones</span></th></tr></thead>
               <tbody className="divide-y divide-black/5">
                 {contactos.map((c) => {
                   const e = estadoLead(c.estado);
@@ -298,6 +319,10 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
                       <td className="td max-w-[220px] text-neutral-700">{c.observaciones ?? "—"}</td>
                       <td className={`td whitespace-nowrap ${c.volverLlamar && c.volverLlamar < ahora ? "font-medium text-red-600" : "text-neutral-600"}`}>{c.volverLlamar ? fmtMx(c.volverLlamar) : "—"}</td>
                       {!filtro && <td className="td text-neutral-600">{c.vendedora.nombre}</td>}
+                      <td className="td whitespace-nowrap text-right">
+                        <EditarContacto id={c.id} vendedoras={listaVendedoras} datos={datosDe(c)} />
+                        <QuitarContacto id={c.id} nombre={c.nombre} llamadas={c.intentos} />
+                      </td>
                     </tr>
                   );
                 })}

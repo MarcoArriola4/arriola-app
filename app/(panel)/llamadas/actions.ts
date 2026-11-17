@@ -93,14 +93,41 @@ export async function subirExcelContactos(form: FormData): Promise<Resultado<{ a
   }, aviso);
 }
 
-/** Quitar un contacto asignado que todavía no se llama (p. ej. se asignó por error). */
+/** Eliminar un contacto asignado (también sus llamadas registradas). */
 export async function quitarContacto(id: string): Promise<Resultado> {
   return intentar(async () => {
     await requerirAdmin();
-    const l = await db.lead.findUnique({ where: { id }, select: { intentos: true } });
+    const l = await db.lead.findUnique({ where: { id }, select: { id: true } });
     if (!l) throw new Error("Ese contacto ya no existe");
-    if (l.intentos > 0) throw new Error("Ya tiene llamadas registradas; no se puede quitar");
     await db.lead.delete({ where: { id } });
     refrescar();
-  }, () => "Contacto quitado");
+  }, () => "Contacto eliminado");
+}
+
+export type DatosContacto = {
+  nombre: string; telefono: string; marca: string; expediente: string; email: string; estatus: string; observaciones: string; nota: string;
+  vendedoraId: string; dia: string;
+};
+
+/** Editar un contacto ya asignado: sus datos, a qué vendedora le toca y para qué día. */
+export async function editarContacto(id: string, d: DatosContacto): Promise<Resultado> {
+  return intentar(async () => {
+    await requerirAdmin();
+    const l = await db.lead.findUnique({ where: { id }, select: { asignadoEl: true } });
+    if (!l) throw new Error("Ese contacto ya no existe");
+    const t = (s: string) => s.replace(/\s+/g, " ").trim() || null;
+    const nombre = t(d.nombre);
+    if (!nombre) throw new Error("Escribe el nombre del cliente");
+    if (!(await db.vendedora.findUnique({ where: { id: d.vendedoraId }, select: { id: true } }))) throw new Error("Elige la vendedora");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.dia)) throw new Error("Elige el día");
+    await db.lead.update({
+      where: { id },
+      data: {
+        nombre, telefono: t(d.telefono) ?? "", marca: t(d.marca), expediente: t(d.expediente), email: t(d.email), estatus: t(d.estatus),
+        observaciones: d.observaciones.trim() || null, nota: t(d.nota), vendedoraId: d.vendedoraId,
+        asignadoEl: new Date(rangoDia(d.dia).inicio.getTime() + 9 * 3600 * 1000),
+      },
+    });
+    refrescar();
+  }, () => "Contacto actualizado");
 }
