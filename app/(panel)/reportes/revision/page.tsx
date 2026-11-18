@@ -93,7 +93,7 @@ export default async function ReporteRevision({ searchParams }: { searchParams: 
                 </tbody>
               </table>
             </div>
-            <h3 className="mb-2 text-sm font-semibold">Abandonadas, negadas o que ya no continúan ({d.noRevisadas.perdidas.length})</h3>
+            <h3 className="mb-2 text-sm font-semibold">Abandonadas, caducadas, negadas o que ya no continúan ({d.noRevisadas.perdidas.length})</h3>
             <div className="max-h-[320px] overflow-y-auto rounded-lg border border-black/[0.07] print:max-h-none print:overflow-visible">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-neutral-50 text-left text-neutral-500"><tr><th className="px-3 py-2">Marca</th><th className="px-3 py-2">Cliente</th><th className="px-3 py-2">Expediente</th><th className="px-3 py-2">Motivo</th></tr></thead>

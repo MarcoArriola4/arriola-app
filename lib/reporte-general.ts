@@ -1,10 +1,11 @@
 // Reporte general de todas las marcas (Admin): ganadas con su declaración de uso y renovación, negadas y abandonadas
+// (incluye las caducadas: registradas que no presentaron la declaración de uso en plazo o que vencieron sin renovar)
 // con su motivo, oficios en curso, marcas en espera de respuesta del IMPI y las que ya recibieron respuesta.
 // Se arma con lo que hay en la app al momento (lo que trajo la última búsqueda completa en MARCanet).
 import type { PrismaClient } from "@prisma/client";
 import { TIPOS_OFICIO, TIPOS_SIGNO } from "./catalogos";
 import { DIA, sumarMeses, siguientePlazo, estaVencida } from "./plazos";
-import { ventanaDDU, vigenciaDe } from "./cumplimiento";
+import { motivoCaducidad, ventanaDDU, vigenciaDe } from "./cumplimiento";
 import { PASOS_OFICIO } from "./estado-oficio";
 import { tipoDesdeImpi } from "./marcanet/sincronizar";
 import { concesionesRecientes } from "./concesiones";
@@ -36,7 +37,8 @@ export async function datosReporteGeneral(db: PrismaClient, hoy = new Date()) {
     where: { tipo: { in: TIPOS_SIGNO } },
     select: {
       id: true, clienteId: true, denominacion: true, numeroExpediente: true, numeroRegistro: true, etapa: true, fechaConcesion: true, desistio: true, juicioNulidad: true,
-      ultimaActImpi: true, ultimaActImpiFecha: true, ultimaActImpiDe: true,
+      ultimaActImpi: true, ultimaActImpiFecha: true, ultimaActImpiDe: true, ultimoEstatus: true, marcanetSync: true,
+      servicios: { where: { tipo: "DDU" }, select: { estadoTrabajo: true } },
       cliente: { select: { nombre: true } },
       notificaciones: { select: { tipo: true, estado: true, fechaNotificacion: true, fechaLimite: true, fechaLimiteRevision: true, pendienteNotificar: true } },
       oficiosImpi: { select: { descripcion: true, fechaNotificacion: true, fechaOficio: true } },
@@ -64,9 +66,16 @@ export async function datosReporteGeneral(db: PrismaClient, hoy = new Date()) {
 
     if (m.etapa === "CONCEDIDA" || m.numeroRegistro) {
       const c = m.fechaConcesion;
+      // Sin declaración de uso en su plazo (o vencida sin renovar): el IMPI la da por caducada; ya no es registrada
+      const dduDespacho = m.servicios.some((s) => s.estadoTrabajo !== "PENDIENTE") || /ddu/i.test(m.ultimoEstatus ?? "");
+      const caducada = motivoCaducidad(c, m.tramitesImpi, hoy, { dduDespacho, consultado: m.marcanetSync });
+      if (caducada) {
+        abandonadas.push({ ...base(m), fecha: caducada.fecha, motivo: caducada.motivo, detalle: [m.numeroRegistro ? `Registro ${m.numeroRegistro}` : null, caducada.detalle].filter(Boolean).join(" · ") });
+        continue;
+      }
       const tramite = (re: RegExp, desde?: Date) => m.tramitesImpi.some((t) => re.test(t.descripcion) && (!desde || (t.fechaInicio && t.fechaInicio >= desde)));
       const v = c ? ventanaDDU(c) : null;
-      const ddu = v ? { ...v, presentada: tramite(/DECLARACI[OÓ]N DE USO/i) } : null;
+      const ddu = v ? { ...v, presentada: tramite(/DECLARACI[OÓ]N DE USO/i) || dduDespacho } : null;
       const vence = c ? vigenciaDe(c) : null;
       const renovacion = vence ? { vence, presentada: tramite(/RENOVACI/i, sumarMeses(vence, -6)) } : null;
       const pendientes = [
@@ -151,6 +160,7 @@ export async function datosReporteGeneral(db: PrismaClient, hoy = new Date()) {
     vencidas: ganadas.filter((g) => g.vencida),
     negadas,
     abandonadas,
+    caducadas: abandonadas.filter((a) => /^(Caducada|Vencida)/.test(a.motivo)).length,
     motivosNegadas: contar(negadas),
     motivosAbandonadas: contar(abandonadas),
     oficios,
@@ -168,7 +178,7 @@ const fmt = (d: Date) => d.toLocaleDateString("es-MX", { day: "numeric", month: 
 export function conclusiones(r: ReporteGeneral): string[] {
   const out: string[] = [];
   out.push(
-    `De las ${r.total.toLocaleString("es-MX")} marcas que llevamos, ${r.ganadas.length.toLocaleString("es-MX")} están registradas (${pct(r.ganadas.length, r.total)}), ${r.enTramite.toLocaleString("es-MX")} siguen en trámite y ${(r.negadas.length + r.abandonadas.length).toLocaleString("es-MX")} se perdieron por negativa o abandono.`
+    `De las ${r.total.toLocaleString("es-MX")} marcas que llevamos, ${r.ganadas.length.toLocaleString("es-MX")} están registradas y vigentes (${pct(r.ganadas.length, r.total)}), ${r.enTramite.toLocaleString("es-MX")} siguen en trámite y ${(r.negadas.length + r.abandonadas.length).toLocaleString("es-MX")} se perdieron por negativa, abandono o caducidad.`
   );
   if (r.recientes.length) {
     const sinAviso = r.recientes.filter((c) => !c.notificado && !c.vendido).length;
@@ -181,6 +191,7 @@ export function conclusiones(r: ReporteGeneral): string[] {
       ? `En los próximos 12 meses vencen ${r.ddu12} declaraciones de uso y ${r.renov12} renovaciones; la primera es ${prox.denominacion} (${prox.proximo!.que.toLowerCase()}, ${fmt(prox.proximo!.fecha)}). Son oportunidades de venta claras: conviene contactar a esos clientes con anticipación.`
       : "En los próximos 12 meses no vence ninguna declaración de uso ni renovación."
   );
+  if (r.caducadas) out.push(`${r.caducadas} ${r.caducadas === 1 ? "marca que estaba registrada ya no está vigente" : "marcas que estaban registradas ya no están vigentes"} (no presentaron la declaración de uso en su plazo o vencieron sin renovar): están en la sección de abandonadas o caducadas con su motivo. Si el cliente sigue usando el signo, conviene proponerle una nueva solicitud.`);
   if (r.vencidas.length) out.push(`${r.vencidas.length} registros tienen la declaración de uso o la renovación vencida sin presentar: vale la pena revisar si aún se pueden rescatar o proponer una nueva solicitud.`);
   const mn = r.motivosNegadas[0];
   const ma = r.motivosAbandonadas[0];
@@ -188,7 +199,7 @@ export function conclusiones(r: ReporteGeneral): string[] {
     out.push(
       [
         r.negadas.length ? `De las ${r.negadas.length} negadas, el motivo más frecuente es: ${mn[0].toLowerCase()} (${mn[1]}).` : "",
-        r.abandonadas.length ? `De las ${r.abandonadas.length} abandonadas, la causa principal es: ${ma[0].toLowerCase()} (${ma[1]}).` : "",
+        r.abandonadas.length ? `De las ${r.abandonadas.length} abandonadas o caducadas, la causa principal es: ${ma[0].toLowerCase()} (${ma[1]}).` : "",
         "Una búsqueda previa más cuidadosa y el seguimiento al pago de las contestaciones reducen estas pérdidas.",
       ].filter(Boolean).join(" ")
     );

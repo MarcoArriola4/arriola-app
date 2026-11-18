@@ -117,7 +117,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Re
             <ActualizarTodas barrido={barrido} esAdmin />
             <p className="basis-full text-xs text-neutral-500">
               «Actualizar marcas activas» revisa {barrido.total.toLocaleString("es-MX")} marcas: se omiten {barrido.omitidas.registradas.toLocaleString("es-MX")} registradas sin novedades
-              (se revisan si les agregas algo o cerca de los 3 y 10 años) y {barrido.omitidas.abandonadas.toLocaleString("es-MX")} abandonadas hace más de un mes.
+              (se revisan si les agregas algo o cerca de los 3 y 10 años) y {barrido.omitidas.abandonadas.toLocaleString("es-MX")} abandonadas, negadas o caducadas (sin declaración de uso en plazo).
             </p>
           </div>
           {syncs.length === 0 ? <p className="text-sm text-neutral-400">Todavía no hay consultas.</p> : (

@@ -5,7 +5,7 @@ import { ChevronLeft, FileDown } from "lucide-react";
 import { db } from "@/lib/db";
 import { requerirPermisoPagina } from "@/lib/auth";
 import { fmtFecha } from "@/lib/catalogos";
-import { categoriaDe, progresoAuditoria, type MarcaAuditada, type ResultadoAuditoria } from "@/lib/marcanet/auditoria";
+import { aplicarCaducidad, categoriaDe, progresoAuditoria, type MarcaAuditada, type ResultadoAuditoria } from "@/lib/marcanet/auditoria";
 import { Imprimir } from "./cliente";
 import { RelojAuditoria } from "@/components/reloj-auditoria";
 import { oportunidades } from "@/components/seccion-auditoria";
@@ -25,7 +25,7 @@ const TEXTO: Record<MarcaAuditada["tono"], string> = { verde: "text-green-700", 
 const CATEGORIAS = [
   { id: "GANADA", titulo: "Ganadas · registradas", borde: "border-green-600" },
   { id: "PROCESO", titulo: "En proceso", borde: "border-sky-600" },
-  { id: "PERDIDA", titulo: "Abandonadas, negadas o vencidas", borde: "border-red-600" },
+  { id: "PERDIDA", titulo: "Abandonadas, caducadas, negadas o vencidas", borde: "border-red-600" },
 ];
 
 export default async function Auditoria({ params }: { params: Promise<{ id: string }> }) {
@@ -34,7 +34,7 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
   if (!a) notFound();
   const cliente = a.clienteId ? await db.cliente.findUnique({ where: { id: a.clienteId }, select: { id: true, nombre: true } }) : null;
   const nombres = JSON.parse(a.nombres) as string[];
-  const r: ResultadoAuditoria = a.resultado ? JSON.parse(a.resultado) : { busquedas: [], marcas: [] };
+  const r: ResultadoAuditoria = aplicarCaducidad(a.resultado ? JSON.parse(a.resultado) : { busquedas: [], marcas: [] });
   const lista = a.estado === "LISTA";
 
   // Agrupadas en ganadas, en proceso y perdidas; dentro, por titular y por marca
@@ -77,7 +77,7 @@ export default async function Auditoria({ params }: { params: Promise<{ id: stri
               { t: "Marcas encontradas", n: r.marcas.length, cls: "" },
               { t: "Ganadas (registradas)", n: cuentaCat("GANADA"), cls: "text-green-700" },
               { t: "En proceso", n: cuentaCat("PROCESO"), cls: "text-sky-700" },
-              { t: "Abandonadas, negadas o vencidas", n: cuentaCat("PERDIDA"), cls: "text-red-700" },
+              { t: "Abandonadas, caducadas, negadas o vencidas", n: cuentaCat("PERDIDA"), cls: "text-red-700" },
               { t: "No contratadas con nosotros", n: oportunidades(r).length, cls: "text-violet-700" },
             ].map((x) => (
               <div key={x.t} className="rounded-xl border border-black/[0.07] px-3 py-2.5 sm:px-4 sm:py-3">

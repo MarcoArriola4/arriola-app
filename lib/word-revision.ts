@@ -64,7 +64,7 @@ export async function revisionEnWord(d: DatosRevision) {
           ...titulo(++k, "Marcas que no se revisaron y por qué", "Las registradas se revisan solo en sus periodos: declaración de uso (desde 1 semana antes del 3er aniversario de la concesión y hasta 3 meses después) y renovación (desde 6 meses antes de su vigencia y hasta 6 meses después). Las abandonadas o negadas ya no se revisan."),
           sub(`Registradas · próxima revisión programada (${d.noRevisadas.registradas.length})`),
           tabla(["Marca", "Cliente", "Expediente", "Se vuelve a revisar", "Por"], d.noRevisadas.registradas.map((o) => [o.denominacion, o.cliente, o.numeroExpediente ?? "—", o.proximaRevision ? fecha(o.proximaRevision) : "—", o.porque ?? "Sin periodos pendientes"])),
-          sub(`Abandonadas, negadas o que ya no continúan (${d.noRevisadas.perdidas.length})`),
+          sub(`Abandonadas, caducadas, negadas o que ya no continúan (${d.noRevisadas.perdidas.length})`),
           tabla(["Marca", "Cliente", "Expediente", "Motivo"], d.noRevisadas.perdidas.map((o) => [o.denominacion, o.cliente, o.numeroExpediente ?? "—", o.porque ?? ""])),
           ...(d.conError.length ? [...titulo(++k, "Marcas que no se pudieron consultar", "Se reintentan solas en la siguiente revisión."), marcas(d.conError)] : []),
           ...titulo(++k, `Últimos 3 meses (desde el ${fecha(t3.desde)})`, "Lo contratado recientemente y lo que todavía falta."),

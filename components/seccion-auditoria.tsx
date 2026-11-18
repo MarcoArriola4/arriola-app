@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ChevronDown, FileDown, SearchCheck } from "lucide-react";
 import type { Auditoria } from "@prisma/client";
 import { fmtFecha } from "@/lib/catalogos";
-import { categoriaDe, progresoAuditoria, type MarcaAuditada, type ResultadoAuditoria } from "@/lib/marcanet/auditoria";
+import { aplicarCaducidad, categoriaDe, progresoAuditoria, type MarcaAuditada, type ResultadoAuditoria } from "@/lib/marcanet/auditoria";
 import { RelojAuditoria } from "./reloj-auditoria";
 
 const TONO: Record<MarcaAuditada["tono"], string> = {
@@ -32,7 +32,7 @@ export function SeccionAuditoria({ clienteId, a }: { clienteId: string; a: Audit
       </div>
     );
   }
-  const r: ResultadoAuditoria = a.resultado ? JSON.parse(a.resultado) : { busquedas: [], marcas: [] };
+  const r: ResultadoAuditoria = aplicarCaducidad(a.resultado ? JSON.parse(a.resultado) : { busquedas: [], marcas: [] });
   const p = progresoAuditoria(a);
   const lista = a.estado === "LISTA";
   const opo = oportunidades(r);
@@ -70,7 +70,7 @@ export function SeccionAuditoria({ clienteId, a }: { clienteId: string; a: Audit
                 { t: "Encontradas", n: r.marcas.length, cls: "" },
                 { t: "Ganadas (registradas)", n: cuenta("GANADA"), cls: "text-green-700" },
                 { t: "En proceso", n: cuenta("PROCESO"), cls: "text-sky-700" },
-                { t: "Abandonadas, negadas o vencidas", n: cuenta("PERDIDA"), cls: "text-red-700" },
+                { t: "Abandonadas, caducadas, negadas o vencidas", n: cuenta("PERDIDA"), cls: "text-red-700" },
                 { t: "No contratadas con nosotros", n: opo.length, cls: "text-violet-700" },
               ].map((x) => (
                 <div key={x.t} className="rounded-lg bg-neutral-50 px-3 py-2">

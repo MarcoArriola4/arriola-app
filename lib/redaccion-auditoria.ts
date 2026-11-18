@@ -83,6 +83,13 @@ export function redactarAuditoria(r: ResultadoAuditoria): Redaccion {
   );
 
   // 3) Marcas perdidas: oportunidad de recuperar la protección
+  const caducadas = perdidas.filter((m) => /caducad/i.test(m.estatus));
+  if (caducadas.length) {
+    parrafos.push(
+      `${caducadas.length === 1 ? "El registro" : `Los ${caducadas.length} registros`} ${nombres(caducadas)} ${caducadas.length === 1 ? "caducó" : "caducaron"} porque no se presentó la declaración de uso dentro de los tres meses siguientes al tercer aniversario de su concesión (o se presentó fuera de ese plazo). ` +
+        `Al caducar, ${caducadas.length === 1 ? "la marca deja" : "las marcas dejan"} de estar vigente${caducadas.length === 1 ? "" : "s"} y ya no ${caducadas.length === 1 ? "otorga" : "otorgan"} protección.`
+    );
+  }
   if (perdidas.length) {
     parrafos.push(
       `Respecto de ${perdidas.length === 1 ? "la marca que ya no está vigente" : `las ${perdidas.length} marcas que ya no están vigentes`} (${nombres(perdidas)}), si el signo continúa en uso, ` +

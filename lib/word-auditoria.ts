@@ -84,7 +84,7 @@ export async function auditoriaEnWord(datos: { cliente: string | null; nombres: 
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: bordesTabla,
     rows: [
-      new TableRow({ children: ["Marcas encontradas", "Ganadas (registradas)", "En proceso", "Abandonadas, negadas o vencidas", "No contratadas con nosotros"].map((x) => celda([p(t(x, { size: 16, color: "666666" }))], { fondo: "F7F7F7" })) }),
+      new TableRow({ children: ["Marcas encontradas", "Ganadas (registradas)", "En proceso", "Abandonadas, caducadas, negadas o vencidas", "No contratadas con nosotros"].map((x) => celda([p(t(x, { size: 16, color: "666666" }))], { fondo: "F7F7F7" })) }),
       new TableRow({ children: [r.marcas.length, cuentaCat("GANADA"), cuentaCat("PROCESO"), cuentaCat("PERDIDA"), noContratadas.length].map((n) => celda([p(t(String(n), { bold: true, size: 32 }))])) }),
     ],
   });
@@ -94,7 +94,7 @@ export async function auditoriaEnWord(datos: { cliente: string | null; nombres: 
   const CATS = [
     { id: "GANADA", titulo: "GANADAS · REGISTRADAS", color: "1B5E20" },
     { id: "PROCESO", titulo: "EN PROCESO", color: "0D47A1" },
-    { id: "PERDIDA", titulo: "ABANDONADAS, NEGADAS O VENCIDAS", color: "B71C1C" },
+    { id: "PERDIDA", titulo: "ABANDONADAS, CADUCADAS, NEGADAS O VENCIDAS", color: "B71C1C" },
   ];
   const linea = (j: Juicio) => p(t(j.texto, { size: 15, color: COLOR_TONO[j.tono].texto }));
   const secciones = CATS.flatMap((cat) => {

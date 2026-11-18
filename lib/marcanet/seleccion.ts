@@ -10,14 +10,14 @@
 // - Todas las demás (en trámite, con oficio, en juicio…): siempre.
 import type { Expediente, PrismaClient } from "@prisma/client";
 import { DIA, sumarMeses } from "../plazos";
-import { REFORMA_DDU, vigenciaDe } from "../cumplimiento";
+import { REFORMA_DDU, motivoCaducidad, vigenciaDe } from "../cumplimiento";
 import { expedientesParaHoy } from "./sincronizar";
 import { TIPOS_SIGNO } from "../catalogos";
 
 const UN_MES = 30 * DIA;
 const ACTIVAS = ["RECIBIDA", "AVISADO", "EN_TRABAJO", "PAGAR_SISTEMA"];
 
-export type MotivoOmitida = "REGISTRADA" | "ABANDONADA" | "NEGADA";
+export type MotivoOmitida = "REGISTRADA" | "ABANDONADA" | "NEGADA" | "CADUCADA";
 export type Omitida = { id: string; clienteId: string; denominacion: string; numeroExpediente: string | null; motivo: MotivoOmitida; proximaRevision: Date | null; porque: string | null };
 
 /** Periodos en que una marca registrada se vuelve a revisar. */
@@ -40,7 +40,7 @@ export async function expedientesDelBarrido(db: PrismaClient, hoy = new Date(), 
   const especiales = await db.expediente.findMany({
     where: { id: { in: ids }, OR: [{ etapa: { in: ["CONCEDIDA", "ABANDONADA", "NEGATIVA"] } }, { numeroRegistro: { not: null } }, { desistio: { not: null } }] },
     select: {
-      id: true, clienteId: true, denominacion: true, numeroExpediente: true, etapa: true, numeroRegistro: true, fechaConcesion: true, marcanetSync: true, desistio: true, juicioNulidad: true, ultimaActImpiFecha: true,
+      id: true, clienteId: true, denominacion: true, numeroExpediente: true, etapa: true, numeroRegistro: true, fechaConcesion: true, marcanetSync: true, desistio: true, juicioNulidad: true, ultimaActImpiFecha: true, ultimoEstatus: true,
       oficiosImpi: { where: { OR: [{ descripcion: { contains: "ABANDON", mode: "insensitive" } }, { descripcion: { contains: "NEGATIVA", mode: "insensitive" } }, { descripcion: { contains: "CONFIRMA EL ACTO", mode: "insensitive" } }] }, select: { descripcion: true, fechaNotificacion: true, fechaOficio: true } },
       tramitesImpi: { select: { descripcion: true, fechaInicio: true, fechaConclusion: true } },
       servicios: { select: { creado: true }, orderBy: { creado: "desc" }, take: 1 },
@@ -52,6 +52,10 @@ export async function expedientesDelBarrido(db: PrismaClient, hoy = new Date(), 
   // Con un oficio en curso siempre se revisa
   const conOficio = new Set(
     (await db.notificacion.findMany({ where: { expedienteId: { in: especiales.map((e) => e.id) }, estado: { in: ACTIVAS } }, select: { expedienteId: true } })).map((n) => n.expedienteId)
+  );
+  // Declaración de uso que el despacho tiene como hecha (aunque MARCanet aún no la muestre)
+  const dduDespacho = new Set(
+    (await db.servicio.findMany({ where: { expedienteId: { in: especiales.map((e) => e.id) }, tipo: "DDU", estadoTrabajo: { not: "PENDIENTE" } }, select: { expedienteId: true } })).map((s) => s.expedienteId)
   );
   const omitidas: Omitida[] = [];
   for (const e of especiales) {
@@ -87,13 +91,19 @@ export async function expedientesDelBarrido(db: PrismaClient, hoy = new Date(), 
     const renovada = e.tramitesImpi.some((t) => /RENOVACI/i.test(t.descripcion) && t.fechaConclusion && t.fechaInicio && t.fechaInicio >= sumarMeses(vigenciaDe(concesion), -6));
     const periodos = periodosRegistrada(concesion).filter((p) => !(p.que === "declaración de uso" && dduFavorable) && !(p.que === "renovación" && renovada));
     if (periodos.some((p) => hoy >= p.inicio && hoy <= p.fin)) continue; // está en su periodo: se revisa
+    // Sin declaración de uso en plazo (o vencida sin renovar): ya no está vigente; va con las perdidas y su motivo
+    const caducada = motivoCaducidad(concesion, e.tramitesImpi, hoy, { dduDespacho: dduDespacho.has(e.id) || /ddu/i.test(e.ultimoEstatus ?? ""), consultado: e.marcanetSync });
+    if (caducada) {
+      omitidas.push({ ...base, motivo: "CADUCADA", proximaRevision: null, porque: `${caducada.motivo} (${caducada.detalle})` });
+      continue;
+    }
     const siguiente = periodos.filter((p) => p.inicio > hoy).sort((a, b) => a.inicio.getTime() - b.inicio.getTime())[0];
     omitidas.push({ ...base, motivo: "REGISTRADA", proximaRevision: siguiente?.inicio ?? null, porque: siguiente ? `Periodo de ${siguiente.que}` : null });
   }
   const fuera = new Set(omitidas.map((o) => o.id));
   const lista: Expediente[] = todas.filter((e) => !fuera.has(e.id));
   const cuenta = (m: MotivoOmitida) => omitidas.filter((o) => o.motivo === m).length;
-  return { lista, omitidasDetalle: omitidas, omitidas: { registradas: cuenta("REGISTRADA"), abandonadas: cuenta("ABANDONADA") + cuenta("NEGADA") } };
+  return { lista, omitidasDetalle: omitidas, omitidas: { registradas: cuenta("REGISTRADA"), abandonadas: cuenta("ABANDONADA") + cuenta("NEGADA") + cuenta("CADUCADA") } };
 }
 
 /**

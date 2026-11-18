@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { requerirSesion } from "@/lib/auth";
 import { auditoriaEnWord } from "@/lib/word-auditoria";
-import type { ResultadoAuditoria } from "@/lib/marcanet/auditoria";
+import { aplicarCaducidad, type ResultadoAuditoria } from "@/lib/marcanet/auditoria";
 
 export const maxDuration = 60;
 
@@ -13,7 +13,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const a = await db.auditoria.findUnique({ where: { id } });
   if (!a?.resultado) return new Response("La auditoría aún no tiene resultados", { status: 404 });
   const cliente = a.clienteId ? (await db.cliente.findUnique({ where: { id: a.clienteId }, select: { nombre: true } }))?.nombre ?? null : null;
-  const buffer = await auditoriaEnWord({ cliente, nombres: JSON.parse(a.nombres), terminado: a.terminado, resultado: JSON.parse(a.resultado) as ResultadoAuditoria });
+  const buffer = await auditoriaEnWord({ cliente, nombres: JSON.parse(a.nombres), terminado: a.terminado, resultado: aplicarCaducidad(JSON.parse(a.resultado) as ResultadoAuditoria) });
   const nombre = `Auditoria de marcas${cliente ? ` - ${cliente}` : ""}.docx`.replace(/[\\/:*?"<>|]/g, "");
   return new Response(new Uint8Array(buffer), {
     headers: {

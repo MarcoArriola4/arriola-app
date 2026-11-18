@@ -47,13 +47,13 @@ export default async function ReporteGeneral() {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-3">
             <Cifra t="Marcas en total" n={r.total} />
             <Cifra t="Concedidas hace -90 días" n={r.recientes.length} tono="text-green-700" />
-            <Cifra t="Ganadas (registradas)" n={r.ganadas.length} tono="text-green-700" />
+            <Cifra t="Ganadas (registradas y vigentes)" n={r.ganadas.length} tono="text-green-700" />
             <Cifra t="En trámite" n={r.enTramite} />
             <Cifra t="Oficios en curso" n={r.oficios.length} tono="text-amber-600" />
             <Cifra t="Declaraciones de uso · próx. 12 meses" n={r.ddu12} tono="text-sky-700" />
             <Cifra t="Renovaciones · próx. 12 meses" n={r.renov12} tono="text-sky-700" />
             <Cifra t="Negadas" n={r.negadas.length} tono="text-red-600" />
-            <Cifra t="Abandonadas" n={r.abandonadas.length} tono="text-red-600" />
+            <Cifra t="Abandonadas o caducadas" n={r.abandonadas.length} tono="text-red-600" />
           </div>
 
           <Seccion n={1} titulo="Marcas concedidas hace -90 días" ayuda="Las que se acaban de ganar: avisar al cliente y ofrecerle el título de concesión. Se marcan como notificadas o vendidas en Notificaciones.">
@@ -93,7 +93,7 @@ export default async function ReporteGeneral() {
             <TablaPerdidas lista={r.negadas} />
           </Seccion>
 
-          <Seccion n={4} titulo="Marcas abandonadas y por qué" ayuda="Abandonadas por no contestar un oficio a tiempo o porque el cliente ya no quiso continuar.">
+          <Seccion n={4} titulo="Marcas abandonadas o caducadas y por qué" ayuda="Abandonadas por no contestar un oficio a tiempo o porque el cliente ya no quiso continuar. Caducadas: registradas que no presentaron la declaración de uso en su plazo (el IMPI las da por caducadas) o que vencieron sin renovar; ya no están vigentes.">
             <Motivos lista={r.motivosAbandonadas} />
             <TablaPerdidas lista={r.abandonadas} />
           </Seccion>

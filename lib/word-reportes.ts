@@ -126,9 +126,9 @@ export async function reporteGeneralEnWord(r: ReporteGeneral, ultimaActualizacio
   const children: (Paragraph | Table)[] = [
     await encabezado("Reporte general de marcas", new Date().toLocaleDateString("es-MX", { dateStyle: "long", timeZone: "America/Mexico_City" })),
     new Paragraph({ spacing: { before: 200, after: 120 }, children: [t(ultimaActualizacion ? `Última actualización total en MARCanet: ${fecha(ultimaActualizacion)}` : "Última actualización total en MARCanet: nunca (datos de la app al día de hoy)", { size: 16, color: "777777" })] }),
-    cifras([["Marcas en total", r.total], ["Concedidas hace -90 días", r.recientes.length], ["Ganadas", r.ganadas.length], ["En trámite", r.enTramite], ["Oficios en curso", r.oficios.length]]),
+    cifras([["Marcas en total", r.total], ["Concedidas hace -90 días", r.recientes.length], ["Ganadas (vigentes)", r.ganadas.length], ["En trámite", r.enTramite], ["Oficios en curso", r.oficios.length]]),
     new Paragraph({ spacing: { after: 80 }, children: [] }),
-    cifras([["DDU · próx. 12 meses", r.ddu12], ["Renovaciones · próx. 12 meses", r.renov12], ["Negadas", r.negadas.length], ["Abandonadas", r.abandonadas.length]]),
+    cifras([["DDU · próx. 12 meses", r.ddu12], ["Renovaciones · próx. 12 meses", r.renov12], ["Negadas", r.negadas.length], ["Abandonadas o caducadas", r.abandonadas.length]]),
 
     ...titulo(++k, "Marcas concedidas hace -90 días", "Las que se acaban de ganar: avisar al cliente y ofrecerle el título de concesión."),
     tabla(["Marca", "Cliente", "Registro", "Concedida", "Notificado", "Título"], r.recientes.map((c) => [[c.denominacion, `Exp. ${c.numeroExpediente ?? "s/n"}`], c.cliente, c.registro ?? "—", fecha(c.concesion), c.notificado ? `Sí · ${fecha(c.notificado)}` : "Por notificar", c.vendido ? `Vendido · ${fecha(c.vendido)}` : "Sin vender"])),
@@ -141,7 +141,7 @@ export async function reporteGeneralEnWord(r: ReporteGeneral, ultimaActualizacio
     ...titulo(++k, "Marcas negadas y por qué", "El motivo se toma del oficio que el IMPI emitió antes de la negativa."),
     motivos(r.motivosNegadas), sub(`Lista (${r.negadas.length})`), perdidas(r.negadas),
 
-    ...titulo(++k, "Marcas abandonadas y por qué", "Abandonadas por no contestar un oficio a tiempo o porque el cliente ya no quiso continuar."),
+    ...titulo(++k, "Marcas abandonadas o caducadas y por qué", "Abandonadas por no contestar un oficio a tiempo o porque el cliente ya no quiso continuar. Caducadas: registradas que no presentaron la declaración de uso en su plazo (el IMPI las da por caducadas) o que vencieron sin renovar; ya no están vigentes."),
     motivos(r.motivosAbandonadas), sub(`Lista (${r.abandonadas.length})`), perdidas(r.abandonadas),
 
     ...titulo(++k, "Oficios en curso", "Oficios en plazo y el paso en el que van."),

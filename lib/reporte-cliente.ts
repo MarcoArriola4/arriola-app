@@ -4,6 +4,7 @@ import { ACTIVAS } from "./consultas";
 import { TIPOS_OFICIO, esSigno, fmtFecha, normalizarNombre } from "./catalogos";
 import { cargarInhabiles } from "./inhabiles";
 import { diasRestantes, esperandoImpi, fechaLimiteDDU, fechaRenovacion, siguientePlazo } from "./plazos";
+import { motivoCaducidad } from "./cumplimiento";
 
 // Estatus explicado para el cliente (sin términos internos del despacho)
 export const ESTATUS_CLIENTE: Record<string, { txt: string; cls: string }> = {
@@ -15,6 +16,8 @@ export const ESTATUS_CLIENTE: Record<string, { txt: string; cls: string }> = {
   CONFIRMA_ACTO: { txt: "Negativa confirmada", cls: "bg-red-50 text-red-700" },
   EN_JUICIO: { txt: "En recurso de revisión / juicio", cls: "bg-violet-50 text-violet-800" },
   ABANDONADA: { txt: "Abandonada", cls: "bg-neutral-100 text-neutral-500" },
+  // Registrada que no presentó la declaración de uso en plazo (o venció sin renovar): ya no está vigente
+  CADUCADA: { txt: "Caducada", cls: "bg-neutral-100 text-neutral-500" },
 };
 
 export const claveTitular = (t: string) => normalizarNombre(t).replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
@@ -27,6 +30,8 @@ export async function datosReporteCliente(db: PrismaClient, id: string, titular?
         include: {
           notificaciones: { where: { estado: { in: [...ACTIVAS, "NO_PAGO"] } }, orderBy: { fechaNotificacion: "desc" } },
           oficiosImpi: { orderBy: { fechaOficio: "desc" }, take: 1 },
+          tramitesImpi: { select: { descripcion: true, fechaInicio: true } },
+          servicios: { where: { tipo: "DDU" }, select: { estadoTrabajo: true } },
         },
       },
     },
@@ -39,7 +44,11 @@ export async function datosReporteCliente(db: PrismaClient, id: string, titular?
   const todas = c.expedientes.map((e) => ({ ...e, tit: (e.titular ?? c.nombre).replace(/\s+/g, " ").trim() }));
   const titulares = [...new Map(todas.map((e) => [claveTitular(e.tit), e.tit])).entries()].sort((a, b) => a[1].localeCompare(b[1], "es"));
   const elegidas = titular ? todas.filter((e) => claveTitular(e.tit) === titular) : todas;
-  const etapa = (e: (typeof elegidas)[number]) => (e.desistio ? "ABANDONADA" : e.etapa);
+  const caducidad = (e: (typeof elegidas)[number]) =>
+    esSigno(e.tipo) && e.etapa === "CONCEDIDA" && !e.desistio
+      ? motivoCaducidad(e.fechaConcesion, e.tramitesImpi, hoy, { dduDespacho: e.servicios.some((s) => s.estadoTrabajo !== "PENDIENTE") || /ddu/i.test(e.ultimoEstatus ?? ""), consultado: e.marcanetSync })
+      : null;
+  const etapa = (e: (typeof elegidas)[number]) => (e.desistio ? "ABANDONADA" : caducidad(e) ? "CADUCADA" : e.etapa);
 
   const marca = (e: (typeof elegidas)[number]) => {
     const signo = esSigno(e.tipo);
@@ -47,7 +56,9 @@ export async function datosReporteCliente(db: PrismaClient, id: string, titular?
     const renov = signo && e.fechaConcesion ? fechaRenovacion(e.fechaConcesion) : null;
     const oficio = e.notificaciones.find((n) => ACTIVAS.includes(n.estado));
     const proximos: string[] = [];
-    if (e.desistio) proximos.push("Sin seguimiento (el titular decidió no continuar)");
+    const caduca = caducidad(e);
+    if (caduca) proximos.push(`${caduca.motivo}. ${caduca.detalle}. Ya no está vigente.`);
+    else if (e.desistio) proximos.push("Sin seguimiento (el titular decidió no continuar)");
     else if (oficio) {
       if (esperandoImpi(oficio)) proximos.push(`${TIPOS_OFICIO[oficio.tipo]}: en espera de la resolución del IMPI`);
       else if (oficio.pendienteNotificar) proximos.push(`${TIPOS_OFICIO[oficio.tipo]}: emitido, pendiente de notificación`);
@@ -56,8 +67,8 @@ export async function datosReporteCliente(db: PrismaClient, id: string, titular?
         proximos.push(`${TIPOS_OFICIO[oficio.tipo]}: responder a más tardar el ${fmtFecha(p.fecha)}${p.etiqueta ? ` (${p.etiqueta.toLowerCase()})` : ""}`);
       }
     }
-    if (ddu && diasRestantes(ddu, hoy) >= -30 && diasRestantes(ddu, hoy) <= 365) proximos.push(`Declaración de uso: a más tardar el ${fmtFecha(ddu)}`);
-    if (renov && diasRestantes(renov, hoy) <= 365 && diasRestantes(renov, hoy) >= -180) proximos.push(`Renovación: vence el ${fmtFecha(renov)}`);
+    if (!caduca && ddu && diasRestantes(ddu, hoy) >= -30 && diasRestantes(ddu, hoy) <= 365) proximos.push(`Declaración de uso: a más tardar el ${fmtFecha(ddu)}`);
+    if (!caduca && renov && diasRestantes(renov, hoy) <= 365 && diasRestantes(renov, hoy) >= -180) proximos.push(`Renovación: vence el ${fmtFecha(renov)}`);
     if (!proximos.length && renov && e.etapa === "CONCEDIDA") proximos.push(`Vigente hasta el ${fmtFecha(renov)}`);
     const ultimo = e.ultimaActImpi && e.ultimaActImpiFecha ? `${fmtFecha(e.ultimaActImpiFecha)} · ${e.ultimaActImpi}` : e.oficiosImpi[0] ? `${fmtFecha(e.oficiosImpi[0].fechaOficio)} · ${e.oficiosImpi[0].descripcion}` : null;
     const et = etapa(e);
@@ -79,6 +90,7 @@ export async function datosReporteCliente(db: PrismaClient, id: string, titular?
     { t: "Registradas", n: cuenta(["CONCEDIDA"]) },
     { t: "En trámite", n: cuenta(["POR_PRESENTAR", "EN_TRAMITE", "CON_OFICIO"]) },
     { t: "Negativa / juicio", n: cuenta(["NEGATIVA", "CONFIRMA_ACTO", "EN_JUICIO"]) },
+    ...(cuenta(["CADUCADA"]) ? [{ t: "Caducadas", n: cuenta(["CADUCADA"]) }] : []),
   ];
   const sincronizadas = elegidas.map((e) => e.marcanetSync).filter(Boolean) as Date[];
   return {

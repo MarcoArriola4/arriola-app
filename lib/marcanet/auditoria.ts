@@ -17,7 +17,7 @@ export type MarcaAuditada = Omit<MarcaEncontrada, "nombreImpi"> & {
   vigencia: string | null;
   enApp: { id: string; clienteId: string } | null;
   error?: string;
-  /** GANADA (registrada) · PROCESO · PERDIDA (abandonada, negada o vencida) */
+  /** GANADA (registrada) · PROCESO · PERDIDA (abandonada, caducada, negada o vencida) */
   categoria?: "GANADA" | "PROCESO" | "PERDIDA";
   ddu?: Juicio | null;
   renovacion?: Juicio | null;
@@ -25,7 +25,29 @@ export type MarcaAuditada = Omit<MarcaEncontrada, "nombreImpi"> & {
 };
 
 /** Categoría para agrupar el reporte (las auditorías anteriores no la traen: se deduce del color). */
-export const categoriaDe = (m: MarcaAuditada) => m.categoria ?? (m.tono === "verde" ? "GANADA" : m.tono === "gris" || /vencid|negad/i.test(m.estatus) ? "PERDIDA" : "PROCESO");
+export const categoriaDe = (m: MarcaAuditada) =>
+  sinDDU(m) ? "PERDIDA" : m.categoria ?? (m.tono === "verde" ? "GANADA" : m.tono === "gris" || /vencid|negad|caducad/i.test(m.estatus) ? "PERDIDA" : "PROCESO");
+
+/** Registrada que no presentó la declaración de uso en plazo (o la presentó tarde): el IMPI la da por caducada. */
+const sinDDU = (m: MarcaAuditada) => !!m.ddu && m.ddu.tono === "rojo" && /NO presentada|fuera de tiempo/i.test(m.ddu.texto);
+const ESTATUS_CADUCADA = "Caducada (no se presentó la declaración de uso en el plazo)";
+const ESTATUS_CADUCADA_TARDE = "Caducada (la declaración de uso se presentó fuera de plazo)";
+
+/**
+ * Las auditorías guardadas antes de esta regla tienen como «Registrada» marcas sin declaración de uso: al mostrarlas
+ * (pantalla y Word) se pasan a caducadas. No cambia lo guardado; solo cómo se presenta.
+ */
+export function aplicarCaducidad<T extends { marcas: MarcaAuditada[] }>(r: T): T {
+  for (const m of r.marcas) {
+    if (!sinDDU(m)) continue;
+    const tarde = /fuera de tiempo/i.test(m.ddu!.texto);
+    m.ddu = { ...m.ddu!, texto: m.ddu!.texto.replace(/riesgo de caducidad del registro/i, "el registro caducó") };
+    if (!/caducad|vencid/i.test(m.estatus)) m.estatus = tarde ? ESTATUS_CADUCADA_TARDE : ESTATUS_CADUCADA;
+    m.tono = "gris";
+    m.categoria = "PERDIDA";
+  }
+  return r;
+}
 
 export type ResultadoAuditoria = {
   busquedas: {
@@ -68,7 +90,9 @@ export function analizarMarca(r: ExpedienteMarcanet, hoy = new Date(), app?: { j
     if (vencida) [estatus, tono, categoria] = ["Registro vencido (no se renovó)", "rojo", "PERDIDA"];
     // Ya pasó la vigencia pero sigue en los 6 meses de gracia: aún se puede renovar (urgente)
     else if (renovacion && /^Vencida el/.test(renovacion.texto)) [estatus, tono, categoria] = [`Registrada · ${renovacion.texto}`, "ambar", "GANADA"];
-    else if (ddu?.tono === "rojo" && /NO presentada/.test(ddu.texto)) [estatus, tono, categoria] = ["Registrada · sin declaración de uso (riesgo de caducidad)", "ambar", "GANADA"];
+    // Sin declaración de uso en su plazo (o presentada tarde): el IMPI la da por caducada; ya no está vigente
+    else if (ddu?.tono === "rojo" && /NO presentada/.test(ddu.texto)) [estatus, tono, categoria] = [ESTATUS_CADUCADA, "gris", "PERDIDA"];
+    else if (ddu?.tono === "rojo" && /fuera de tiempo/.test(ddu.texto)) [estatus, tono, categoria] = [ESTATUS_CADUCADA_TARDE, "gris", "PERDIDA"];
     else [estatus, tono, categoria] = [vigencia ? `Registrada · vigente hasta ${f(vigencia)}` : "Registrada", "verde", "GANADA"];
   } else if (ultimo && /ABANDON/i.test(ultimo.descripcion)) {
     [estatus, tono, categoria] = ["Abandonada (declarada por el IMPI)", "gris", "PERDIDA"];
