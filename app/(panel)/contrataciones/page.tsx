@@ -10,6 +10,7 @@ import { Encabezado } from "@/components/ui";
 import { ActualizarTodas } from "@/components/actualizar-todas";
 import { estadoBarrido } from "@/lib/marcanet/estado";
 import { HojaContrataciones, type FilaContratacion } from "./hoja";
+import { PendientesTrabajo, type PendienteTrabajo } from "./pendientes-trabajo";
 
 export const metadata = { title: "Contrataciones" };
 // El botón "Actualizar todas" consulta MARCanet marca por marca
@@ -96,6 +97,32 @@ export default async function Contrataciones({ searchParams }: { searchParams: P
     };
   });
 
+  // Alerta: todo lo contratado (de cualquier mes) que sigue «Por trabajar». Solo lectura.
+  const porTrabajar = await db.servicio.findMany({
+    where: { estadoTrabajo: "PENDIENTE" },
+    select: {
+      id: true, tipo: true, fechaContratacion: true, vendedor: true, origenVenta: true,
+      expediente: {
+        select: {
+          id: true, denominacion: true, numeroExpediente: true, clienteId: true, cliente: { select: { nombre: true } },
+          notificaciones: { where: { estado: { in: ACTIVAS } }, select: { tipo: true, fechaLimite: true, fechaLimiteRevision: true, pendienteNotificar: true } },
+        },
+      },
+    },
+    orderBy: [{ fechaContratacion: { sort: "asc", nulls: "first" } }, { creado: "asc" }],
+  });
+  const pendientesTrabajo: PendienteTrabajo[] = porTrabajar.map((s) => {
+    const oficio = s.expediente.notificaciones.find((n) => !estaVencida(n));
+    const d = oficio && !oficio.pendienteNotificar ? diasRestantes(siguientePlazo(oficio).fecha) : null;
+    return {
+      id: s.id, fecha: s.fechaContratacion?.toISOString() ?? null,
+      dias: s.fechaContratacion ? Math.max(0, Math.floor((ahora.getTime() - s.fechaContratacion.getTime()) / 864e5)) : null,
+      cliente: s.expediente.cliente.nombre, clienteId: s.expediente.clienteId, expedienteId: s.expediente.id,
+      marca: s.expediente.denominacion, expediente: s.expediente.numeroExpediente, servicio: TIPOS_SERVICIO[s.tipo] ?? s.tipo, vendio: s.vendedor ?? s.origenVenta,
+      oficio: oficio ? `Oficio por contestar: ${TIPOS_OFICIO[oficio.tipo]?.toLowerCase() ?? oficio.tipo}${d != null ? ` (${d} d)` : ""}` : null,
+    };
+  });
+
   const tab = (activo: boolean) => `rounded-md px-3 py-1.5 text-sm font-medium ${activo ? "bg-white shadow-sm" : "text-neutral-500 hover:text-black"}`;
 
   return (
@@ -104,6 +131,7 @@ export default async function Contrataciones({ searchParams }: { searchParams: P
         titulo={historial ? "Historial de contrataciones" : "Contrataciones del mes"}
         subtitulo={historial ? `Todo lo contratado desde el inicio · ${filas.length.toLocaleString("es-MX")} servicios` : "Lo más reciente arriba. Quién contrató, quién lo vendió, si ya se trabajó, si ya pagó y qué falta."}
       >
+        <PendientesTrabajo lista={pendientesTrabajo} />
         <div className="inline-flex rounded-lg bg-neutral-200/70 p-1">
           <Link href="/contrataciones" className={tab(!historial)}>Por mes</Link>
           <Link href="/contrataciones?vista=todo" className={tab(historial)}>Historial completo</Link>

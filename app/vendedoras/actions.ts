@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { CERRADOS, cerrarSesionVendedora, crearSesionVendedora, intentar, requerirVendedora, type Resultado } from "@/lib/vendedoras";
+import { CERRADOS, cerrarSesionVendedora, crearSesionVendedora, fechaHoraLocalMx, intentar, panelDe, requerirVendedora, type Resultado } from "@/lib/vendedoras";
 import { corregirRegistro, leerRegistro } from "@/lib/vendedoras-registros";
 import { leerVenta } from "@/lib/ventas-vendedoras";
 
@@ -25,11 +25,12 @@ export async function entrarVendedora(form: FormData) {
   if (!v.activa) redirect("/vendedoras/login?error=inactiva");
   await db.intentoLogin.deleteMany({ where: { email: clave } });
   await crearSesionVendedora(v.id, v.nombre);
-  redirect("/vendedoras");
+  redirect(panelDe(v.id));
 }
 
 export async function salirVendedora() {
-  await cerrarSesionVendedora();
+  const v = await requerirVendedora();
+  await cerrarSesionVendedora(v.id);
   redirect("/vendedoras/login");
 }
 
@@ -47,7 +48,7 @@ export async function registrarLlamada(form: FormData): Promise<Resultado> {
     await db.$transaction([
       db.llamada.create({ data: { ...d, leadId, vendedoraId: v.id, fecha: ahora } }),
       ...(conWhats
-        ? [db.llamada.create({ data: { ...d, canal: "WHATSAPP", comentario: "WhatsApp enviado porque no contestó la llamada", cotizacion: false, leadId, vendedoraId: v.id, fecha: new Date(ahora.getTime() + 1000) } })]
+        ? [db.llamada.create({ data: { ...d, canal: "WHATSAPP", comentario: "WhatsApp enviado porque no contestó la llamada", cotizacion: false, interes: null, leadId, vendedoraId: v.id, fecha: new Date(ahora.getTime() + 1000) } })]
         : []),
       db.lead.update({
         where: { id: leadId },
@@ -64,7 +65,7 @@ export async function registrarLlamada(form: FormData): Promise<Resultado> {
         },
       }),
     ]);
-    revalidatePath("/vendedoras");
+    revalidatePath("/vendedoras", "layout");
     revalidatePath("/llamadas");
   }, () => "Guardado");
 }
@@ -74,7 +75,7 @@ export async function editarRegistro(id: string, form: FormData): Promise<Result
   return intentar(async () => {
     const v = await requerirVendedora();
     await corregirRegistro(id, form, v.id);
-    revalidatePath("/vendedoras");
+    revalidatePath("/vendedoras", "layout");
     revalidatePath("/llamadas");
   }, () => "Cambios guardados");
 }
@@ -100,7 +101,7 @@ export async function agregarContactoPropio(form: FormData): Promise<Resultado> 
     await db.lead.create({
       data: { vendedoraId: v.id, nombre, telefono, marca: txt(form, "marca"), email: txt(form, "email"), nota: txt(form, "nota"), asignadoEl: new Date(), propio: true },
     });
-    revalidatePath("/vendedoras");
+    revalidatePath("/vendedoras", "layout");
     revalidatePath("/llamadas");
   }, () => "Contacto agregado");
 }
@@ -114,7 +115,7 @@ export async function registrarVenta(form: FormData): Promise<Resultado> {
     if (leadId && (await db.ventaVendedora.findFirst({ where: { leadId, estado: "PENDIENTE", servicio: String(form.get("servicio") ?? "") } })))
       throw new Error("Ya reportaste esta venta y está en revisión. Si te equivocaste, corrígela en «Mis ventas».");
     await db.ventaVendedora.create({ data: { ...leerVenta(form), vendedoraId: v.id, leadId } });
-    revalidatePath("/vendedoras");
+    revalidatePath("/vendedoras", "layout");
     revalidatePath("/", "layout");
   }, () => "Venta enviada a revisión");
 }
@@ -127,7 +128,56 @@ export async function editarVenta(id: string, form: FormData): Promise<Resultado
     if (!venta) throw new Error("Esta venta ya no existe");
     if (venta.estado === "APROBADA") throw new Error("Esta venta ya fue aprobada; si hay un error, avísale al administrador");
     await db.ventaVendedora.update({ where: { id }, data: { ...leerVenta(form), estado: "PENDIENTE", motivoRechazo: null, revisadoEl: null, revisadoPor: null } });
-    revalidatePath("/vendedoras");
+    revalidatePath("/vendedoras", "layout");
     revalidatePath("/", "layout");
   }, () => "Venta corregida y enviada a revisión");
+}
+
+/** Leer una nota del formulario: texto y, si se pone, fecha y hora del recordatorio (hora de México). */
+function leerNota(form: FormData) {
+  const texto = String(form.get("texto") ?? "").trim().slice(0, 4000);
+  if (!texto) throw new Error("Escribe la nota");
+  const cuandoTxt = txt(form, "recordarEl");
+  const recordarEl = fechaHoraLocalMx(cuandoTxt);
+  if (cuandoTxt && !recordarEl) throw new Error("La fecha y hora del recordatorio no es válida");
+  return { texto, recordarEl };
+}
+
+/** Nueva nota de la vendedora (con recordatorio opcional). Solo la ve ella. */
+export async function crearNota(form: FormData): Promise<Resultado> {
+  return intentar(async () => {
+    const v = await requerirVendedora();
+    await db.notaVendedora.create({ data: { ...leerNota(form), vendedoraId: v.id } });
+    revalidatePath("/vendedoras", "layout");
+  }, () => "Nota guardada");
+}
+
+/** Corregir una nota propia (texto o recordatorio). Al cambiarla vuelve a quedar pendiente. */
+export async function editarNota(id: string, form: FormData): Promise<Resultado> {
+  return intentar(async () => {
+    const v = await requerirVendedora();
+    const r = await db.notaVendedora.updateMany({ where: { id, vendedoraId: v.id }, data: { ...leerNota(form), hecha: false } });
+    if (!r.count) throw new Error("Esta nota ya no existe");
+    revalidatePath("/vendedoras", "layout");
+  }, () => "Nota corregida");
+}
+
+/** Marcar una nota como hecha (o volver a dejarla pendiente). */
+export async function marcarNota(id: string, hecha: boolean): Promise<Resultado> {
+  return intentar(async () => {
+    const v = await requerirVendedora();
+    const r = await db.notaVendedora.updateMany({ where: { id, vendedoraId: v.id }, data: { hecha } });
+    if (!r.count) throw new Error("Esta nota ya no existe");
+    revalidatePath("/vendedoras", "layout");
+  });
+}
+
+/** Borrar una nota propia. */
+export async function borrarNota(id: string): Promise<Resultado> {
+  return intentar(async () => {
+    const v = await requerirVendedora();
+    const r = await db.notaVendedora.deleteMany({ where: { id, vendedoraId: v.id } });
+    if (!r.count) throw new Error("Esta nota ya no existe");
+    revalidatePath("/vendedoras", "layout");
+  }, () => "Nota borrada");
 }

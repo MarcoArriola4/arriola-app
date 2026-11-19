@@ -326,6 +326,7 @@ model Vendedora {
   leads        Lead[]
   llamadas     Llamada[]
   ventas       VentaVendedora[]
+  notas        NotaVendedora[]
   // Cómo aparece en la columna "Vendió" de Contrataciones (p. ej. "Tanya"): para su conteo de ventas y títulos
   nombreVentas String?
 }
@@ -345,6 +346,7 @@ model Lead {
   estatus       String?   // estatus que trae el Excel
   observaciones String?   // apartado de la vendedora para cada contacto
   asignadoEl    DateTime  // día en que se le asignó (para llamarle ese día)
+  orden         Int?      // lugar fijo en su lista del día (el orden del Excel); no cambia al registrar llamadas
   // Estado actual: PENDIENTE | NO_CONTESTO | CONTESTO | COTIZACION | VOLVER | VENDIDO | NO_INTERESA
   estado        String    @default("PENDIENTE")
   cotizacion    Boolean   @default(false) // ya se le envió cotización
@@ -376,11 +378,26 @@ model Llamada {
   resultado    String    // mismo catálogo que Lead.estado
   comentario   String?
   cotizacion   Boolean   @default(false)
+  interes      String?   // si se envió cotización: INTERESADO | SEGUIMIENTO (solo para dar seguimiento)
   volverLlamar DateTime?
   canal        String    @default("LLAMADA") // LLAMADA | WHATSAPP (si no contestó la llamada se le escribe por WhatsApp)
   editado      DateTime? // última vez que se corrigió el registro
 
   @@index([vendedoraId, fecha])
+}
+
+// Notas propias de cada vendedora, con recordatorio opcional (fecha y hora). Solo las ve ella.
+model NotaVendedora {
+  id          String    @id @default(cuid())
+  vendedoraId String
+  vendedora   Vendedora @relation(fields: [vendedoraId], references: [id], onDelete: Cascade)
+  texto       String
+  recordarEl  DateTime?
+  hecha       Boolean   @default(false)
+  creado      DateTime  @default(now())
+  actualizado DateTime  @updatedAt
+
+  @@index([vendedoraId, recordarEl])
 }
 
 // Venta que reporta una vendedora desde su panel. Solo entra a Contrataciones cuando el administrador la aprueba.

@@ -38,22 +38,25 @@ export const enDias = (n: number, hora = "10:00") => `${new Date(Date.now() + n 
 const aLocal = (iso: string | null) => (iso ? new Date(new Date(iso).getTime() - 6 * 3600e3).toISOString().slice(0, 16) : "");
 
 export type RegistroVista = {
-  id: string; fecha: string; canal: string; resultado: string; comentario: string | null; cotizacion: boolean; volverLlamar: string | null; editado: string | null;
+  id: string; fecha: string; canal: string; resultado: string; comentario: string | null; cotizacion: boolean; interes?: string | null; volverLlamar: string | null; editado: string | null;
   encabezado?: string; // p. ej. "Cliente · Vendedora" en el reporte del gerente
 };
 
-type Valores = { canal: string; resultado: string; comentario: string; cotizacion: boolean; volver: string };
+type Valores = { canal: string; resultado: string; comentario: string; cotizacion: boolean; interes: string; volver: string };
+const INTERES_UI: Record<string, string> = { INTERESADO: "Está interesado", SEGUIMIENTO: "Solo para dar seguimiento" };
 
 /** Formulario de un registro. `onGuardar` recibe el FormData con canal, resultado, comentario, cotizacion y volverLlamar. */
 export function FormRegistro({ inicial, onGuardar, onListo, onCancelar, textoBoton }: {
   inicial?: Partial<Valores>; onGuardar: (f: FormData) => Promise<Resultado>; onListo?: () => void; onCancelar?: () => void; textoBoton?: string;
 }) {
   const router = useRouter();
-  const [v, setV] = useState<Valores>({ canal: "LLAMADA", resultado: "", comentario: "", cotizacion: false, volver: "", ...inicial });
+  const [v, setV] = useState<Valores>({ canal: "LLAMADA", resultado: "", comentario: "", cotizacion: false, interes: "", volver: "", ...inicial });
   const [error, setError] = useState("");
   const [pendiente, iniciar] = useTransition();
   const cerrado = CERRADOS_UI.includes(v.resultado);
   const wa = v.canal === "WHATSAPP";
+  const conCotizacion = v.cotizacion || v.resultado === "COTIZACION";
+  const falta = !v.resultado ? "Elige qué pasó" : conCotizacion && !v.interes ? "Elige: interesado o seguimiento" : "";
 
   const guardar = () =>
     iniciar(async () => {
@@ -63,6 +66,7 @@ export function FormRegistro({ inicial, onGuardar, onListo, onCancelar, textoBot
       f.set("resultado", v.resultado);
       f.set("comentario", v.comentario);
       if (v.cotizacion) f.set("cotizacion", "on");
+      if (conCotizacion) f.set("interes", v.interes);
       if (!cerrado) f.set("volverLlamar", v.volver);
       try {
         const r = await onGuardar(f);
@@ -131,12 +135,25 @@ export function FormRegistro({ inicial, onGuardar, onListo, onCancelar, textoBot
         )}
         <label className="flex items-center gap-2 self-center text-sm">
           <input type="checkbox" checked={v.cotizacion || v.resultado === "COTIZACION"} disabled={v.resultado === "COTIZACION"} onChange={(e) => setV({ ...v, cotizacion: e.target.checked })} className="h-5 w-5 accent-[#91ac45]" />
-          Ya le envié cotización
+          Le envié cotización
         </label>
       </div>
+      {conCotizacion && (
+        <div>
+          <p className="label">Con la cotización, el cliente…</p>
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Interés del cliente">
+            {Object.entries(INTERES_UI).map(([k, t]) => (
+              <button key={k} type="button" role="radio" aria-checked={v.interes === k} onClick={() => setV({ ...v, interes: k })}
+                className={`min-h-9 rounded-full px-3 text-xs font-medium ring-1 transition ${v.interes === k ? (k === "INTERESADO" ? "bg-sky-50 text-sky-800 ring-current" : "bg-amber-50 text-amber-800 ring-current") : "bg-white text-neutral-600 ring-black/10 hover:bg-neutral-50"}`}>
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        <button disabled={!v.resultado || pendiente} className="btn-primario min-h-10">{pendiente ? "Guardando…" : v.resultado ? (textoBoton ?? "Guardar") : "Elige qué pasó"}</button>
+        <button disabled={!!falta || pendiente} className="btn-primario min-h-10">{pendiente ? "Guardando…" : falta || (textoBoton ?? "Guardar")}</button>
         {onCancelar && <button type="button" onClick={onCancelar} className="btn min-h-10">Cancelar</button>}
       </div>
     </form>
@@ -158,7 +175,7 @@ export function ListaRegistros({ registros, editar, eliminar, vacio = "Sin regis
         <li key={r.id} className="px-4 py-2.5 text-sm">
           {editando === r.id ? (
             <FormRegistro
-              inicial={{ canal: r.canal, resultado: r.resultado, comentario: r.comentario ?? "", cotizacion: r.cotizacion, volver: aLocal(r.volverLlamar) }}
+              inicial={{ canal: r.canal, resultado: r.resultado, comentario: r.comentario ?? "", cotizacion: r.cotizacion, interes: r.interes ?? "", volver: aLocal(r.volverLlamar) }}
               onGuardar={(f) => editar(r.id, f)}
               onListo={() => setEditando(null)}
               onCancelar={() => setEditando(null)}
@@ -194,7 +211,7 @@ export function ListaRegistros({ registros, editar, eliminar, vacio = "Sin regis
               </div>
               {r.comentario && <p className="mt-0.5 text-xs text-neutral-700">“{r.comentario}”</p>}
               <p className="text-[11px] text-neutral-400">
-                {[r.cotizacion && "Cotización enviada", r.volverLlamar && `Volver a contactar: ${fmt(r.volverLlamar)}`, r.editado && `Corregido ${fmt(r.editado)}`].filter(Boolean).join(" · ")}
+                {[r.cotizacion && `Cotización enviada${r.interes ? ` · ${INTERES_UI[r.interes]?.toLowerCase()}` : ""}`, r.volverLlamar && `Volver a contactar: ${fmt(r.volverLlamar)}`, r.editado && `Corregido ${fmt(r.editado)}`].filter(Boolean).join(" · ")}
               </p>
             </>
           )}

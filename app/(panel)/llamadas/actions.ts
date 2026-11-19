@@ -11,7 +11,7 @@ import { leerExcelContactos, leerTextoContactos, type Lectura } from "@/lib/vend
 
 const refrescar = () => {
   revalidatePath("/llamadas");
-  revalidatePath("/vendedoras");
+  revalidatePath("/vendedoras", "layout");
 };
 const validarPassword = (p: string) => {
   if (p.trim().length < 4) throw new Error("La contraseña debe tener al menos 4 caracteres");
@@ -64,7 +64,10 @@ async function guardarContactos(vendedoraId: string, dia: string, l: Lectura) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) throw new Error("Elige el día");
   if (!l.contactos.length) throw new Error("No encontré contactos. Revisa que cada contacto tenga al menos su nombre (Cliente) y su teléfono.");
   const asignadoEl = new Date(rangoDia(dia).inicio.getTime() + 9 * 3600 * 1000); // 9:00 de ese día
-  await db.lead.createMany({ data: l.contactos.map((c) => ({ ...c, vendedoraId, asignadoEl })) });
+  // Orden fijo (el del Excel), a continuación de los que ya tenga ese día
+  const ultimo = await db.lead.aggregate({ where: { vendedoraId, asignadoEl }, _max: { orden: true }, _count: true });
+  const desde = Math.max(ultimo._max.orden ?? 0, ultimo._count);
+  await db.lead.createMany({ data: l.contactos.map((c, i) => ({ ...c, vendedoraId, asignadoEl, orden: desde + i + 1 })) });
   refrescar();
   return { asignados: l.contactos.length, sinTelefono: l.sinTelefono };
 }

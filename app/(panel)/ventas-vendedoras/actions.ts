@@ -10,7 +10,7 @@ import { recalcularLead } from "@/lib/vendedoras-registros";
 const refrescar = () => {
   revalidatePath("/", "layout");
   revalidatePath("/ventas-vendedoras");
-  revalidatePath("/vendedoras");
+  revalidatePath("/vendedoras", "layout");
   revalidatePath("/contrataciones");
 };
 const fechaTxt = (d: Date) => d.toISOString().slice(0, 10);

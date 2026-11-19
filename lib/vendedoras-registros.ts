@@ -1,6 +1,6 @@
 // Registros de contacto (llamada o WhatsApp) de las vendedoras: leer el formulario y mantener al día el contacto.
 import { db } from "./db";
-import { CANALES, CERRADOS, RESULTADOS, fechaHoraLocalMx } from "./vendedoras";
+import { CANALES, CERRADOS, INTERES, RESULTADOS, fechaHoraLocalMx } from "./vendedoras";
 
 const txt = (f: FormData, k: string) => String(f.get(k) ?? "").replace(/\s+/g, " ").trim() || null;
 
@@ -12,10 +12,13 @@ export function leerRegistro(form: FormData) {
   if (!(resultado in RESULTADOS)) throw new Error("Elige qué pasó");
   const comentario = String(form.get("comentario") ?? "").trim().slice(0, 4000) || null;
   const cotizacion = form.get("cotizacion") === "on" || resultado === "COTIZACION";
+  // Con cotización hay que decir si el cliente está interesado o si es solo para darle seguimiento
+  const interes = cotizacion ? txt(form, "interes") : null;
+  if (cotizacion && !(interes && interes in INTERES)) throw new Error("Con cotización: elige si está interesado o si es solo para dar seguimiento");
   const volverTxt = txt(form, "volverLlamar");
   const volver = fechaHoraLocalMx(volverTxt);
   if (volverTxt && !volver) throw new Error("La fecha del recordatorio no es válida");
-  return { canal, resultado, contesto: RESULTADOS[resultado].contesto, comentario, cotizacion, volverLlamar: CERRADOS.includes(resultado) ? null : volver };
+  return { canal, resultado, contesto: RESULTADOS[resultado].contesto, comentario, cotizacion, interes, volverLlamar: CERRADOS.includes(resultado) ? null : volver };
 }
 
 /**

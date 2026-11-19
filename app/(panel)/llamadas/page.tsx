@@ -2,7 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { requerirAdmin } from "@/lib/auth";
 import { Encabezado, Vacio } from "@/components/ui";
-import { CERRADOS, CONTACTOS_POR_DIA, RESULTADOS, diaMx, estadoLead, fmtMx, rangoDia, txtResultado } from "@/lib/vendedoras";
+import { CERRADOS, CONTACTOS_POR_DIA, RESULTADOS, diaMx, estadoLead, fmtMx, metricas, rangoDia, txtResultado } from "@/lib/vendedoras";
 import { ChipCanal, type RegistroVista } from "@/components/registros-contacto";
 import { Accesos, ActualizarSolo, AsignarContactos, EditarContacto, QuitarContacto, RegistrosAdmin, RegistrosContacto } from "./componentes";
 
@@ -35,7 +35,7 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
   // Control: rendimiento de los últimos 30 días, por qué no compran y los contactos con sus observaciones
   const hace30 = new Date(fin.getTime() - 30 * 864e5);
   const [llamadas30, asignados30, noInteresa, contactos] = await Promise.all([
-    db.llamada.findMany({ where: { ...deQuien, fecha: { gte: hace30, lt: fin } }, select: { vendedoraId: true, contesto: true, cotizacion: true, resultado: true, leadId: true, canal: true } }),
+    db.llamada.findMany({ where: { ...deQuien, fecha: { gte: hace30, lt: fin } }, select: { vendedoraId: true, contesto: true, cotizacion: true, interes: true, resultado: true, leadId: true, canal: true } }),
     db.lead.groupBy({ by: ["vendedoraId"], where: { ...deQuien, asignadoEl: { gte: hace30, lt: fin } }, _count: true }),
     db.llamada.findMany({ where: { ...deQuien, fecha: { gte: hace30, lt: fin }, resultado: "NO_INTERESA" }, include: { lead: { select: { nombre: true, marca: true, observaciones: true } } }, orderBy: { fecha: "desc" }, take: 80 }),
     db.lead.findMany({
@@ -54,7 +54,9 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
       const wa = todos.filter((l) => l.canal === "WHATSAPP");
       const contesto = todos.filter((l) => l.contesto).length;
       const vendidos = todos.filter((l) => l.resultado === "VENDIDO").length;
+      const m = metricas(todos);
       return {
+        interesados: m.interesados, contestadas: m.contestadas,
         id: x.id, nombre: x.nombre, asignados: asignados30.find((a) => a.vendedoraId === x.id)?._count ?? 0, llamadas: ll.length,
         pctContesta: ll.length ? Math.round((ll.filter((l) => l.contesto).length / ll.length) * 100) : 0,
         whats: wa.length, pctWhats: wa.length ? Math.round((wa.filter((l) => l.contesto).length / wa.length) * 100) : 0,
@@ -79,7 +81,9 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
       const wa = todos.filter((l) => l.canal === "WHATSAPP");
       const asig = asignados.filter((a) => a.vendedoraId === x.id);
       const llamados = new Set(todos.map((l) => l.leadId)).size;
+      const m = metricas(todos);
       return {
+        contestadas: m.contestadas, interesados: m.interesados, noInteresados: m.noInteresados, cotizacionesClientes: m.cotizaciones,
         id: x.id, nombre: x.nombre, activa: x.activa, asignados: asig.length, llamadas: ll.length, llamados,
         contestaron: ll.filter((l) => l.contesto).length, noContesto: ll.filter((l) => !l.contesto).length,
         whats: wa.length, respondieron: wa.filter((l) => l.contesto).length,
@@ -88,10 +92,11 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
         ultima: todos[0]?.fecha ?? null,
       };
     });
-  const reg = (r: { id: string; fecha: Date; canal: string; resultado: string; comentario: string | null; cotizacion: boolean; volverLlamar: Date | null; editado: Date | null }, encabezado?: string): RegistroVista => ({
-    id: r.id, fecha: r.fecha.toISOString(), canal: r.canal, resultado: r.resultado, comentario: r.comentario, cotizacion: r.cotizacion,
+  const reg = (r: { id: string; fecha: Date; canal: string; resultado: string; comentario: string | null; cotizacion: boolean; interes: string | null; volverLlamar: Date | null; editado: Date | null }, encabezado?: string): RegistroVista => ({
+    id: r.id, fecha: r.fecha.toISOString(), canal: r.canal, resultado: r.resultado, comentario: r.comentario, cotizacion: r.cotizacion, interes: r.interes,
     volverLlamar: r.volverLlamar?.toISOString() ?? null, editado: r.editado?.toISOString() ?? null, encabezado,
   });
+  const mDia = metricas(llamadas);
   const total = (k: keyof (typeof resumen)[number]) => resumen.reduce((a, r) => a + (typeof r[k] === "number" ? (r[k] as number) : 0), 0);
   const cumplido = (r: (typeof recordatoriosDia)[number]) => (r.lead.llamadas[0]?.fecha ?? new Date(0)) > r.fecha;
   const url = (p: Record<string, string | undefined>) => `/llamadas?${new URLSearchParams(Object.entries({ dia, v: filtro, ...p }).filter(([, v]) => v) as [string, string][])}`;
@@ -99,7 +104,7 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
 
   return (
     <>
-      <Encabezado titulo="Panel Vendedoras" subtitulo={`Reporte de llamadas del ${diaTxt}${dia === hoy ? " · se actualiza solo" : ""}. Las vendedoras entran en /vendedoras con su nombre y contraseña.`}>
+      <Encabezado titulo="Panel Vendedoras" subtitulo={`Reporte de llamadas del ${diaTxt}${dia === hoy ? " · se actualiza solo" : ""}. Las vendedoras entran en /vendedoras/login con su nombre y contraseña.`}>
         <form className="flex flex-wrap items-center gap-2">
           <input type="date" name="dia" defaultValue={dia} max={hoy} className="input min-h-10 w-auto" aria-label="Día del reporte" />
           <select name="v" defaultValue={filtro ?? ""} className="input min-h-10 w-auto" aria-label="Vendedora">
@@ -112,18 +117,14 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
       </Encabezado>
       {dia === hoy && <ActualizarSolo />}
 
-      {/* Totales del día */}
-      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-5">
+      {/* Lo que importa del día: llamadas hechas, contestadas, cotizaciones, interesados y no interesados */}
+      <div className="mb-2 grid grid-cols-2 gap-3 md:grid-cols-5">
         {[
-          { t: "Contactos asignados", n: total("asignados") },
-          { t: "Llamadas hechas", n: total("llamadas") },
-          { t: "Contestaron la llamada", n: total("contestaron") },
-          { t: "No contestaron la llamada", n: total("noContesto") },
-          { t: "WhatsApp enviados", n: total("whats") },
-          { t: "Respondieron WhatsApp", n: total("respondieron") },
-          { t: "Cotizaciones enviadas", n: total("cotizaciones") },
-          { t: "Por volver a contactar", n: total("volver") },
-          { t: "Vendidos", n: total("vendidos") },
+          { t: "Llamadas hechas", n: mDia.llamadas },
+          { t: "Contestadas", n: mDia.contestadas },
+          { t: "Cotizaciones enviadas", n: mDia.cotizaciones },
+          { t: "Interesados", n: mDia.interesados },
+          { t: "No interesados", n: mDia.noInteresados },
         ].map((x) => (
           <div key={x.t} className="card px-4 py-3">
             <p className="rotulo">{x.t}</p>
@@ -131,13 +132,17 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
           </div>
         ))}
       </div>
+      <p className="mb-6 px-1 text-xs text-neutral-500">
+        Contestadas: por llamada o WhatsApp. Interesados: contestó interesado, compró o recibió cotización estando interesado (la cotización «solo para dar seguimiento» no cuenta como interesado).
+        {" "}También: {total("asignados")} contactos asignados · {mDia.whats} WhatsApp enviados · {total("volver")} por volver a contactar · {total("vendidos")} vendidos.
+      </p>
 
       {/* Por vendedora */}
       <section className="card mb-6 overflow-x-auto">
         <h2 className="border-b border-linea px-4 py-3 text-sm font-semibold">Por vendedora</h2>
         {resumen.length === 0 ? <Vacio>Aún no hay vendedoras. Dales acceso abajo.</Vacio> : (
-          <table className="w-full min-w-[960px] text-sm">
-            <thead className="border-b border-linea"><tr><th className="th">Vendedora</th><th className="th">Avance</th><th className="th text-right">Llamadas</th><th className="th text-right">Contestaron</th><th className="th text-right">WhatsApp</th><th className="th text-right">Respondieron WA</th><th className="th text-right">Cotizaciones</th><th className="th text-right">Volver a contactar</th><th className="th text-right">Vendidos</th><th className="th text-right">No le interesa</th><th className="th">Último registro</th></tr></thead>
+          <table className="w-full min-w-[900px] text-sm">
+            <thead className="border-b border-linea"><tr><th className="th">Vendedora</th><th className="th">Avance</th><th className="th text-right">Llamadas hechas</th><th className="th text-right">Contestadas</th><th className="th text-right">Cotizaciones</th><th className="th text-right">Interesados</th><th className="th text-right">No interesados</th><th className="th text-right">WhatsApp</th><th className="th text-right">Vendidos</th><th className="th">Último registro</th></tr></thead>
             <tbody className="divide-y divide-black/5">
               {resumen.map((r) => {
                 const meta = Math.max(r.asignados, CONTACTOS_POR_DIA);
@@ -150,13 +155,12 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/[0.06]"><div className={`h-full rounded-full ${pct >= 100 ? "bg-marca" : pct >= 50 ? "bg-amber-400" : "bg-red-400"}`} style={{ width: `${pct}%` }} /></div>
                     </td>
                     <td className="td cifra text-right font-semibold">{r.llamadas}</td>
-                    <td className="td cifra text-right">{r.contestaron}</td>
-                    <td className="td cifra text-right">{r.whats}</td>
-                    <td className="td cifra text-right">{r.respondieron}</td>
-                    <td className="td cifra text-right">{r.cotizaciones}</td>
-                    <td className="td cifra text-right">{r.volver}</td>
+                    <td className="td cifra text-right">{r.contestadas}</td>
+                    <td className="td cifra text-right">{r.cotizacionesClientes}</td>
+                    <td className="td cifra text-right text-sky-800">{r.interesados}</td>
+                    <td className="td cifra text-right text-red-600">{r.noInteresados}</td>
+                    <td className="td cifra text-right text-neutral-500">{r.whats}</td>
                     <td className="td cifra text-right text-marca-oscuro">{r.vendidos}</td>
-                    <td className="td cifra text-right text-neutral-500">{r.noInteresa}</td>
                     <td className="td whitespace-nowrap text-xs text-neutral-500">{r.ultima ? hora(r.ultima) : "—"}</td>
                   </tr>
                 );
@@ -251,7 +255,7 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
         <h2 className="border-b border-linea px-4 py-3 text-sm font-semibold">Rendimiento · últimos 30 días <span className="font-normal text-neutral-500">(para ver quién vende más y por qué)</span></h2>
         {rendimiento.length === 0 ? <Vacio>Sin actividad en los últimos 30 días.</Vacio> : (
           <table className="w-full min-w-[900px] text-sm">
-            <thead className="border-b border-linea"><tr><th className="th">Vendedora</th><th className="th text-right">Asignados</th><th className="th text-right">Llamadas</th><th className="th text-right">% contestan</th><th className="th text-right">WhatsApp</th><th className="th text-right">% responden WA</th><th className="th text-right">Cotizaciones</th><th className="th text-right">Vendidos</th><th className="th text-right">% cierre</th><th className="th text-right">No les interesa</th></tr></thead>
+            <thead className="border-b border-linea"><tr><th className="th">Vendedora</th><th className="th text-right">Asignados</th><th className="th text-right">Llamadas</th><th className="th text-right">% contestan</th><th className="th text-right">WhatsApp</th><th className="th text-right">% responden WA</th><th className="th text-right">Cotizaciones</th><th className="th text-right">Interesados</th><th className="th text-right">Vendidos</th><th className="th text-right">% cierre</th><th className="th text-right">No les interesa</th></tr></thead>
             <tbody className="divide-y divide-black/5">
               {rendimiento.map((r) => (
                 <tr key={r.id}>
@@ -262,6 +266,7 @@ export default async function ReporteLlamadas({ searchParams }: { searchParams: 
                   <td className="td cifra text-right">{r.whats}</td>
                   <td className="td cifra text-right">{r.pctWhats}%</td>
                   <td className="td cifra text-right">{r.cotizaciones}</td>
+                  <td className="td cifra text-right text-sky-800">{r.interesados}</td>
                   <td className="td cifra text-right text-marca-oscuro">{r.vendidos}{r.ventasWhats > 0 && <span className="ml-1 text-[11px] text-emerald-700">({r.ventasWhats} por WA)</span>}</td>
                   <td className={`td cifra text-right font-semibold ${r.pctCierre >= 20 ? "text-marca-oscuro" : r.pctCierre >= 10 ? "text-amber-700" : "text-red-600"}`}>{r.pctCierre}%</td>
                   <td className="td cifra text-right text-neutral-500">{r.noInteresa}</td>

@@ -105,7 +105,7 @@ export function Accesos({ vendedoras }: { vendedoras: { id: string; nombre: stri
   return (
     <section className="card p-4">
       <h2 className="text-sm font-semibold">Accesos al Panel Vendedoras</h2>
-      <p className="mb-3 mt-0.5 text-xs text-neutral-500">Entran en <b>/vendedoras</b> con su nombre y la contraseña que les des. Solo ven sus propios contactos.</p>
+      <p className="mb-3 mt-0.5 text-xs text-neutral-500">Entran en <b>/vendedoras/login</b> con su nombre y la contraseña que les des. Cada una tiene su propio panel y solo ve sus contactos, aunque usen la misma computadora.</p>
       <ul className="mb-4 divide-y divide-black/5 rounded-xl border border-linea">
         {vendedoras.length === 0 && <li className="px-3 py-4 text-center text-sm text-neutral-500">Sin vendedoras todavía.</li>}
         {vendedoras.map((v) => (
