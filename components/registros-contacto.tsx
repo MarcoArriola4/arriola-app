@@ -3,7 +3,7 @@
 // Lo usan el Panel Vendedoras (cada vendedora sus registros) y el reporte del gerente (todos).
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { MessageCircle, Pencil, Phone, Trash2 } from "lucide-react";
+import { BadgeCheck, CalendarClock, ChevronRight, FileText, FileX, MessageCircle, Pencil, Phone, PhoneIncoming, PhoneOff, RotateCcw, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import type { Resultado } from "@/lib/vendedoras";
 
 // Mismo catálogo que lib/vendedoras.ts (aquí para el navegador)
@@ -19,9 +19,6 @@ export const RESULTADOS_UI: Record<string, { txt: string; cls: string }> = {
 const CERRADOS_UI = ["VENDIDO", "NO_INTERESA", "SIN_CONTACTO"];
 export const txtRes = (r: string, canal?: string | null) =>
   r === "NO_CONTESTO" ? (canal === "WHATSAPP" ? "WhatsApp enviado · sin respuesta" : "No contestó") : (RESULTADOS_UI[r]?.txt ?? "Por llamar");
-/** Texto del botón al registrar: en llamada, "No contestó" significa que se le manda WhatsApp. */
-const txtOpcion = (r: string, canal: string) =>
-  r === "NO_CONTESTO" ? (canal === "WHATSAPP" ? "Todavía no responde" : "No contestó → se le envió WhatsApp") : r === "SIN_CONTACTO" ? "No contestó y no tiene WhatsApp" : txtRes(r, canal);
 
 export function ChipCanal({ canal, prefijo = "" }: { canal: string; prefijo?: string }) {
   const wa = canal === "WHATSAPP";
@@ -45,29 +42,143 @@ export type RegistroVista = {
 type Valores = { canal: string; resultado: string; comentario: string; cotizacion: boolean; interes: string; volver: string };
 const INTERES_UI: Record<string, string> = { INTERESADO: "Está interesado", SEGUIMIENTO: "Solo para dar seguimiento" };
 
-/** Formulario de un registro. `onGuardar` recibe el FormData con canal, resultado, comentario, cotizacion y volverLlamar. */
-export function FormRegistro({ inicial, onGuardar, onListo, onCancelar, textoBoton }: {
+/** Camino del árbol de decisiones: cada respuesta abre la siguiente pregunta. */
+type Ruta = { contesto?: boolean; whats?: boolean; interesado?: boolean; cotizo?: boolean; cierre?: "SEGUIMIENTO" | "VENDIDO" };
+const ORDEN: (keyof Ruta)[] = ["contesto", "whats", "interesado", "cotizo", "cierre"];
+
+/** Camino que corresponde a un registro ya guardado (para corregirlo). */
+function rutaDe(v: Valores): Ruta {
+  switch (v.resultado) {
+    case "NO_CONTESTO": return { contesto: false, whats: true };
+    case "SIN_CONTACTO": return { contesto: false, whats: false };
+    case "NO_INTERESA": return { contesto: true, interesado: false };
+    case "VENDIDO": return { contesto: true, interesado: true, cotizo: v.cotizacion, cierre: "VENDIDO" };
+    case "COTIZACION": return { contesto: true, interesado: true, cotizo: true, cierre: "SEGUIMIENTO" };
+    case "CONTESTO": case "VOLVER": return { contesto: true, interesado: true, cotizo: v.cotizacion, cierre: "SEGUIMIENTO" };
+    default: return {};
+  }
+}
+
+/** Resultado que se guarda al terminar el camino (null si falta contestar algo). */
+function resultadoDe(r: Ruta, wa: boolean): { resultado: string; cotizacion: boolean; interes: string } | null {
+  const sin = { cotizacion: false, interes: "" };
+  if (r.contesto === false) {
+    if (wa) return { resultado: "NO_CONTESTO", ...sin };
+    if (r.whats === undefined) return null;
+    return { resultado: r.whats ? "NO_CONTESTO" : "SIN_CONTACTO", ...sin };
+  }
+  if (r.contesto !== true || r.interesado === undefined) return null;
+  if (!r.interesado) return { resultado: "NO_INTERESA", ...sin };
+  if (r.cotizo === undefined || !r.cierre) return null;
+  const cot = { cotizacion: r.cotizo, interes: r.cotizo ? "INTERESADO" : "" };
+  if (r.cierre === "VENDIDO") return { resultado: "VENDIDO", ...cot };
+  return { resultado: r.cotizo ? "COTIZACION" : "CONTESTO", ...cot };
+}
+
+type Opcion<T> = { val: T; txt: string; corto: string; I: typeof Phone; tono: "si" | "no" };
+type Pregunta = { k: keyof Ruta; titulo: string; opciones: Opcion<boolean | string>[] };
+
+function preguntas(r: Ruta, wa: boolean): Pregunta[] {
+  const ps: Pregunta[] = [{
+    k: "contesto",
+    titulo: wa ? "¿Respondió el WhatsApp?" : "¿Contestó la llamada?",
+    opciones: [
+      { val: true, txt: wa ? "Respondió" : "Contestó", corto: wa ? "Respondió" : "Contestó", I: PhoneIncoming, tono: "si" },
+      { val: false, txt: wa ? "Todavía no responde" : "No contestó", corto: wa ? "No responde" : "No contestó", I: PhoneOff, tono: "no" },
+    ],
+  }];
+  if (r.contesto === false && !wa)
+    ps.push({ k: "whats", titulo: "¿Le enviaste WhatsApp?", opciones: [
+      { val: true, txt: "Sí, le envié WhatsApp", corto: "WhatsApp enviado", I: MessageCircle, tono: "si" },
+      { val: false, txt: "No tiene WhatsApp", corto: "Sin WhatsApp", I: X, tono: "no" },
+    ] });
+  if (r.contesto === true)
+    ps.push({ k: "interesado", titulo: "¿Está interesado?", opciones: [
+      { val: true, txt: "Interesado", corto: "Interesado", I: ThumbsUp, tono: "si" },
+      { val: false, txt: "No le interesa", corto: "No le interesa", I: ThumbsDown, tono: "no" },
+    ] });
+  if (r.interesado === true)
+    ps.push({ k: "cotizo", titulo: "¿Se le envió cotización?", opciones: [
+      { val: true, txt: "Sí, se envió cotización", corto: "Cotización enviada", I: FileText, tono: "si" },
+      { val: false, txt: "No se envió cotización", corto: "Sin cotización", I: FileX, tono: "no" },
+    ] });
+  if (r.cotizo !== undefined && r.interesado === true)
+    ps.push({ k: "cierre", titulo: "¿Cómo queda?", opciones: [
+      { val: "SEGUIMIENTO", txt: "Darle seguimiento", corto: "Seguimiento", I: CalendarClock, tono: "si" },
+      { val: "VENDIDO", txt: "Ya compró", corto: "Vendido", I: BadgeCheck, tono: "si" },
+    ] });
+  return ps;
+}
+
+/** Recordatorio sugerido al terminar el camino. */
+const recordatorioSugerido = (resultado: string) =>
+  resultado === "NO_CONTESTO" ? enDias(1, "12:00") : resultado === "COTIZACION" ? enDias(3) : resultado === "CONTESTO" ? enDias(1) : "";
+
+/**
+ * Formulario de un registro como árbol de decisiones: Contestó / No contestó → ¿interesado? → ¿cotización? → ¿cómo queda?
+ * `onGuardar` recibe el FormData con canal, resultado, comentario, cotizacion, interes y volverLlamar.
+ */
+export function FormRegistro({ inicial, onGuardar, onListo, onCancelar, textoBoton, elegirCanal = false }: {
+  /** Mostrar Llamada / WhatsApp: solo en seguimientos y al corregir; el primer contacto siempre es llamada. */
+  elegirCanal?: boolean;
   inicial?: Partial<Valores>; onGuardar: (f: FormData) => Promise<Resultado>; onListo?: () => void; onCancelar?: () => void; textoBoton?: string;
 }) {
   const router = useRouter();
-  const [v, setV] = useState<Valores>({ canal: "LLAMADA", resultado: "", comentario: "", cotizacion: false, interes: "", volver: "", ...inicial });
+  const base: Valores = { canal: "LLAMADA", resultado: "", comentario: "", cotizacion: false, interes: "", volver: "", ...inicial };
+  const [rutaInicial] = useState(() => rutaDe(base));
+  const [ruta, setRuta] = useState<Ruta>(rutaInicial);
+  const [canal, setCanal] = useState(base.canal);
+  const [comentario, setComentario] = useState(base.comentario);
+  const [volver, setVolverEstado] = useState(base.volver);
+  // Mientras no lo cambie a mano, el recordatorio se sugiere según lo que pasó
+  const [auto, setAuto] = useState(!base.volver);
+  const setVolver = (x: string) => { setAuto(false); setVolverEstado(x); };
   const [error, setError] = useState("");
   const [pendiente, iniciar] = useTransition();
-  const cerrado = CERRADOS_UI.includes(v.resultado);
-  const wa = v.canal === "WHATSAPP";
-  const conCotizacion = v.cotizacion || v.resultado === "COTIZACION";
-  const falta = !v.resultado ? "Elige qué pasó" : conCotizacion && !v.interes ? "Elige: interesado o seguimiento" : "";
+  const wa = canal === "WHATSAPP";
+
+  // Al corregir sin cambiar el camino se conserva tal cual lo que ya estaba guardado
+  const sinCambio = !!base.resultado && JSON.stringify(ruta) === JSON.stringify(rutaInicial) && canal === base.canal;
+  const fin = sinCambio ? { resultado: base.resultado, cotizacion: base.cotizacion, interes: base.interes } : resultadoDe(ruta, wa);
+  const cerrado = !!fin && CERRADOS_UI.includes(fin.resultado);
+  const ps = preguntas(ruta, wa);
+  const actual = ps.find((p) => ruta[p.k] === undefined);
+  const respondidas = ps.filter((p) => ruta[p.k] !== undefined);
+
+  const elegir = (k: keyof Ruta, val: boolean | string) => {
+    const nueva: Ruta = {};
+    for (const x of ORDEN) {
+      if (x === k) break;
+      (nueva as Record<string, unknown>)[x] = ruta[x];
+    }
+    (nueva as Record<string, unknown>)[k] = val;
+    setRuta(nueva);
+    const r = resultadoDe(nueva, wa);
+    if (r && auto) setVolverEstado(recordatorioSugerido(r.resultado));
+  };
+  /** Regresa a una pregunta ya contestada (borra esa respuesta y las siguientes). */
+  const regresar = (k: keyof Ruta) => {
+    const nueva: Ruta = {};
+    for (const x of ORDEN) {
+      if (x === k) break;
+      (nueva as Record<string, unknown>)[x] = ruta[x];
+    }
+    setRuta(nueva);
+  };
 
   const guardar = () =>
     iniciar(async () => {
+      if (!fin) return;
       setError("");
       const f = new FormData();
-      f.set("canal", v.canal);
-      f.set("resultado", v.resultado);
-      f.set("comentario", v.comentario);
-      if (v.cotizacion) f.set("cotizacion", "on");
-      if (conCotizacion) f.set("interes", v.interes);
-      if (!cerrado) f.set("volverLlamar", v.volver);
+      f.set("canal", canal);
+      f.set("resultado", fin.resultado);
+      f.set("comentario", comentario);
+      if (fin.cotizacion) {
+        f.set("cotizacion", "on");
+        f.set("interes", fin.interes || "INTERESADO");
+      }
+      if (!cerrado) f.set("volverLlamar", volver);
       try {
         const r = await onGuardar(f);
         if (!r.ok) return setError(r.error);
@@ -80,80 +191,90 @@ export function FormRegistro({ inicial, onGuardar, onListo, onCancelar, textoBot
 
   return (
     <form action={guardar} className="space-y-3">
-      <div>
-        <p className="label">¿Por dónde?</p>
-        <div className="inline-flex rounded-lg bg-black/[0.05] p-1" role="radiogroup" aria-label="Canal">
+      {/* Canal: solo en seguimientos (el primer contacto siempre es llamada) */}
+      <div className="flex items-center justify-between gap-2">
+        {elegirCanal ? <div className="inline-flex rounded-lg bg-black/[0.05] p-0.5" role="radiogroup" aria-label="Por dónde">
           {[
             { k: "LLAMADA", t: "Llamada", I: Phone },
             { k: "WHATSAPP", t: "WhatsApp", I: MessageCircle },
           ].map(({ k, t, I }) => (
-            <button key={k} type="button" role="radio" aria-checked={v.canal === k} onClick={() => setV({ ...v, canal: k })}
-              className={`inline-flex min-h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition ${v.canal === k ? "bg-white text-carbon shadow-tarjeta" : "text-neutral-500 hover:text-carbon"}`}>
-              <I size={14} aria-hidden /> {t}
+            <button key={k} type="button" role="radio" aria-checked={canal === k} onClick={() => setCanal(k)}
+              className={`inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${canal === k ? "bg-white text-carbon shadow-tarjeta" : "text-neutral-500 hover:text-carbon"}`}>
+              <I size={13} aria-hidden /> {t}
             </button>
           ))}
-        </div>
-      </div>
-      <div>
-        <p className="label">¿Qué pasó?</p>
-        <div className="flex flex-wrap gap-1.5">
-          {Object.entries(RESULTADOS_UI).map(([k, r]) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setV({ ...v, resultado: k, volver: v.volver || (k === "VOLVER" ? enDias(1) : k === "NO_CONTESTO" ? enDias(1, "12:00") : "") })}
-              aria-pressed={v.resultado === k}
-              className={`min-h-9 rounded-full px-3 text-xs font-medium ring-1 transition ${v.resultado === k ? `${r.cls} ring-current` : "bg-white text-neutral-600 ring-black/10 hover:bg-neutral-50"}`}
-            >
-              {txtOpcion(k, v.canal)}
-            </button>
-          ))}
-        </div>
-        {!wa && v.resultado === "NO_CONTESTO" && (
-          <p className="mt-1.5 text-xs text-emerald-800">Se registra también el WhatsApp enviado. Cuando te responda, usa «Ya respondió el WhatsApp» en este contacto.</p>
-        )}
-        {v.resultado === "SIN_CONTACTO" && (
-          <p className="mt-1.5 text-xs text-neutral-500">El contacto se da por cerrado: no se pudo contactar.</p>
+        </div> : <span />}
+        {respondidas.length > 0 && (
+          <button type="button" onClick={() => setRuta({})} className="inline-flex min-h-8 items-center gap-1 whitespace-nowrap rounded-md px-2 text-xs text-neutral-500 hover:bg-black/[0.05] hover:text-carbon">
+            <RotateCcw size={12} aria-hidden /> Empezar de nuevo
+          </button>
         )}
       </div>
-      <label className="block">
-        <span className="label">{wa ? "¿Qué respondió por WhatsApp?" : "¿Qué dijo?"} (comentario)</span>
-        <textarea value={v.comentario} onChange={(e) => setV({ ...v, comentario: e.target.value })} rows={2} placeholder="Ej. le interesa registrar su marca de ropa, quiere precio" className="input" />
-      </label>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {!cerrado && (
-          <label className="block">
-            <span className="label">Recordatorio: volver a contactar el</span>
-            <input type="datetime-local" value={v.volver} onChange={(e) => setV({ ...v, volver: e.target.value })} className="input min-h-10" />
-            <span className="mt-1 flex flex-wrap gap-1.5">
-              {([["Mañana", 1], ["En 3 días", 3], ["En 1 semana", 7]] as const).map(([t, n]) => (
-                <button key={t} type="button" onClick={() => setV({ ...v, volver: enDias(n) })} className="rounded-md bg-black/[0.05] px-2 py-1 text-[11px] text-neutral-600 hover:bg-black/10">{t}</button>
-              ))}
-              {v.volver && <button type="button" onClick={() => setV({ ...v, volver: "" })} className="rounded-md px-2 py-1 text-[11px] text-neutral-500 underline">Sin recordatorio</button>}
-            </span>
-          </label>
-        )}
-        <label className="flex items-center gap-2 self-center text-sm">
-          <input type="checkbox" checked={v.cotizacion || v.resultado === "COTIZACION"} disabled={v.resultado === "COTIZACION"} onChange={(e) => setV({ ...v, cotizacion: e.target.checked })} className="h-5 w-5 accent-[#91ac45]" />
-          Le envié cotización
-        </label>
-      </div>
-      {conCotizacion && (
-        <div>
-          <p className="label">Con la cotización, el cliente…</p>
-          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Interés del cliente">
-            {Object.entries(INTERES_UI).map(([k, t]) => (
-              <button key={k} type="button" role="radio" aria-checked={v.interes === k} onClick={() => setV({ ...v, interes: k })}
-                className={`min-h-9 rounded-full px-3 text-xs font-medium ring-1 transition ${v.interes === k ? (k === "INTERESADO" ? "bg-sky-50 text-sky-800 ring-current" : "bg-amber-50 text-amber-800 ring-current") : "bg-white text-neutral-600 ring-black/10 hover:bg-neutral-50"}`}>
-                {t}
+
+      {/* Camino elegido: cada paso se puede tocar para cambiarlo */}
+      {respondidas.length > 0 && (
+        <ol className="flex flex-wrap items-center gap-1" aria-label="Lo que elegiste">
+          {respondidas.map((p, i) => {
+            const o = p.opciones.find((x) => x.val === ruta[p.k]);
+            if (!o) return null;
+            return (
+              <li key={p.k} className="flex items-center gap-1">
+                {i > 0 && <ChevronRight size={13} className="text-neutral-300" aria-hidden />}
+                <button type="button" onClick={() => regresar(p.k)} title={`Cambiar: ${p.titulo}`}
+                  className={`inline-flex min-h-8 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ring-1 transition hover:ring-black/30 ${o.tono === "si" ? "bg-marca-claro text-marca-oscuro ring-marca/30" : "bg-neutral-100 text-neutral-700 ring-black/10"}`}>
+                  <o.I size={12} aria-hidden /> {o.corto}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {/* Pregunta actual: solo dos opciones */}
+      {actual && (
+        <fieldset key={actual.k} className="animate-aparecer">
+          <legend className="mb-2 text-sm font-semibold text-carbon">{actual.titulo}</legend>
+          <div className="grid grid-cols-2 gap-2">
+            {actual.opciones.map((o) => (
+              <button key={String(o.val)} type="button" onClick={() => elegir(actual.k, o.val)}
+                className={`flex min-h-14 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold ring-1 transition active:scale-[0.98] ${o.tono === "si" ? "bg-white text-carbon ring-marca/50 hover:bg-marca-claro" : "bg-white text-neutral-700 ring-black/10 hover:bg-neutral-50"}`}>
+                <o.I size={18} className={o.tono === "si" ? "text-marca-oscuro" : "text-neutral-400"} aria-hidden /> {o.txt}
               </button>
             ))}
           </div>
+        </fieldset>
+      )}
+
+      {/* Al terminar el camino: comentario, recordatorio y guardar */}
+      {fin && !actual && (
+        <div className="animate-aparecer space-y-3 rounded-xl bg-black/[0.025] p-3">
+          {!wa && fin.resultado === "NO_CONTESTO" && <p className="text-xs text-emerald-800">Se registra también el WhatsApp enviado. Cuando te responda, usa «Ya respondió el WhatsApp».</p>}
+          {fin.resultado === "SIN_CONTACTO" && <p className="text-xs text-neutral-500">El contacto se da por cerrado: no se pudo contactar.</p>}
+          {fin.resultado === "NO_INTERESA" && <p className="text-xs text-neutral-500">El contacto se da por cerrado: no le interesa.</p>}
+          {fin.resultado === "VENDIDO" && <p className="text-xs text-marca-oscuro">Recuerda registrar la venta con «Registrar venta» para que el administrador la apruebe.</p>}
+          {sinCambio && fin.cotizacion && fin.interes && <p className="text-[11px] text-neutral-500">Cotización: {INTERES_UI[fin.interes]?.toLowerCase()}</p>}
+          <label className="block">
+            <span className="label">{wa ? "¿Qué respondió?" : "¿Qué dijo?"} <span className="font-normal text-neutral-400">(opcional)</span></span>
+            <textarea value={comentario} onChange={(e) => setComentario(e.target.value)} rows={2} placeholder="Ej. le interesa registrar su marca de ropa" className="input" />
+          </label>
+          {!cerrado && (
+            <div>
+              <span className="label">Recordatorio para volver a contactar</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <input type="datetime-local" value={volver} onChange={(e) => setVolver(e.target.value)} className="input min-h-10 w-auto" aria-label="Fecha y hora del recordatorio" />
+                {([["Mañana", 1], ["En 3 días", 3], ["En 1 semana", 7]] as const).map(([t, n]) => (
+                  <button key={t} type="button" onClick={() => setVolver(enDias(n))} className="min-h-8 rounded-md bg-white px-2 text-[11px] text-neutral-600 ring-1 ring-black/10 hover:bg-neutral-50">{t}</button>
+                ))}
+                {volver && <button type="button" onClick={() => setVolver("")} className="min-h-8 rounded-md px-2 text-[11px] text-neutral-500 underline">Sin recordatorio</button>}
+              </div>
+            </div>
+          )}
         </div>
       )}
+
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        <button disabled={!!falta || pendiente} className="btn-primario min-h-10">{pendiente ? "Guardando…" : falta || (textoBoton ?? "Guardar")}</button>
+        {fin && !actual && <button disabled={pendiente} className="btn-primario min-h-10">{pendiente ? "Guardando…" : (textoBoton ?? "Guardar")}</button>}
         {onCancelar && <button type="button" onClick={onCancelar} className="btn min-h-10">Cancelar</button>}
       </div>
     </form>
@@ -176,6 +297,7 @@ export function ListaRegistros({ registros, editar, eliminar, vacio = "Sin regis
           {editando === r.id ? (
             <FormRegistro
               inicial={{ canal: r.canal, resultado: r.resultado, comentario: r.comentario ?? "", cotizacion: r.cotizacion, interes: r.interes ?? "", volver: aLocal(r.volverLlamar) }}
+              elegirCanal
               onGuardar={(f) => editar(r.id, f)}
               onListo={() => setEditando(null)}
               onCancelar={() => setEditando(null)}

@@ -91,6 +91,7 @@ export function TarjetaLead({ l, numero, siguiente }: { l: LeadVista; numero?: n
       {abierto === "nuevo" && (
         <div className="border-t border-linea px-4 py-3">
           <FormRegistro
+            elegirCanal={l.registros.length > 0}
             onGuardar={(f) => { f.set("leadId", l.id); return registrarLlamada(f); }}
             onListo={() => setAbierto("")}
             textoBoton="Guardar registro"
